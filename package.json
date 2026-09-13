@@ -1,0 +1,30 @@
+{
+  "name": "kids-gravity-voxel-puzzle",
+  "version": "1.0.0",
+  "description": "Art Of Gravity風・4歳向けボクセル破壊パズル（単一index.htmlでローカル起動）",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "build": "node build/build.mjs",
+    "test": "node build/build.mjs && node test/e2e.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zan72122/260914.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/zan72122/260914/issues"
+  },
+  "homepage": "https://github.com/zan72122/260914#readme",
+  "devDependencies": {
+    "cannon-es": "^0.20.0",
+    "esbuild": "^0.28.2",
+    "playwright": "^1.63.0",
+    "three": "^0.186.0"
+  },
+  "private": true
+}
