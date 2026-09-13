@@ -52,10 +52,22 @@
     touch() { tone(520, 0.12, { vol: 0.25 }); },
     // 何かに当たった(強さ 0..1)
     bump(v) { tone(180 + 120 * v, 0.09, { type: 'triangle', vol: 0.15 + 0.25 * v, glide: 120 }); },
+    // 壁に当たった (ぷに)
+    wall() { tone(110, 0.14, { type: 'sine', vol: 0.3, glide: 70 }); },
+    // くっついた
+    stick() { tone(330, 0.15, { vol: 0.3, glide: 660 }); },
+    // 合体した
+    merge() { tone(392, 0.3, { vol: 0.3, glide: 523 }); tone(494, 0.3, { vol: 0.2, glide: 523 }); },
+    // 分裂した
+    split() { [880, 740, 620].forEach((f, i) => tone(f, 0.12, { delay: i * 0.05, vol: 0.3, glide: f * 0.7 })); },
+    // 星に触れた
+    star() { tone(784, 0.25, { vol: 0.3, glide: 1568 }); },
     // 輪に入った
     enter() {
       [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.35, { delay: i * 0.07, vol: 0.35 }));
     },
+    // 輪が一つ満たされた (複数の輪がある面)
+    fillOne() { tone(659, 0.2, { vol: 0.3 }); tone(988, 0.25, { delay: 0.06, vol: 0.25 }); },
     // 場面転換
     swell() { tone(262, 1.2, { vol: 0.2, glide: 523 }); tone(392, 1.2, { vol: 0.12, glide: 784 }); },
     // 祝福

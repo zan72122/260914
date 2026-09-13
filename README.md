@@ -1,6 +1,6 @@
 # ○
 
-Circles 風の、文字を一切使わないパズル。iPhone / iPad の縦横どちらでも遊べます。
+Circles 風の、文字を一切使わないパズル。18面 + 星空マップ。iPhone / iPad の縦横どちらでも遊べます。
 
 ## 遊び方(開き方)
 
@@ -13,4 +13,4 @@ python3 -m http.server 8000
 ブラウザで `http://localhost:8000/` を開く(iPhone/iPad は同じ Wi-Fi 内の PC の IP を指定)。
 Safari の「ホーム画面に追加」で全画面になります。
 
-設計は `docs/01.md` を参照。
+設計は `docs/01.md`(基本6面)と `docs/02.md`(18面への拡張と星空マップ)を参照。
