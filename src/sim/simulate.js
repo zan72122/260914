@@ -7,13 +7,15 @@ export const MAX_TICKS = 80;
 // {
 //   outcome: 'clear' | 'fail',
 //   fail: null | { kind: 'stuck'|'crash'|'order'|'loop', tick, cars: [indices], cell: {x,y} | null },
-//   ticks: [ snapshot, ... ]   snapshot = { cars: [{x,y,dir,coupled}], tail: {x,y,dir} }
+//   ticks: [ snapshot, ... ]   snapshot = { cars: [{x,y,dir,inDir,coupled}], tail: {x,y,inDir} }
 //   coupleTicks: { [carIndex]: tick }
 //   visited: Set of "x,y" cells traversed by any car
 // }
 export function simulate(level, placed) {
-  const cars = level.cars.map((c) => ({ x: c.x, y: c.y, dir: c.dir, color: c.color, coupled: false }));
-  let tail = { x: level.loco.x, y: level.loco.y, dir: level.loco.dir };
+  // dir = direction the car will leave its current cell; inDir = direction it entered it.
+  const cars = level.cars.map((c) => ({ x: c.x, y: c.y, dir: c.dir, inDir: c.dir, color: c.color, coupled: false }));
+  // A car couples when it moves into the tail's cell travelling the way the tail entered it.
+  let tail = { x: level.loco.x, y: level.loco.y, inDir: level.loco.dir };
   const order = [...cars].map((c, i) => i).sort((a, b) => cars[a].color - cars[b].color);
   let nextIdx = 0; // index into order: which car must couple next
   const ticks = [snapshot(cars, tail)];
@@ -32,7 +34,7 @@ export function simulate(level, placed) {
         if (c.coupled) continue;
         const n = nextOf(c);
         if (n.x === tail.x && n.y === tail.y) {
-          if (c.dir !== tail.dir) {
+          if (c.dir !== tail.inDir) {
             fail = { kind: 'crash', tick: t, cars: [i], cell: n };
             break;
           }
@@ -43,7 +45,7 @@ export function simulate(level, placed) {
           c.coupled = true;
           coupleTicks[i] = t;
           nextIdx++;
-          tail = { x: c.x, y: c.y, dir: c.dir };
+          tail = { x: c.x, y: c.y, inDir: c.inDir };
           changed = true;
         }
       }
@@ -86,7 +88,7 @@ export function simulate(level, placed) {
     // 4. apply
     for (const m of moves) {
       const c = cars[m.i];
-      c.x = m.n.x; c.y = m.n.y; c.dir = m.out;
+      c.x = m.n.x; c.y = m.n.y; c.inDir = c.dir; c.dir = m.out;
       visited.add(`${c.x},${c.y}`);
     }
     ticks.push(snapshot(cars, tail));
@@ -99,5 +101,5 @@ export function simulate(level, placed) {
 }
 
 function snapshot(cars, tail) {
-  return { cars: cars.map((c) => ({ x: c.x, y: c.y, dir: c.dir, coupled: c.coupled })), tail: { ...tail } };
+  return { cars: cars.map((c) => ({ x: c.x, y: c.y, dir: c.dir, inDir: c.inDir, coupled: c.coupled })), tail: { ...tail } };
 }

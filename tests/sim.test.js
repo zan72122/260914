@@ -123,3 +123,14 @@ test('solver finds the unique solution for a simple level', () => {
   assert.equal(solutions.length, 1);
   assert.equal(solutions[0].get('1,1'), 'SE');
 });
+
+test('a follower couples to a tail that sits on a curve (same entry direction)', () => {
+  // car 1 turns north at (2,2) into the loco above it; car 2 follows the same way.
+  const lv = L(`
+    .. .. L^ ..
+    .. .. .. ..
+    2> 1> .. ..
+    .. .. .. ..`);
+  const r = simulate(lv, placedFromList([[2, 2, 'NW'], [2, 1, 'V']]));
+  assert.equal(r.outcome, 'clear');
+});
