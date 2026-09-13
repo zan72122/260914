@@ -48,6 +48,14 @@ export function createCharacter(scene) {
     body.add(eye);
   }
 
+  // 錯視の継ぎ目でも隠れないように、常に手前に描く
+  group.traverse((m) => {
+    if (m.isMesh) {
+      m.material.depthTest = false;
+      m.renderOrder = 20;
+    }
+  });
+
   return {
     group,
     body,

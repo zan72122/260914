@@ -1,15 +1,16 @@
 import * as THREE from 'three';
-import { H, GOAL, DOOR_DIR } from './level.js';
 import { PALETTE } from './scene.js';
 
 // ゴールの扉と光
-export function createDoor(scene) {
+// 扉。cell の dir 側の縁に置く。plain=true は入口用(光の粒子なし)。
+export function createDoor(parent, cell, dir, palette, plain = false) {
   const group = new THREE.Group();
-  group.position.set(GOAL.x + DOOR_DIR.x * 0.5, H, GOAL.z + DOOR_DIR.z * 0.5);
-  // 扉は +z(手前)を向く
-  scene.add(group);
+  group.position.set(cell.x + dir.x * 0.5, cell.h, cell.z + dir.z * 0.5);
+  // 扉の正面は -dir 側(セルの内側)を向く
+  group.rotation.y = Math.atan2(-dir.x, -dir.z);
+  parent.add(group);
 
-  const frameMat = new THREE.MeshLambertMaterial({ color: PALETTE.door });
+  const frameMat = new THREE.MeshLambertMaterial({ color: palette.door });
   const w = 0.9;
   const h = 1.5;
   const t = 0.16;
@@ -28,7 +29,7 @@ export function createDoor(scene) {
   }
 
   // 光る面(奥にあふれる光)
-  const glowMat = new THREE.MeshBasicMaterial({ color: PALETTE.light, transparent: true, opacity: 0.95 });
+  const glowMat = new THREE.MeshBasicMaterial({ color: palette.light, transparent: true, opacity: 0.95 });
   const glow = new THREE.Mesh(new THREE.PlaneGeometry(w - t, h), glowMat);
   glow.position.set(0, h / 2, -0.05);
   group.add(glow);
@@ -50,7 +51,7 @@ export function createDoor(scene) {
 
   // 扉の前にこぼれる光(床の上)
   const spillMat = new THREE.MeshBasicMaterial({
-    color: PALETTE.light,
+    color: palette.light,
     transparent: true,
     opacity: 0.35,
     depthWrite: false,
@@ -73,11 +74,19 @@ export function createDoor(scene) {
   const sparks = new THREE.Points(sparkGeo, sparkMat);
   group.add(sparks);
 
-  const light = new THREE.PointLight(PALETTE.light, 0.8, 5, 2);
+  const light = new THREE.PointLight(palette.light, 0.8, 5, 2);
   light.position.set(0, 0.8, 0.5);
   group.add(light);
+  if (plain) {
+    // 入口: 光らない暗い扉(ゴールと区別する)
+    sparks.visible = false;
+    spill.visible = false;
+    light.intensity = 0;
+    glowMat.color.setHex(0x3b3050);
+    glowMat.opacity = 1;
+  }
 
-  return { group, panelL, panelR, glowMat, spillMat, sparks, seeds, light, open: 0, targetOpen: 0, excite: 0 };
+  return { group, panelL, panelR, glowMat, spillMat, sparks, seeds, light, plain, open: 0, targetOpen: 0, excite: 0 };
 }
 
 export function updateDoor(d, dt, time) {
@@ -85,6 +94,7 @@ export function updateDoor(d, dt, time) {
   d.panelL.rotation.y = -d.open * 1.9;
   d.panelR.rotation.y = d.open * 1.9;
 
+  if (d.plain) return;
   const breathe = 0.5 + 0.5 * Math.sin(time * 2.2);
   const e = d.excite;
   d.spillMat.opacity = 0.25 + breathe * 0.15 + e * 0.35;

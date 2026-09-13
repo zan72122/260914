@@ -93,3 +93,15 @@ export function sfxGoal() {
 export function sfxTick() {
   noise(0.02, 0.08);
 }
+
+// スイッチを踏んだ
+export function sfxPress() {
+  tone(330, { type: 'triangle', dur: 0.25, vol: 0.4 });
+  tone(440, { type: 'sine', dur: 0.35, vol: 0.3, delay: 0.08 });
+}
+
+// 階段がせり上がる(低いドン)
+export function sfxThud() {
+  tone(110, { type: 'sine', dur: 0.35, vol: 0.5 });
+  noise(0.08, 0.25);
+}

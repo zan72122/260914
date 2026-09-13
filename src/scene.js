@@ -12,6 +12,8 @@ export const PALETTE = {
   door: 0x7a659c,
   light: 0xfff3c4,
   road: 0xf3d6b0,
+  drawerSide: 0x8fb3c4,
+  drawerTop: 0xeaf4f8,
   girlDress: 0xffffff,
   girlHat: 0xf7b7c8,
   girlSkin: 0xffe1c9,
@@ -23,6 +25,8 @@ export function createRenderer(canvas) {
   renderer.setClearColor(0x000000, 0);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // 地面より下は描かない(沈んだ階段や切り替え中の建物が地面に潜って見える)
+  renderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, 1, 0), 0.02)];
   return renderer;
 }
 
@@ -36,7 +40,7 @@ export function createScene() {
   sun.position.set(6, 12, 4);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
-  const s = 9;
+  const s = 14;
   sun.shadow.camera.left = -s;
   sun.shadow.camera.right = s;
   sun.shadow.camera.top = s;
@@ -47,7 +51,7 @@ export function createScene() {
   scene.add(sun);
   scene.add(sun.target);
 
-  return scene;
+  return { scene, hemi, sun };
 }
 
 // 等角風の正投影カメラ
