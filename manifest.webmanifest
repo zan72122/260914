@@ -1,0 +1,10 @@
+{
+  "name": "Mirror Cake",
+  "short_name": "Mirror Cake",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#f6e9df",
+  "theme_color": "#f6e9df",
+  "start_url": "./index.html",
+  "icons": [{ "src": "icon.png", "sizes": "512x512", "type": "image/png" }]
+}
