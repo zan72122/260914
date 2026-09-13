@@ -1,0 +1,13 @@
+{
+  "name": "poppo-to-ouchi-e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Wordless Railbound-style track puzzle for young children (iPhone/iPad PWA)",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "serve": "python3 -m http.server 8080",
+    "solve": "node tools/solve-levels.js",
+    "shots": "node tools/screenshots.js"
+  }
+}
