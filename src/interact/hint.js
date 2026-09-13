@@ -10,6 +10,8 @@ export function createHint({ scene, particles, monster, camera, nudgeTo, current
   let idle = 0;
   let lastTarget = undefined;
   let nodes = [];
+  const baseOf = new WeakMap(); // 脈動前の基準サイズ(一度だけ記録)
+  let recollect = 0;
   let moteTimer = 0;
   let rattleTimer = 0;
   let nudgeTimer = 0;
@@ -28,7 +30,8 @@ export function createHint({ scene, particles, monster, camera, nudgeTo, current
       if (target === 'bud' && it.pot && (!it.pot.budded || it.pot.bloomed)) return;
       const node = it.getPulseNode();
       if (!node) return;
-      nodes.push({ inter: it, node, base: node.scale.clone() });
+      if (!baseOf.has(node)) baseOf.set(node, node.scale.clone());
+      nodes.push({ inter: it, node, base: baseOf.get(node) });
     });
   }
 
@@ -39,10 +42,12 @@ export function createHint({ scene, particles, monster, camera, nudgeTo, current
   function update(dt, t) {
     idle += dt;
     const target = nextTarget();
-    if (target !== lastTarget || (target === 'bud' || target === 'cocoon' || target === 'can')) {
-      // 状態が変わりうるので毎回集め直す(軽い)
-      if (target !== lastTarget) { for (const n of nodes) n.node.scale.copy(n.base); }
+    recollect -= dt;
+    if (target !== lastTarget || recollect <= 0) {
+      // 対象は増減しうるので、ときどき集め直す
+      for (const n of nodes) n.node.scale.copy(n.base);
       lastTarget = target;
+      recollect = 0.5;
       collect(target);
     }
     const strong = idle > 15;

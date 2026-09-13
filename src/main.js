@@ -69,9 +69,20 @@ function fitDistance(radius) {
   const hf = vf * camera.aspect;
   return radius / Math.min(vf, hf) * 1.05;
 }
+// 画面の向きごとのカメラ設定
+// 縦長(aspect 0.46 = iPhone縦)と横長(aspect 1.33 = iPad横)の間は比率で補間
+const CAM = {
+  closed: { portrait: { elev: 0.2, targetY: 0.05, radius: 1.5 }, landscape: { elev: 0.2, targetY: 0.05, radius: 1.7 } },
+  open: { portrait: { elev: 0.9, targetY: -0.45, radius: 1.45 }, landscape: { elev: 1.05, targetY: -0.85, radius: 2.05 } },
+};
+let camGoal = 'closed';
+function camPreset() {
+  const a = CAM[camGoal].portrait, b = CAM[camGoal].landscape;
+  const k = THREE.MathUtils.clamp((camera.aspect - 0.46) / (1.33 - 0.46), 0, 1);
+  return { elev: a.elev + (b.elev - a.elev) * k, targetY: a.targetY + (b.targetY - a.targetY) * k, radius: a.radius + (b.radius - a.radius) * k };
+}
 function placeCamera() {
-  // 横画面では倒れた前面や開いたふたも含めて見えるよう、少し引く
-  camDist = fitDistance(camState.radius * (isLandscape() ? 1.45 : 1));
+  camDist = fitDistance(camState.radius);
   const e = camState.elev;
   camera.position.set(0, Math.sin(e) * camDist + camState.targetY, Math.cos(e) * camDist);
   camera.lookAt(0, camState.targetY, 0);
@@ -83,6 +94,7 @@ function resize() {
   renderer.domElement.style.height = '100%';
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  Object.assign(camState, camPreset()); // 向き・比率に合わせて即座に更新
   placeCamera();
 }
 window.addEventListener('resize', resize);
@@ -146,7 +158,8 @@ function moveCamera(to, dur = 1.2) {
 }
 
 on('opened', () => {
-  moveCamera({ elev: 0.9, targetY: -0.45, radius: 1.45 }, 1.4);
+  camGoal = 'open';
+  moveCamera(camPreset(), 1.4);
   music.enable('arp', true, 3);
 });
 on('sprout', () => {});
@@ -256,5 +269,5 @@ frame();
 
 // 開発時のみ: 動作確認用にオブジェクトを公開
 if (import.meta.env.DEV) {
-  window.__hana = { scene, camera, monster, garden, sky, tree, box, state, getYaw: () => yaw };
+  window.__hana = { scene, camera, particles, monster, garden, sky, tree, box, state, getYaw: () => yaw };
 }

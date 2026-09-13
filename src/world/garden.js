@@ -156,11 +156,16 @@ export function createGarden(particles) {
   }
 
   // ---- じょうろ ----
+  // canPos(位置) > canPulse(ヒントの脈動) > can(傾き・拡縮アニメ)
+  const canPos = new THREE.Group();
+  const canPulse = new THREE.Group();
   const can = new THREE.Group();
   const CAN_HOME = new THREE.Vector3(-0.3, FLOOR + 0.17, 0.4);
-  can.position.copy(CAN_HOME);
+  canPos.position.copy(CAN_HOME);
   can.scale.setScalar(0.9);
-  group.add(can);
+  group.add(canPos);
+  canPos.add(canPulse);
+  canPulse.add(can);
   const canBody = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.24, 16), toon(C.can));
   can.add(canBody);
   const spout = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.3, 10), toon(C.canDark));
@@ -198,24 +203,24 @@ export function createGarden(particles) {
       const local = group.worldToLocal(world.clone());
       const x = THREE.MathUtils.clamp(local.x, -0.85, 0.85);
       const z = THREE.MathUtils.clamp(local.z, -0.75, 0.7);
-      can.position.set(x, FLOOR + 0.5, z);
+      canPos.position.set(x, FLOOR + 0.5, z);
     },
     onDragEnd: () => {
       dragging = false;
       pouringOn = null;
-      const from = can.position.clone();
-      tween({ duration: 0.6, ease: easeOutBack, onUpdate: (e) => { can.position.lerpVectors(from, CAN_HOME, e); can.scale.setScalar(1.05 - 0.15 * e); } });
+      const from = canPos.position.clone();
+      tween({ duration: 0.6, ease: easeOutBack, onUpdate: (e) => { canPos.position.lerpVectors(from, CAN_HOME, e); can.scale.setScalar(1.05 - 0.15 * e); } });
     },
     onTap: () => {
       sfx.water(0.6);
       // 持ち上げられることを見せる: ぴょこんと跳ねて数滴こぼれる
-      tween({ duration: 0.5, ease: easeOutElastic, onUpdate: (e) => { can.position.y = CAN_HOME.y + 0.18 * (1 - e); can.rotation.z = -0.5 * (1 - e); } });
+      tween({ duration: 0.5, ease: easeOutElastic, onUpdate: (e) => { canPos.position.y = CAN_HOME.y + 0.18 * (1 - e); can.rotation.z = -0.5 * (1 - e); } });
       for (let k = 0; k < 3; k++) particles.spawn({ kind: 'water', pos: worldOf(spoutTip), vel: new THREE.Vector3(-0.3, 0.3, 0), life: 0.6, size: 0.05, gravity: 3 });
     },
-    getPulseNode: () => canBody,
+    getPulseNode: () => canPulse,
     worldAnchor: () => worldOf(can),
   };
-  can.traverse((m) => (m.userData.interactable = canInter));
+  canPos.traverse((m) => (m.userData.interactable = canInter));
 
   const tmp = new THREE.Vector3();
   function update(dt, t) {
@@ -223,7 +228,7 @@ export function createGarden(particles) {
     let over = null;
     if (dragging) {
       for (const P of pots) {
-        tmp.copy(can.position).sub(P.group.position);
+        tmp.copy(canPos.position).sub(P.group.position);
         tmp.y = 0;
         if (tmp.length() < 0.36) over = P;
       }
@@ -268,7 +273,7 @@ export function createGarden(particles) {
   return {
     group,
     pots,
-    can,
+    can: canPos,
     update,
     budAll: () => pots.forEach((P, k) => setTimeout(() => budUp(P), k * 250)),
     flowerPositionWorld,
