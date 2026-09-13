@@ -1,0 +1,13 @@
+{
+  "name": "フワとイチゴ",
+  "short_name": "フワ",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#79c8ff",
+  "theme_color": "#79c8ff",
+  "icons": [
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
