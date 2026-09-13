@@ -1,0 +1,10 @@
+{
+  "name": "Goo Garden",
+  "short_name": "Goo",
+  "display": "fullscreen",
+  "orientation": "any",
+  "start_url": "./index.html",
+  "background_color": "#8fd3ff",
+  "theme_color": "#8fd3ff",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
