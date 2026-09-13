@@ -5,7 +5,7 @@ import { createBlocks } from './voxel.js';
 import { createBalls } from './ball.js';
 import { createFx } from './fx.js';
 import { buildLevel, LEVELS } from './levels.js';
-import { tick as tweenTick, after, tween, ease } from './tween.js';
+import { tick as tweenTick, after, clearAll as clearTweens } from './tween.js';
 import { unlock as unlockAudio, sfx } from './audio.js';
 import { loadLevel, saveLevel } from './storage.js';
 
@@ -31,9 +31,25 @@ document.addEventListener('contextmenu', (e) => e.preventDefault());
 window.addEventListener('pointerdown', () => { unlockAudio(); idle = 0; }, { capture: true });
 window.addEventListener('pointermove', () => { idle = 0; });
 
+// 2本指で画面をなでる → 巻き戻し（主導線ではない。尽きれば自動で戻る）
+{
+  const pts = new Map();
+  window.addEventListener('pointerdown', (e) => pts.set(e.pointerId, { x: e.clientX, y: e.clientY, moved: 0 }));
+  window.addEventListener('pointermove', (e) => {
+    const p = pts.get(e.pointerId); if (!p) return;
+    p.moved += Math.hypot(e.clientX - p.x, e.clientY - p.y); p.x = e.clientX; p.y = e.clientY;
+    if (pts.size >= 2 && p.moved > 140 && state === 'play' && blocks.count() < buildLevel(levelIndex).blocks.length) {
+      pts.clear(); balls.setEnabled(false); rewind();
+    }
+  });
+  const clr = (e) => pts.delete(e.pointerId);
+  window.addEventListener('pointerup', clr); window.addEventListener('pointercancel', clr);
+}
+
 function startLevel(i) {
   levelIndex = i % LEVELS.length;
   saveLevel(levelIndex);
+  clearTweens(); // 進行中の演出・遅延処理を全て破棄
   state = 'enter';
   balls.setEnabled(false);
   const lv = buildLevel(levelIndex);
