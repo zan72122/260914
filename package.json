@@ -12,8 +12,12 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
+    "@types/three": "^0.186.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
-    "vitest": "^4.0.18"
+    "vitest": "5.0.0"
+  },
+  "dependencies": {
+    "three": "^0.186.0"
   }
 }

@@ -1,20 +1,20 @@
 /**
- * 言葉なしの操作だけで、置く → 音程 → 扉 → 4 層 → 駅 → 新しい曲、まで通せることを確認する。
- * 状態は localStorage に自動保存されるので、それを観測して検証する。
+ * 言葉なしの操作だけで、置く → 鳴る → 扉 → 次へ … → 駅 → ミュート → 新しい曲、まで通せることを確認する。
+ * 画面座標は ?test で有効になるフック(window.__tt)から取り、状態は localStorage で検証する。
  */
 import { test, expect, type Page } from '@playwright/test';
-import { computeLayout, slotPos, boxItemPos } from '../../src/render/layout';
-import { placedInstrumentPos } from '../../src/render/scene';
 import { STORAGE_KEY } from '../../src/app/storage';
-import { INSTRUMENT_KIND, type Song } from '../../src/app/state';
+import type { Song, LevelKind } from '../../src/app/state';
+
+type Pt = { x: number; y: number } | null;
+declare global { interface Window { __tt: Record<string, (...a: never[]) => unknown> } }
 
 const OUT = process.env.SHOT_DIR ?? 'test-results/shots';
 
-async function song(page: Page): Promise<Song | null> {
-  return page.evaluate((k) => { const r = localStorage.getItem(k); return r ? JSON.parse(r) : null; }, STORAGE_KEY);
-}
+const song = (page: Page) => page.evaluate((k) => { const r = localStorage.getItem(k); return r ? (JSON.parse(r) as Song) : null; }, STORAGE_KEY);
+const tt = <T,>(page: Page, expr: string) => page.evaluate((e) => (new Function('return ' + e))() as T, `window.__tt.${expr}`);
 
-async function dragPath(page: Page, pts: { x: number; y: number }[], steps = 10) {
+async function dragPath(page: Page, pts: { x: number; y: number }[], steps = 8) {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: pts[0].x, y: pts[0].y }] });
   for (let k = 1; k < pts.length; k++) {
@@ -28,103 +28,117 @@ async function dragPath(page: Page, pts: { x: number; y: number }[], steps = 10)
   await cdp.detach();
 }
 
-async function drag(page: Page, x0: number, y0: number, x1: number, y1: number, steps = 12) {
-  await dragPath(page, [{ x: x0, y: y0 }, { x: x1, y: y1 }], steps);
+/** 置き先の画面位置。指の少し上に楽器が浮くので、その分だけ下を触る */
+async function dropPoint(page: Page, slot: number, pitch: number): Promise<{ x: number; y: number }> {
+  const p = (await tt<Pt>(page, `target(${slot}, ${pitch})`))!;
+  const unit = await tt<number>(page, 'unitPx()');
+  return { x: p.x, y: p.y + unit * 0.5 };
 }
 
-test('置く・音程・扉・4 層・駅・新しい曲', async ({ page, viewport }, info) => {
+test('置く・扉・3 形式・駅・ミュート・新しい曲', async ({ page }, info) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   const shot = (name: string) => page.screenshot({ path: `${OUT}/${info.project.name}-${name}.png` });
 
-  await page.goto('/');
-  await page.evaluate((k) => localStorage.removeItem(k), STORAGE_KEY);
+  await page.goto('/?test');
+  // 3 形式を必ず通るように固定した曲を用意する
+  const kinds: LevelKind[] = ['train', 'grid', 'musicbox', 'train'];
+  await page.evaluate(([k, kinds]) => {
+    const s = window.__tt.song() as Song;
+    s.layers.forEach((l, i) => { l.kind = kinds[i]; l.placements = []; l.muted = false; });
+    s.currentLevel = 0; s.phase = 'level';
+    localStorage.setItem(k, JSON.stringify(s));
+  }, [STORAGE_KEY, kinds] as const);
   await page.reload();
-  const layout = computeLayout(viewport!.width, viewport!.height);
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(400);
   await shot('0-waiting');
 
   // 最初のタップで走り出す
-  await page.touchscreen.tap(layout.loop.cx, layout.loop.cy);
-  await page.waitForTimeout(500);
+  const loco = (await tt<Pt>(page, 'loco()'))!;
+  await page.touchscreen.tap(loco.x, loco.y);
+  await expect.poll(() => tt<string>(page, 'mode()')).toBe('level');
 
   for (let level = 0; level < 4; level++) {
-    // おもちゃ箱の 1 番目と 2 番目を穴へ
-    const before = (await song(page)) ?? null;
-    const instruments = before?.layers[level].instruments ?? [];
-    // 保存前は箱の中身が不明なので、まず 1 個置いて保存させる
-    const b0 = boxItemPos(layout, 0, instruments.length || 4);
-    const s0 = slotPos(layout, 2);
-    await drag(page, b0.x, b0.y, s0.x, s0.y + layout.unit * 0.8);
-    let s = await song(page);
-    expect(s, 'ドロップで保存される').not.toBeNull();
-    expect(s!.currentLevel).toBe(level);
-    expect(s!.layers[level].placements.map((p) => p.slot)).toEqual([2]);
-
-    const items = s!.layers[level].instruments;
-    const b1 = boxItemPos(layout, 1, items.length);
-    const s1 = slotPos(layout, 5);
-    await drag(page, b1.x, b1.y, s1.x, s1.y + layout.unit * 0.8);
-    s = await song(page);
-    expect(s!.layers[level].placements.map((p) => p.slot)).toEqual([2, 5]);
-
-    // メロディ楽器なら上へドラッグして音程を上げる
-    const melodyIdx = s!.layers[level].placements.findIndex((p) => INSTRUMENT_KIND[p.inst] === 'melody');
-    if (melodyIdx >= 0) {
-      const p = s!.layers[level].placements[melodyIdx];
-      const pos = placedInstrumentPos(layout, p.slot, p.inst, p.pitch);
-      await drag(page, pos.x, pos.y, pos.x, pos.y - layout.unit * 0.65, 8);
-      s = await song(page);
-      const after = s!.layers[level].placements.find((q) => q.slot === p.slot)!;
-      expect(after.pitch, '上へ動かすと音が高くなる').toBeGreaterThan(p.pitch);
+    expect(await tt<string>(page, 'kind()')).toBe(kinds[level]);
+    // トレイの 1 番目を (列 2, 行 3) へ、2 番目を (列 5, 行 1) へ
+    const spots: [number, number][] = kinds[level] === 'train' ? [[2, 0], [5, 0]] : [[2, 3], [5, 1]];
+    for (let i = 0; i < 2; i++) {
+      const [slot, pitch] = spots[i];
+      const from = (await tt<Pt>(page, `tray(${i})`))!;
+      // オルゴールは穴が見えるまで待つ
+      await expect.poll(() => tt<boolean>(page, `targetVisible(${slot}, ${pitch})`), { timeout: 8000 }).toBe(true);
+      const to = await dropPoint(page, slot, pitch);
+      await dragPath(page, [from, { x: (from.x + to.x) / 2, y: from.y - 40 }, to]);
+      const s = (await song(page))!;
+      expect(s.currentLevel).toBe(level);
+      expect(s.layers[level].placements.length, `level ${level} 置く ${i}`).toBe(i + 1);
+      // オルゴールは穴が回って動くので、列は「離した時に一番近い穴」になる。行(音程)だけ確かめる
+      if (kinds[level] === 'musicbox') expect(s.layers[level].placements.map((p) => p.pitch)).toContain(pitch);
+      else expect(s.layers[level].placements.map((p) => p.slot)).toContain(slot);
     }
-    // 穴の外で離すと箱へ戻る(= 消える)
-    const p2 = s!.layers[level].placements[0];
-    const pos2 = placedInstrumentPos(layout, p2.slot, p2.inst, p2.pitch);
-    // 横に外してから中央へ運び、穴の外で離す
-    await dragPath(page, [pos2, { x: pos2.x + layout.unit * 1.2, y: pos2.y }, { x: layout.loop.cx, y: layout.loop.cy }], 6);
-    s = await song(page);
-    expect(s!.layers[level].placements.length).toBe(1);
-    await page.waitForTimeout(800);
-    await shot(`1-level${level}`);
-
-    // トンネルの扉を叩く → 汽車がトンネルへ → 次のレベル(または駅)
-    const t = layout.loop.pointAt(0);
-    await page.touchscreen.tap(t.x, t.y);
-    await expect.poll(async () => {
-      const x = await song(page);
-      return level < 3 ? x!.currentLevel : x!.phase;
-    }, { timeout: 15_000 }).toBe(level < 3 ? level + 1 : 'finale');
+    // 汽車ループ: 上へドラッグで音程が上がる。横へ外して離すと箱へ戻る
+    let s = (await song(page))!;
+    const melody = s.layers[level].placements.find((p) => ['bell', 'bird', 'marimba', 'flute', 'frog'].includes(p.inst));
+    if (kinds[level] === 'train' && melody) {
+      const pos = (await tt<Pt>(page, `placement(${melody.slot}, ${melody.pitch})`))!;
+      const unit = await tt<number>(page, 'unitPx()');
+      await dragPath(page, [pos, { x: pos.x, y: pos.y - unit * 0.9 }], 6);
+      s = (await song(page))!;
+      expect(s.layers[level].placements.find((p) => p.slot === melody.slot)!.pitch).toBeGreaterThan(melody.pitch);
+    }
+    // 取り外し: 持ち上げて置き先の外で離すとトレイへ戻る(オルゴールのピンは回って動くので数回試す)
+    const first = s.layers[level].placements[0];
+    for (let tries = 0; tries < 4; tries++) {
+      await expect.poll(() => tt<boolean>(page, `targetVisible(${first.slot}, ${first.pitch})`), { timeout: 8000 }).toBe(true);
+      const pos = (await tt<Pt>(page, `placement(${first.slot}, ${first.pitch})`))!;
+      await dragPath(page, [pos, { x: pos.x + 120, y: pos.y }, { x: page.viewportSize()!.width / 2, y: 8 }], 6);
+      s = (await song(page))!;
+      if (s.layers[level].placements.length === 1) break;
+    }
+    expect(s.layers[level].placements.length, '穴の外で離すと戻る').toBe(1);
     await page.waitForTimeout(700);
+    await shot(`1-level${level}-${kinds[level]}`);
+
+    // 扉を叩く → 次へ(または駅)
+    // 汽車がちょうど扉の前を通っていると汽車に当たるので、開くまで叩き直す
+    for (let tries = 0; tries < 6; tries++) {
+      const door = (await tt<Pt>(page, 'door()'))!;
+      await page.touchscreen.tap(door.x, door.y);
+      await page.waitForTimeout(250);
+      if ((await tt<{ opened: boolean }>(page, 'doorState()')).opened) break;
+      await page.waitForTimeout(400);
+    }
+    await expect.poll(async () => { const x = (await song(page))!; return level < 3 ? x.currentLevel : x.phase; }, { timeout: 15_000 })
+      .toBe(level < 3 ? level + 1 : 'finale');
+    await page.waitForTimeout(500);
     await shot(`2-transition${level}`);
-    await page.waitForTimeout(1500);
+    await expect.poll(() => tt<string>(page, 'mode()'), { timeout: 10_000 }).toMatch(/level|finale|arriving/);
+    await page.waitForTimeout(1200);
   }
 
-  // 駅: 汽車が止まるのを待って貨車を叩く → ふたが閉まる(ミュート)
-  await page.waitForTimeout(4500);
+  // 駅: 停まるのを待って貨車を叩く → ミュート
+  await expect.poll(() => tt<string>(page, 'mode()'), { timeout: 10_000 }).toBe('finale');
+  await page.waitForTimeout(400);
   await shot('3-finale');
-  const park = layout.loop.pointAt(0.5);
-  const geomSpacing = layout.unit * 1.65;
-  const w0 = layout.loop.pointAtLength(0.5 * layout.loop.length - geomSpacing);
+  const w0 = (await tt<Pt>(page, 'wagon(0)'))!;
   await page.touchscreen.tap(w0.x, w0.y);
   await expect.poll(async () => (await song(page))!.layers[0].muted).toBe(true);
   await page.waitForTimeout(400);
   await shot('4-finale-muted');
-  expect(park).toBeTruthy();
 
   // 新しい汽車を叩く → 新しい曲
   const oldSeed = (await song(page))!.seed;
-  const np = layout.portrait
-    ? { x: layout.box.x + layout.box.w * 0.5, y: layout.box.y + layout.box.h * 0.5 + layout.unit * 0.1 }
-    : { x: layout.box.x + layout.box.w * 0.5, y: layout.box.y + layout.box.h * 0.5 };
-  await page.touchscreen.tap(np.x, np.y);
+  const nt = (await tt<Pt>(page, 'newTrain()'))!;
+  await page.touchscreen.tap(nt.x, nt.y);
   await expect.poll(async () => (await song(page))!.seed, { timeout: 10_000 }).not.toBe(oldSeed);
-  await page.waitForTimeout(1500);
+  await expect.poll(() => tt<string>(page, 'mode()'), { timeout: 10_000 }).toBe('level');
+  await page.waitForTimeout(500);
   await shot('5-newsong');
-  const fresh = await song(page);
-  expect(fresh!.currentLevel).toBe(0);
-  expect(fresh!.phase).toBe('level');
+  const fresh = (await song(page))!;
+  expect(fresh.currentLevel).toBe(0);
+  expect(fresh.phase).toBe('level');
+  expect(await tt<string>(page, 'kind()')).toBe('train');
 
   expect(errors, 'コンソールエラーなし').toEqual([]);
 });

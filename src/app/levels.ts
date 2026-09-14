@@ -1,6 +1,6 @@
-/** シード付き乱数によるレベル(色テーマ・楽器セット)の生成。 */
+/** シード付き乱数によるレベル(形式・色テーマ・楽器セット)の生成。 */
 import {
-  type InstrumentId, type Layer, type Song, type ThemeId, MAX_LEVELS,
+  type InstrumentId, type Layer, type LevelKind, type Song, type ThemeId, MAX_LEVELS,
 } from './state';
 
 /** mulberry32: 小さく決定的な乱数 */
@@ -23,11 +23,23 @@ function pick<T>(r: () => number, arr: readonly T[], exclude: T[] = []): T {
 const PERC: InstrumentId[] = ['drum', 'clap', 'shaker'];
 const MELODY: InstrumentId[] = ['bell', 'bird', 'marimba', 'flute'];
 const THEMES: ThemeId[] = ['meadow', 'beach', 'snow', 'sunset'];
+const KINDS: LevelKind[] = ['train', 'grid', 'musicbox'];
 
 /** レベルごとの pitch=0 の高さ。層ごとにオクターブ帯を分けて濁りを防ぐ。 */
 const BASE_MIDI = [60, 72, 79, 48]; // C4, C5, G5, C3
 
-export function generateLayer(seed: number, level: number): Layer {
+/** 1 層目は必ず汽車。2〜4 層目はランダム(同じ形式が 3 回続かない)。 */
+export function generateKinds(seed: number): LevelKind[] {
+  const r = rng(seed * 131 + 7);
+  const kinds: LevelKind[] = ['train'];
+  for (let i = 1; i < MAX_LEVELS; i++) {
+    const exclude = i >= 2 && kinds[i - 1] === kinds[i - 2] ? [kinds[i - 1]] : [];
+    kinds.push(pick(r, KINDS, exclude));
+  }
+  return kinds;
+}
+
+export function generateLayer(seed: number, level: number, kind: LevelKind): Layer {
   const r = rng(seed * 7919 + level * 104729 + 1);
   const rt = rng(seed * 31 + 17);
   // テーマは 4 レベルで重複しないように順列を作る
@@ -40,27 +52,25 @@ export function generateLayer(seed: number, level: number): Layer {
 
   let instruments: InstrumentId[];
   if (level === 0) {
-    // 打楽器 2 種 + メロディ 1 種 + 打楽器 1 種(合計 4)
     const a = pick(r, PERC);
     const b = pick(r, PERC, [a]);
     instruments = [a, b, pick(r, MELODY), pick(r, PERC, [a, b])];
   } else if (level === MAX_LEVELS - 1) {
-    // ベース必須 + メロディ 2 種 + 打楽器 1 種
     const m1 = pick(r, MELODY);
     instruments = ['frog', m1, pick(r, MELODY, [m1]), pick(r, PERC)];
   } else {
-    // メロディ中心: メロディ 2〜3 種 + 打楽器 1 種
     const m1 = pick(r, MELODY);
     const m2 = pick(r, MELODY, [m1]);
     instruments = r() < 0.5
       ? [m1, m2, pick(r, PERC)]
       : [m1, m2, pick(r, MELODY, [m1, m2]), pick(r, PERC)];
   }
-  return { theme, instruments, baseMidi: BASE_MIDI[level], placements: [], muted: false };
+  return { kind, theme, instruments, baseMidi: BASE_MIDI[level], placements: [], muted: false };
 }
 
 export function createSong(seed = Math.floor(Math.random() * 1e9)): Song {
+  const kinds = generateKinds(seed);
   const layers: Layer[] = [];
-  for (let i = 0; i < MAX_LEVELS; i++) layers.push(generateLayer(seed, i));
-  return { version: 1, seed, layers, currentLevel: 0, tempoIdx: 1, phase: 'level' };
+  for (let i = 0; i < MAX_LEVELS; i++) layers.push(generateLayer(seed, i, kinds[i]));
+  return { version: 2, seed, layers, currentLevel: 0, tempoIdx: 1, phase: 'level' };
 }
