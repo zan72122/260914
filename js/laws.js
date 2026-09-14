@@ -269,8 +269,15 @@
       }
     }
 
-    // 渦: 動く円はすべて通れる
-    for (const e of ents) if (isMover(e) && e !== player) warpCheck(e, warps, A);
+    // 渦: 動く円はすべて通れる。近づいた円は吸い込まれる
+    for (const e of ents) {
+      if (!isMover(e) || e === player) continue;
+      for (const w of warps) {
+        const d = dist(e, w);
+        if (e.inWarp !== w.id && d < w.r * 1.8 && d > 1e-3) { const f = (1 - d / (w.r * 1.8)) * 4 * S * dt; e.vx += (w.x - e.x) / d * f; e.vy += (w.y - e.y) / d * f; }
+      }
+      warpCheck(e, warps, A);
+    }
     // 輪は、ぴったり合う円が近くを通ると優しく引き寄せる (流れや押しで少し外れても入る)
     for (const rg of g.rings) {
       if (rg.filled) continue;

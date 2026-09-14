@@ -278,7 +278,7 @@
       ],
       items: [
         { type: 'gate', cy: 0, gap: 0, r: 0.12 },
-        { type: 'flow', cx: 0, cy: -0.3, angle: 0, length: 0.95, width: 0.18, speed: 0.5 },
+        { type: 'flow', cx: 0.1, cy: -0.3, angle: 0, length: 0.75, width: 0.18, speed: 0.5 },
         { id: 'wa', type: 'warp', cx: 0, cy: 0.24, r: 0.08, pair: 'wb', color: C.warp },
         { id: 'wb', type: 'warp', cx: -0.4, cy: -0.3, r: 0.08, pair: 'wa', color: C.warp },
         { id: 'd1', type: 'dye', cx: -0.34, cy: 0.26, r: 0.065, color: C.dye },
