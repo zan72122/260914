@@ -1,11 +1,34 @@
 // 円の法則 (物理) と、法則ごとの描画上のしるし。
-// 種類: grow / shrink / push / flee / follow / wall / sticky / merge / split / piece
+// 種類: grow / shrink / push / flee / follow / wall / sticky / merge / split / piece / orbit / dye / paint / warp / flow
 (function () {
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const lerp = (a, b, t) => a + (b - a) * t;
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const isWall = (e) => e.type === 'wall';
-  const isMover = (e) => !isWall(e) && !e.captured && !e.dead;
+  const isField = (e) => e.type === 'flow' || e.type === 'warp' || e.type === 'paint';
+  const isMover = (e) => !isWall(e) && !isField(e) && !e.captured && !e.dead && !(e.type === 'orbit' && !e.free);
+  const PAINT_ORDER = ['#FF3B30', '#3D5AFE', '#2ECC40', '#FFD600'];
+
+  // 帯の中にいるか。中なら流れの速度ベクトル (px/s) を返す
+  function flowAt(f, p, S) {
+    const dx = p.x - f.x, dy = p.y - f.y;
+    const u = dx * f.dirX + dy * f.dirY, v = -dx * f.dirY + dy * f.dirX;
+    if (Math.abs(u) > f.len / 2 || Math.abs(v) > f.wid / 2) return null;
+    return { x: f.dirX * f.speed * S, y: f.dirY * f.speed * S };
+  }
+
+  // 渦: 中心近くに入った円を、対の渦から出す
+  function warpCheck(e, warps, A) {
+    let inside = null;
+    for (const w of warps) if (dist(e, w) < w.r * 1.1) inside = w;
+    if (!inside) { e.inWarp = null; return; }
+    if (e.inWarp === inside.id) return;
+    if (dist(e, inside) > inside.r * 0.6) return;
+    const pair = warps.find(w => w.id === inside.pair);
+    if (!pair) return;
+    e.x = pair.x; e.y = pair.y; e.inWarp = pair.id; e.warped = true; e.pop = 0.3;
+    if (A) A.warp();
+  }
 
   function hexA(hex, a) {
     const n = parseInt(hex.slice(1), 16);
@@ -42,8 +65,9 @@
   }
 
   // 画面の端や角に押し込まれた円は、内側へゆっくり戻る (行き詰まりを作らない)
+  // 戻る幅は「じぶんの円が裏側に入れる」だけ空ける
   function edgeRepel(e, box, dt) {
-    const m = e.r * 3, S = box.s;
+    const S = box.s, m = e.r + 0.18 * S;
     const f = (over) => clamp(over / m, 0, 1) * 1.6 * S * dt;
     if (e.x < box.x0 + m) e.vx += f(box.x0 + m - e.x);
     if (e.x > box.x1 - m) e.vx -= f(e.x - (box.x1 - m));
@@ -60,7 +84,20 @@
   }
 
   // 壁が邪魔なら、壁の縁を回り込む目標点に置き換える (ついてくる円が挟まらない)
-  function steer(e, target, walls, box) {
+  function blocked(e, target, walls) {
+    for (const w of walls) {
+      const dx = target.x - e.x, dy = target.y - e.y, L = Math.hypot(dx, dy) || 1;
+      const t = clamp(((w.x - e.x) * dx + (w.y - e.y) * dy) / (L * L), 0, 1);
+      if (t > 0 && Math.hypot(e.x + dx * t - w.x, e.y + dy * t - w.y) < w.r + e.r + 6) return true;
+    }
+    return false;
+  }
+  function steer(e, target, walls, box, warps) {
+    // 相手が壁で見えないなら、まっすぐ行ける渦へ (渦の向こうで会える)
+    if (warps && warps.length && blocked(e, target, walls)) {
+      const w = warps.filter(w => !blocked(e, w, walls)).sort((a, b) => dist(a, e) - dist(b, e))[0];
+      if (w) return { x: w.x, y: w.y };
+    }
     for (const w of walls) {
       const dx = target.x - e.x, dy = target.y - e.y, L = Math.hypot(dx, dy) || 1;
       const t = clamp(((w.x - e.x) * dx + (w.y - e.y) * dy) / (L * L), 0, 1);
@@ -81,12 +118,12 @@
   }
 
   // 追従 (ついてくる / くっついた円 / 分裂した破片)
-  function follow(e, player, dt, S, stiff, damp, gapS, walls, box) {
+  function follow(e, player, dt, S, stiff, damp, gapS, walls, box, warps) {
     const d = dist(e, player);
     const n = d > 1e-3 ? { x: (e.x - player.x) / d, y: (e.y - player.y) / d } : { x: 0, y: 1 };
     const want = player.r + e.r + gapS * S;
     let tgt = { x: player.x + n.x * want, y: player.y + n.y * want };
-    if (walls && walls.length) tgt = steer(e, tgt, walls, box);
+    if (walls && walls.length) tgt = steer(e, tgt, walls, box, warps);
     const tx = tgt.x, ty = tgt.y;
     e.vx += (tx - e.x) * stiff * dt; e.vy += (ty - e.y) * stiff * dt;
     e.wobble = clamp(Math.hypot(e.vx, e.vy) / S, 0, 1);
@@ -109,16 +146,35 @@
     const { ents, player, box, dt, A, pr } = g;
     const S = box.s;
     const walls = ents.filter(isWall);
+    const flows = ents.filter(e => e.type === 'flow');
+    const warps = ents.filter(e => e.type === 'warp');
+    const paints = ents.filter(e => e.type === 'paint');
     const spawned = [];
     let droneAmt = 0;
 
-    // じぶんの円 → 壁
+    // じぶんの円 → 壁・渦・流れ
     collideWalls(player, walls, box, A, dt);
     keepInBox(player, box, 0);
+    warpCheck(player, warps, A);
+    player.flow = null;
+    for (const f of flows) { const v = flowAt(f, player, S); if (v) player.flow = v; }
 
     for (const e of ents) {
-      if (e === player || isWall(e) || e.dead) continue;
+      if (e === player || isWall(e) || isField(e) || e.dead) continue;
       if (e.captured) continue;
+      // 回る円: 軌道の上を回り、触れると接線方向へ飛び出す
+      if (e.type === 'orbit' && !e.free) {
+        e.ang += e.speed * dt;
+        e.x = e.ox + Math.cos(e.ang) * e.orbitR; e.y = e.oy + Math.sin(e.ang) * e.orbitR;
+        if (dist(e, player) < e.r + player.r) {
+          e.free = true;
+          const s = Math.sign(e.speed) || 1;
+          e.vx = -Math.sin(e.ang) * s * 1.1 * S; e.vy = Math.cos(e.ang) * s * 1.1 * S;
+          A.launch();
+        } else continue;
+      }
+      // 流れ: 帯の中の円は流される
+      for (const f of flows) { const v = flowAt(f, e, S); if (v) { e.vx += (v.x - e.vx) * 4 * dt; e.vy += (v.y - e.vy) * 4 * dt; } }
       const d = dist(e, player);
       const gap = d - (e.r + player.r);
       const n = d > 1e-3 ? { x: (e.x - player.x) / d, y: (e.y - player.y) / d } : { x: 0, y: -1 };
@@ -137,7 +193,7 @@
         }
         e.wobble = f;
       }
-      else if (e.type === 'push' || e.type === 'merge') {
+      else if (e.type === 'push' || e.type === 'merge' || e.type === 'dye' || e.type === 'orbit') {
         if (gap < 0) {
           const was = e.touching;
           e.touching = true;
@@ -147,10 +203,20 @@
           e.vx = n.x * push * 0.9 + e.vx * 0.2; e.vy = n.y * push * 0.9 + e.vy * 0.2;
           if (!was) A.bump(clamp(Math.hypot(player.vx, player.vy) / (2 * S), 0.2, 1));
         } else e.touching = false;
-        if (!e.touching) edgeRepel(e, box, dt);
+        edgeRepel(e, box, dt);
         integrate(e, dt, 3.0, 1.0 * S);
         collideWalls(e, walls, box, A, dt);
         keepInBox(e, box, 0.35);
+        // 染まる円: 絵の具にぶつかるとその色になる
+        if (e.type === 'dye') for (const pt of paints) {
+          const d = dist(e, pt), min = e.r + pt.r;
+          if (d < min && d > 1e-3) {
+            const nx = (e.x - pt.x) / d, ny = (e.y - pt.y) / d;
+            e.x += nx * (min - d); e.y += ny * (min - d);
+            e.vx = nx * 0.35 * S; e.vy = ny * 0.35 * S;
+            if (e.color !== pt.color) { e.color = pt.color; e.ripple = 1; pt.ripple = 1; A.dye(Math.max(0, PAINT_ORDER.indexOf(pt.color))); }
+          }
+        }
       }
       else if (e.type === 'flee') {
         const range = 0.38 * S;
@@ -169,7 +235,7 @@
         keepInBox(e, box, 0);
       }
       else if (e.type === 'follow' || e.type === 'piece') {
-        follow(e, player, dt, S, 14, 4, 0.03, walls, box);
+        follow(e, player, dt, S, 14, 4, 0.03, walls, box, warps);
         collideWalls(e, walls, box, null, dt);
         keepInBox(e, box, 0);
       }
@@ -183,7 +249,7 @@
             integrate(e, dt, 4, 0.6 * S);
           }
         } else {
-          follow(e, player, dt, S, 60, 9, 0.0, walls, box);
+          follow(e, player, dt, S, 60, 9, 0.0, walls, box, warps);
         }
         collideWalls(e, walls, box, null, dt);
         keepInBox(e, box, 0);
@@ -202,6 +268,22 @@
         }
       }
     }
+
+    // 渦: 動く円はすべて通れる
+    for (const e of ents) if (isMover(e) && e !== player) warpCheck(e, warps, A);
+    // 輪は、ぴったり合う円が近くを通ると優しく引き寄せる (流れや押しで少し外れても入る)
+    for (const rg of g.rings) {
+      if (rg.filled) continue;
+      for (const e of ents) {
+        if (e === player || !isMover(e) || !g.matches(rg, e) || Math.abs(e.r - rg.r) >= rg.r * 0.12) continue;
+        const d = dist(rg, e);
+        if (d < rg.r * 2.6 && d > 1e-3) { // 近いほど強く、流れより優先される
+          const k = clamp((1 - d / (rg.r * 2.6)) * 10 * dt, 0, 1);
+          e.vx = lerp(e.vx, (rg.x - e.x) / d * 0.8 * S, k); e.vy = lerp(e.vy, (rg.y - e.y) / d * 0.8 * S, k);
+        }
+      }
+    }
+    for (const e of ents) if (e.ripple > 0) e.ripple = Math.max(0, e.ripple - dt * 1.6);
 
     // 合体: 同じ種類が触れると1つになる (面積保存)
     const merges = ents.filter(e => e.type === 'merge' && isMover(e));
@@ -226,6 +308,8 @@
 
     // 破片・ついてくる円同士は重ならない
     separate(ents.filter(e => (e.type === 'piece' || e.type === 'follow' || (e.type === 'sticky' && e.attached)) && isMover(e)), dt);
+    // 押せる円同士もぶつかる (合体する円は上で処理済み)
+    separate(ents.filter(e => (e.type === 'push' || e.type === 'dye' || (e.type === 'orbit' && e.free)) && isMover(e)), dt);
 
     // 壁の凹みは戻る
     for (const w of walls) if (w.dentT > 0) w.dentT = Math.max(0, w.dentT - dt * 4);
@@ -235,7 +319,54 @@
   }
 
   // ---- 描画上のしるし ----
+  function drawFlow(ctx, f, now, S) {
+    ctx.save();
+    ctx.translate(f.x, f.y); ctx.rotate(Math.atan2(f.dirY, f.dirX));
+    ctx.fillStyle = 'rgba(0,0,0,0.06)';
+    ctx.beginPath(); ctx.roundRect(-f.len / 2, -f.wid / 2, f.len, f.wid, f.wid / 2); ctx.fill();
+    const n = Math.max(6, Math.round(f.len / (0.045 * S)));
+    for (let i = 0; i < n; i++) {
+      const p = ((now * f.speed * S / f.len) + i / n) % 1;
+      const x = -f.len / 2 + p * f.len;
+      const y = Math.sin(i * 12.9898) * f.wid * 0.36;
+      const a = Math.sin(p * Math.PI) * 0.7;
+      ctx.fillStyle = `rgba(255,255,255,${a})`;
+      ctx.beginPath(); ctx.ellipse(x, y, 0.014 * S, 0.006 * S, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+  function drawWarp(ctx, w, now) {
+    ctx.save(); ctx.translate(w.x, w.y);
+    ctx.fillStyle = hexA(w.color, 0.12);
+    ctx.beginPath(); ctx.arc(0, 0, w.r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = hexA(w.color, 0.85); ctx.lineWidth = w.r * 0.14; ctx.lineCap = 'round';
+    for (let k = 0; k < 2; k++) {
+      ctx.beginPath();
+      for (let i = 0; i <= 24; i++) {
+        const t = i / 24, a = -now * 3 + k * Math.PI + t * Math.PI * 1.6, rr = w.r * (0.15 + 0.8 * t);
+        const x = Math.cos(a) * rr, y = Math.sin(a) * rr;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
   function drawSign(ctx, e, now) {
+    if (e.type === 'orbit' && !e.free) {
+      ctx.strokeStyle = hexA(e.color, 0.35); ctx.lineWidth = 2; ctx.setLineDash([6, 8]);
+      ctx.beginPath(); ctx.arc(e.ox, e.oy, e.orbitR, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = '#101637';
+      ctx.beginPath(); ctx.arc(e.ox, e.oy, e.r * 0.22, 0, Math.PI * 2); ctx.fill();
+    }
+    if (e.type === 'paint') {
+      const b = 1 + 0.06 * Math.sin(now * 3 + e.x);
+      ctx.strokeStyle = hexA(e.color, 0.35); ctx.lineWidth = e.r * 0.1;
+      ctx.beginPath(); ctx.arc(e.x, e.y, e.r * 1.25 * b, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (e.ripple > 0) {
+      ctx.strokeStyle = hexA(e.color, e.ripple * 0.7); ctx.lineWidth = e.r * 0.12;
+      ctx.beginPath(); ctx.arc(e.x, e.y, e.r * (1 + (1 - e.ripple) * 1.5), 0, Math.PI * 2); ctx.stroke();
+    }
     if (e.type === 'grow' || e.type === 'shrink') {
       const out = e.type === 'grow';
       for (let i = 0; i < 3; i++) {
@@ -267,5 +398,5 @@
     ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(player.x, player.y); ctx.stroke();
   }
 
-  window.Laws = { update, drawSign, drawOverlay, drawThread, hexA, isWall };
+  window.Laws = { update, drawSign, drawOverlay, drawThread, drawFlow, drawWarp, hexA, isWall, isField, flowAt };
 })();

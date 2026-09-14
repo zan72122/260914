@@ -60,6 +60,12 @@
     merge() { tone(392, 0.3, { vol: 0.3, glide: 523 }); tone(494, 0.3, { vol: 0.2, glide: 523 }); },
     // 分裂した
     split() { [880, 740, 620].forEach((f, i) => tone(f, 0.12, { delay: i * 0.05, vol: 0.3, glide: f * 0.7 })); },
+    // 回る円が飛び出した
+    launch() { tone(900, 0.25, { vol: 0.3, glide: 300 }); },
+    // 染まった (色ごとに音程)
+    dye(i) { const f = [523, 659, 784, 880][i % 4]; tone(f, 0.25, { vol: 0.35 }); tone(f * 1.5, 0.3, { delay: 0.05, vol: 0.2 }); },
+    // 渦を通った
+    warp() { tone(300, 0.25, { vol: 0.3, glide: 1200 }); tone(1200, 0.15, { delay: 0.25, vol: 0.25, glide: 600 }); },
     // 星に触れた
     star() { tone(784, 0.25, { vol: 0.3, glide: 1568 }); },
     // 輪に入った

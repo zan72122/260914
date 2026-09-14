@@ -47,6 +47,8 @@
   let particles = [];
   let now = 0, lastTouch = 0, demoT = -1;
   const pointer = { down: false, x: 0, y: 0, vx: 0, vy: 0 };
+  const flowOff = { x: 0, y: 0 };  // 流れに押されている分のずれ
+  let detached = false;             // 渦を通った直後: 指を置き直すまで円は待つ
   const ghost = { active: false, t: 0 };
   let cleared = loadProgress();
   let mapNext = firstUncleared();   // 星空で誘う星
@@ -63,6 +65,7 @@
   function ringColor(lv) {
     const r0 = lv.rings[0];
     if (r0.target === 'player') return window.COLORS.player;
+    if (r0.target.color) return r0.target.color;
     if (typeof r0.target === 'string') { const it = lv.items.find(i => i.id === r0.target); return it ? it.color : window.COLORS.player; }
     const it = lv.items.find(i => i.type === r0.target.type || (r0.target.type === 'piece' && i.type === 'split'));
     return it ? it.color : window.COLORS.player;
@@ -75,11 +78,18 @@
     return {
       id, type: def.type || kind, def,
       nx: n.nx, ny: n.ny, x: p.x, y: p.y,
-      r: pr(def.r), baseR: def.r, scale: 1,
+      r: pr(def.r || 0), baseR: def.r || 0, scale: 1,
       minScale: def.minScale || 1, maxScale: def.maxScale || 1,
       color: def.color || window.COLORS.player,
       vx: 0, vy: 0, pop: 0, touching: false, captured: false, attached: false, dead: false, wobble: 0, pull: 0, dentT: 0,
+      pair: def.pair, speed: def.speed, ang: def.phase || 0, free: false, inWarp: null, ripple: 0,
     };
+  }
+  // 位置以外の寸法 (軌道・帯) を画面に合わせる
+  function layoutExtra(e) {
+    const d = e.def;
+    if (e.type === 'orbit') { const c = posOf(d); e.ox = c.x; e.oy = c.y; e.orbitR = pr(d.orbitR); if (!e.free) { e.x = e.ox + Math.cos(e.ang) * e.orbitR; e.y = e.oy + Math.sin(e.ang) * e.orbitR; } }
+    if (e.type === 'flow') { const c = posOf(d); e.x = c.x; e.y = c.y; e.len = pr(d.length); e.wid = pr(d.width); const a = d.angle * Math.PI / 180; e.dirX = Math.cos(a); e.dirY = Math.sin(a); e.r = 0; }
   }
 
   function matches(ring, e) {
@@ -87,7 +97,7 @@
     const t = ring.def.target;
     if (t === 'player') return e === player;
     if (typeof t === 'string') return e.id === t;
-    return e.type === t.type;
+    return e.type === t.type && (!t.color || e.color === t.color);
   }
 
   function loadLevel(i, opts) {
@@ -131,6 +141,7 @@
     for (const e of ents) {
       e.x = box.x0 + e.nx * box.w; e.y = box.y0 + e.ny * box.h;
       e.r = pr(e.baseR) * e.scale;
+      layoutExtra(e);
     }
     for (const rg of rings) {
       const d = rg.def;
@@ -148,6 +159,7 @@
     activeId = ev.pointerId;
     try { canvas.setPointerCapture(ev.pointerId); } catch (e) {}
     pointer.down = true; pointer.x = ev.clientX; pointer.y = ev.clientY;
+    flowOff.x = flowOff.y = 0; detached = false;
     lastTouch = now; ghost.active = false;
     A.unlock();
     if (phase === 'map') {
@@ -212,15 +224,26 @@
 
     if (phase === 'play' || phase === 'enter') {
       // じぶんの円: 指についてくる
-      if (pointer.down && !player.captured) {
+      if (pointer.down && !player.captured && !detached) {
         const k = 1 - Math.exp(-dt * 30);
         const ox = player.x, oy = player.y;
-        player.x = lerp(player.x, pointer.x, k); player.y = lerp(player.y, pointer.y, k);
+        const tx = pointer.x + flowOff.x, ty = pointer.y + flowOff.y;
+        player.x = lerp(player.x, tx, k); player.y = lerp(player.y, ty, k);
         player.vx = (player.x - ox) / dt; player.vy = (player.y - oy) / dt;
       } else { player.vx *= 0.8; player.vy *= 0.8; }
 
       // 法則
       const spawned = Laws.update({ ents, player, rings, box, dt, now, A, pr, matches });
+      if (player.warped) { // 渦の向こうに出た: 指を置き直すまで待つ
+        player.warped = false; detached = true; flowOff.x = flowOff.y = 0; player.vx = player.vy = 0;
+      }
+      if (player.flow) {
+        if (pointer.down && !detached) {
+          flowOff.x += player.flow.x * dt; flowOff.y += player.flow.y * dt;
+          const m = Math.hypot(flowOff.x, flowOff.y), max = 0.3 * S;
+          if (m > max) { flowOff.x *= max / m; flowOff.y *= max / m; }
+        } else { player.x += player.flow.x * dt; player.y += player.flow.y * dt; }
+      } else { const k = Math.exp(-dt * 3); flowOff.x *= k; flowOff.y *= k; }
       for (const s of spawned) {
         const e = makeEnt({ type: s.type, x: 0, y: 0, r: s.baseR, color: s.color }, s.id, s.type);
         e.x = s.x; e.y = s.y; e.vx = s.vx; e.vy = s.vy; e.r = s.r; e.pop = 0.3;
@@ -247,7 +270,9 @@
         }
         rg.glow = lerp(rg.glow, best ? clamp(1 - bestD / (rg.r * 3.5), 0, 1) : 0, 1 - Math.exp(-dt * 8));
         const captureR = best === player ? rg.r * 0.6 : rg.r * 1.0;
-        if (phase === 'play' && best && bestD < captureR) {
+        // じぶんの円の輪は最後: 他の輪が残っている間は入らない (入ると動けなくなるため)
+        const othersLeft = rings.some(o => o !== rg && !o.filled);
+        if (phase === 'play' && best && bestD < captureR && !(best === player && othersLeft)) {
           best.captured = true; best.attached = false; rg.filled = best;
           const remaining = rings.filter(r => !r.filled).length;
           if (remaining === 0) { phase = 'cleared'; phaseT = 0; A.enter(); A.drone(0, 1); }
@@ -328,6 +353,7 @@
   function ringTargetColor(rg) {
     const t = rg.def.target;
     if (t === 'player') return player.color;
+    if (t.color) return t.color;
     if (typeof t === 'string') { const e = ents.find(e => e.id === t); return e ? e.color : player.color; }
     const e = ents.find(e => e.type === t.type) || ents.find(e => t.type === 'piece' && e.type === 'split');
     return e ? e.color : starColors[levelIndex];
@@ -336,6 +362,8 @@
   function drawLevel() {
     ctx.fillStyle = bgColor; ctx.fillRect(0, 0, W, H);
     if (!level) return;
+    for (const e of ents) if (e.type === 'flow') Laws.drawFlow(ctx, e, now, box.s);
+    for (const e of ents) if (e.type === 'warp') Laws.drawWarp(ctx, e, now);
     for (const rg of rings) drawRing(rg);
 
     if (ghost.active) { // デモのゴースト (レベル1)
@@ -350,7 +378,7 @@
     for (const e of ents) if (Laws.isWall(e)) drawCircle(e, easeOut(e.pop), e.dentT > 0 ? { nx: e.dent.nx, ny: e.dent.ny, amt: e.dent.amt * e.dentT } : null);
     for (const e of ents) Laws.drawThread(ctx, e, player);
     for (const e of ents) {
-      if (e === player || Laws.isWall(e)) continue;
+      if (e === player || Laws.isWall(e) || e.type === 'flow' || e.type === 'warp') continue;
       const s = easeOut(e.pop);
       Laws.drawSign(ctx, e, now);
       let jx = 0, jy = 0;
@@ -359,10 +387,14 @@
       }
       const tmp = { x: e.x + jx, y: e.y + jy, r: e.r, color: e.color, type: e.type };
       drawCircle(tmp, s);
+      if (e.type === 'dye' && e.color === window.COLORS.dye) { // 白い円の縁 (背景と区別)
+        ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(tmp.x, tmp.y, tmp.r * s, 0, Math.PI * 2); ctx.stroke();
+      }
       Laws.drawOverlay(ctx, tmp, now);
     }
     let ps = easeOut(player.pop);
-    if (phase === 'play' && !pointer.down && idle > 2.5) ps *= 1 + 0.06 * Math.sin(now * 5);
+    if (phase === 'play' && ((!pointer.down && idle > 2.5) || detached)) ps *= 1 + 0.06 * Math.sin(now * 5);
     drawCircle(player, ps);
 
     for (const rg of rings) if (rg.fill > 0) {
@@ -419,6 +451,7 @@
     get levelIndex() { return levelIndex; }, get phase() { return phase; }, get ents() { return ents; },
     get rings() { return rings; }, get player() { return player; }, get box() { return box; }, get ghost() { return ghost; },
     get cleared() { return cleared; }, get mapNext() { return mapNext; }, mapPos: () => Map.pos(),
+    get offset() { return { x: flowOff.x, y: flowOff.y }; }, get detached() { return detached; },
     loadLevel, matches,
   };
 })();

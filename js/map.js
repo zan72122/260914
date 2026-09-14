@@ -6,7 +6,7 @@
 
   function layout(box, n) {
     const portrait = box.h >= box.w;
-    const cols = portrait ? 3 : 6, rows = Math.ceil(n / cols);
+    const cols = (n <= 18 ? 3 : 5) * (portrait ? 1 : 2), rows = Math.ceil(n / cols);
     const padX = box.w * 0.16, padY = box.h * 0.14;
     const cw = (box.w - padX * 2) / (cols - 1), rh = (box.h - padY * 2) / (rows - 1);
     starR = Math.min(box.s * 0.045, cw * 0.28, rh * 0.28);
