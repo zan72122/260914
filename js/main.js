@@ -47,7 +47,6 @@
   let particles = [];
   let now = 0, lastTouch = 0, demoT = -1;
   const pointer = { down: false, x: 0, y: 0, vx: 0, vy: 0 };
-  const flowOff = { x: 0, y: 0 };  // 流れに押されている分のずれ
   let detached = false;             // 渦を通った直後: 指を置き直すまで円は待つ
   const ghost = { active: false, t: 0 };
   let cleared = loadProgress();
@@ -159,7 +158,7 @@
     activeId = ev.pointerId;
     try { canvas.setPointerCapture(ev.pointerId); } catch (e) {}
     pointer.down = true; pointer.x = ev.clientX; pointer.y = ev.clientY;
-    flowOff.x = flowOff.y = 0; detached = false;
+    detached = false;
     lastTouch = now; ghost.active = false;
     A.unlock();
     if (phase === 'map') {
@@ -225,25 +224,22 @@
     if (phase === 'play' || phase === 'enter') {
       // じぶんの円: 指についてくる
       if (pointer.down && !player.captured && !detached) {
-        const k = 1 - Math.exp(-dt * 30);
+        // 帯の中では追従が弱まり、流れに引きずられる (指を動かせば逆らえる)
+        const k = 1 - Math.exp(-dt * (player.flow ? 7 : 30));
         const ox = player.x, oy = player.y;
-        const tx = pointer.x + flowOff.x, ty = pointer.y + flowOff.y;
-        player.x = lerp(player.x, tx, k); player.y = lerp(player.y, ty, k);
+        player.x = lerp(player.x, pointer.x, k); player.y = lerp(player.y, pointer.y, k);
+        if (player.flow) { player.x += player.flow.x * dt; player.y += player.flow.y * dt; }
         player.vx = (player.x - ox) / dt; player.vy = (player.y - oy) / dt;
       } else { player.vx *= 0.8; player.vy *= 0.8; }
 
       // 法則
       const spawned = Laws.update({ ents, player, rings, box, dt, now, A, pr, matches });
       if (player.warped) { // 渦の向こうに出た: 指を置き直すまで待つ
-        player.warped = false; detached = true; flowOff.x = flowOff.y = 0; player.vx = player.vy = 0;
+        player.warped = false; detached = true; player.vx = player.vy = 0;
       }
-      if (player.flow) {
-        if (pointer.down && !detached) {
-          flowOff.x += player.flow.x * dt; flowOff.y += player.flow.y * dt;
-          const m = Math.hypot(flowOff.x, flowOff.y), max = 0.3 * S;
-          if (m > max) { flowOff.x *= max / m; flowOff.y *= max / m; }
-        } else { player.x += player.flow.x * dt; player.y += player.flow.y * dt; }
-      } else { const k = Math.exp(-dt * 3); flowOff.x *= k; flowOff.y *= k; }
+      if (player.flow && !(pointer.down && !detached)) { // 指を離していると流される
+        player.x += player.flow.x * dt; player.y += player.flow.y * dt;
+      }
       for (const s of spawned) {
         const e = makeEnt({ type: s.type, x: 0, y: 0, r: s.baseR, color: s.color }, s.id, s.type);
         e.x = s.x; e.y = s.y; e.vx = s.vx; e.vy = s.vy; e.r = s.r; e.pop = 0.3;
@@ -451,7 +447,7 @@
     get levelIndex() { return levelIndex; }, get phase() { return phase; }, get ents() { return ents; },
     get rings() { return rings; }, get player() { return player; }, get box() { return box; }, get ghost() { return ghost; },
     get cleared() { return cleared; }, get mapNext() { return mapNext; }, mapPos: () => Map.pos(),
-    get offset() { return { x: flowOff.x, y: flowOff.y }; }, get detached() { return detached; },
+    get offset() { return { x: 0, y: 0 }; }, get detached() { return detached; },
     loadLevel, matches,
   };
 })();
