@@ -109,7 +109,7 @@ export class Crowd {
   bounds: CrowdBounds;
 
   constructor(opts: CrowdOptions = {}) {
-    this.separationRadius = opts.separationRadius ?? 26;
+    this.separationRadius = opts.separationRadius ?? 46;
     this.separationForce = opts.separationForce ?? 900;
     this.followForce = opts.followForce ?? 260;
     this.maxSpeed = opts.maxSpeed ?? 150;
@@ -123,16 +123,29 @@ export class Crowd {
     for (let i = 0; i < n; i++) {
       const kid = new Kid();
       const idx = this.kids.length;
-      // Deterministic-ish golden-angle scatter: even, but not a visible grid.
-      const a = idx * 2.399963;
-      const r = 40 + Math.sqrt(idx / MAX_KIDS) * 420;
-      kid.x = Math.cos(a) * r;
-      kid.y = Math.sin(a) * r * 0.85;
       kid.variant = idx % 6;
       kid.speedScale = 0.75 + ((idx * 37) % 50) / 100;
       kid.wanderPhase = ((idx * 61) % 628) / 100;
       kid.setState('idle');
       this.kids.push(kid);
+    }
+    this.scatter(420, 360);
+  }
+
+  /**
+   * Lays the crowd out inside an ellipse. Golden-angle spacing keeps it even,
+   * a deterministic per-kid jitter keeps it from reading as a spiral.
+   */
+  scatter(rx: number, ry: number): void {
+    const n = this.kids.length;
+    for (let i = 0; i < n; i++) {
+      const kid = this.kids[i];
+      const a = i * 2.399963;
+      const t = Math.sqrt((i + 0.5) / n);
+      const jr = (((i * 73) % 100) / 100 - 0.5) * 0.14;
+      const ja = (((i * 131) % 100) / 100 - 0.5) * 0.9;
+      kid.x = Math.cos(a + ja) * rx * (t + jr);
+      kid.y = Math.sin(a + ja) * ry * (t + jr);
     }
   }
 

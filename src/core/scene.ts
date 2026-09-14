@@ -30,7 +30,6 @@ export abstract class Scene {
   }
 
   /** Every pointer down/move/up, as a world-space Hand. */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onHand(_ev: HandEvent): void {}
 
   /** The world should nudge the player after a while of no input. */

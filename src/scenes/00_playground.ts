@@ -36,6 +36,7 @@ export class PlaygroundScene extends Scene {
   private ringTexture = buildRingTexture();
   private time = 0;
   private spriteScale = 1;
+  private laidOut = false;
 
   override enter(ctx: SceneContext): void {
     super.enter(ctx);
@@ -48,10 +49,28 @@ export class PlaygroundScene extends Scene {
       this.layer.addChild(s);
       this.sprites.push(s);
     }
+    this.layer.sortableChildren = true;
+    this.fitToViewport();
+    ctx.viewport.onChange(() => this.fitToViewport());
     ctx.stage.addChild(this.layer);
     ctx.stage.addChild(this.fxLayer);
     // A quiet pentatonic loop; stays queued and silent until first touch.
     ctx.audio.bgm.play({ root: 67, tempo: 84, seed: 4 });
+  }
+
+  /** Crowd fills whatever the device actually shows, portrait or landscape. */
+  private fitToViewport(): void {
+    const l = this.ctx.viewport.layout;
+    const halfW = Math.min(l.worldWidth, SAFE * 1.7) / 2;
+    const halfH = Math.min(l.worldHeight, SAFE * 1.7) / 2;
+    this.crowd.bounds.left = -halfW;
+    this.crowd.bounds.right = halfW;
+    this.crowd.bounds.top = -halfH;
+    this.crowd.bounds.bottom = halfH;
+    if (!this.laidOut) {
+      this.laidOut = true;
+      this.crowd.scatter(halfW * 0.86, halfH * 0.86);
+    }
   }
 
   override onHand(ev: HandEvent): void {
@@ -120,7 +139,6 @@ export class PlaygroundScene extends Scene {
       s.zIndex = k.y;
       if (k.stepped) steps++;
     }
-    this.layer.sortableChildren = true;
     if (steps > 0) {
       this.ctx.audio.sfx.play('pote', {
         gain: Math.min(1, 0.25 + steps * 0.05),

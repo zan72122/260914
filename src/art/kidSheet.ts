@@ -38,7 +38,7 @@ export const VARIANTS = SHIRTS.length;
 export const FRAME_W = 96;
 export const FRAME_H = 128;
 /** World-space height of a kid (2.5 heads tall silhouette). */
-export const KID_WORLD_H = 46;
+export const KID_WORLD_H = 110;
 
 export interface FrameKey {
   variant: number;

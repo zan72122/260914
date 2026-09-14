@@ -1,5 +1,8 @@
 import { defineConfig } from '@playwright/test';
 
+// This machine ships a pre-installed Chromium; never run `playwright install`.
+process.env.PLAYWRIGHT_BROWSERS_PATH ??= '/opt/pw-browsers';
+
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,
@@ -10,7 +13,7 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: 'npm run build && npx vite preview --port 4173 --strictPort',
+    command: 'npx vite preview --port 4173 --strictPort',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: false,
     timeout: 180_000,
