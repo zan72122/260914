@@ -1,0 +1,10 @@
+{
+  "name": "ぞろぞろ",
+  "short_name": "ぞろぞろ",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#FFF7E8",
+  "theme_color": "#FFF7E8",
+  "icons": []
+}
