@@ -271,7 +271,7 @@
       ] },
     // 30. フィナーレ: 染める → 渦で向こうへ → 流れで輪へ。じぶんの円も渦と流れを通って輪へ
     { bg: '#FFF1F8',
-      player: { cx: 0.3, cy: 0.4, r: R },
+      player: { cx: 0, cy: 0.44, r: R },
       rings: [
         { cx: 0.1, cy: -0.3, r: 0.065, target: { type: 'dye', color: C.paintR } },
         { cx: 0.38, cy: -0.3, r: R, target: 'player' },
@@ -279,10 +279,10 @@
       items: [
         { type: 'gate', cy: 0, gap: 0, r: 0.12 },
         { type: 'flow', cx: 0.1, cy: -0.3, angle: 0, length: 0.75, width: 0.18, speed: 0.5 },
-        { id: 'wa', type: 'warp', cx: 0, cy: 0.24, r: 0.08, pair: 'wb', color: C.warp },
+        { id: 'wa', type: 'warp', cx: 0.24, cy: 0.27, r: 0.08, pair: 'wb', color: C.warp },
         { id: 'wb', type: 'warp', cx: -0.4, cy: -0.3, r: 0.08, pair: 'wa', color: C.warp },
-        { id: 'd1', type: 'dye', cx: -0.34, cy: 0.26, r: 0.065, color: C.dye },
-        { id: 'pr', type: 'paint', cx: -0.1, cy: 0.44, r: 0.06, color: C.paintR },
+        { id: 'd1', type: 'dye', cx: -0.36, cy: 0.27, r: 0.065, color: C.dye },
+        { id: 'pr', type: 'paint', cx: -0.1, cy: 0.27, r: 0.06, color: C.paintR },
       ] },
   ];
   window.COLORS = C;
