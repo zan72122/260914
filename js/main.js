@@ -123,7 +123,7 @@
     for (const d of level.items) {
       if (d.type !== 'gate') continue;
       const half = box.w / 2 / box.s;
-      for (let k = 0, o = d.gap / 2 + d.r; ; k++, o += d.r * 1.5) {
+      for (let k = 0, o = d.gap / 2 + d.r; ; k++, o += d.r * 1.2) { // 重ねてくぼみを浅くする (円が挟まらない)
         for (const sgn of [-1, 1]) {
           const e = makeEnt({ type: 'wall', cx: sgn * o, cy: d.cy, r: d.r, color: window.COLORS.wall }, 'gate' + k + (sgn < 0 ? 'l' : 'r'), 'wall');
           e.gate = true; e.pop = 1;
