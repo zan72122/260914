@@ -5,6 +5,7 @@ import { solve } from '../src/core/solve';
 import { applyTool } from '../src/core/tools';
 import { findTile } from '../src/core/board';
 import type { GameState } from '../src/core/types';
+import { HIT_SIZE } from '../src/render/overlay';
 
 /** 6.1: どの面も正解手数は最大 6 操作 */
 const MAX_MOVES = 6;
@@ -154,4 +155,30 @@ describe('列車のレベルは線路レイヤーになる', () => {
       expect(b.tiles.every((t) => t.layer === 'rail')).toBe(true);
     });
   }
+});
+
+describe('当たり判定(5.2)', () => {
+  it('隣り合うタイルのツールでも板が重ならない', () => {
+    // 板は 1 タイル間隔で並ぶので、一辺が 1 未満なら重ならない
+    expect(HIT_SIZE).toBeLessThan(1);
+  });
+
+  levels.forEach((level) => {
+    it(`${level.id}: 同じマスに «同時に触れる» ツールが 2 つ載っていない`, () => {
+      const board = buildBoard(level);
+      const active = level.tools.filter((tool) => {
+        // 瓦礫の上のツール(破壊以外)は、壊れて道が現れるまで隠れている
+        if (tool.kind === 'destroy') return true;
+        return !tool.cells.every((c) => board.tiles[c.y * board.w + c.x]?.kind === 'block');
+      });
+      const seen = new Set<string>();
+      for (const tool of active) {
+        for (const c of tool.cells) {
+          const k = `${c.x},${c.y}`;
+          expect(seen.has(k), `${k} が重複`).toBe(false);
+          seen.add(k);
+        }
+      }
+    });
+  });
 });

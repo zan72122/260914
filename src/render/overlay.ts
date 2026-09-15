@@ -12,8 +12,13 @@ export const HIT_SCALE = 1.4;
 const ICON_SIZE = 0.52;
 /** アイコンの下に敷く円盤。岩や模様の上でもアイコンが読めるようにする(7.6) */
 const PAD_SIZE = ICON_SIZE * 1.34;
-/** 当たり判定はアイコンより大きく取りたいので、下限をタイル幅の 7 割にする(5.2) */
-const HIT_SIZE = Math.max(ICON_SIZE * HIT_SCALE, 0.7);
+/**
+ * 当たり判定の板の一辺(タイル幅に対する割合)。アイコンより大きく取りたいので下限を 0.7 にする(5.2)。
+ * 1.0 を超えると隣のタイルのツールと板が重なるため、ここは必ず 1 未満に保つ。
+ */
+export const HIT_SIZE = Math.max(ICON_SIZE * HIT_SCALE, 0.7);
+/** 板を範囲の外周からどれだけ内側に留めるか。これが隣のツールとの隙間になる */
+const HIT_INSET = (1 - HIT_SIZE) / 2;
 /** 半透明オーバーレイの基準不透明度。道の向きが透けて見える濃さにする */
 export const OVERLAY_OPACITY = 0.15;
 
@@ -117,15 +122,6 @@ export function createToolOverlay(
     // 位置はタイル中央のまま動かさない(3.3-(4) タップした場所 = 変化する場所)
     followers.push({ mesh: icon, dy: 0.05, cell: c });
 
-    // 当たり判定用の見えない板(5.2)。範囲内のどのタイルでも押せる
-    const hit = new THREE.Mesh(planeGeo, new THREE.MeshBasicMaterial({ visible: false }));
-    hit.rotation.x = -Math.PI / 2;
-    hit.scale.setScalar(HIT_SIZE);
-    hit.position.set(c.x, 0, c.y);
-    hit.userData['toolIndex'] = toolIndex;
-    hitPlanes.push(hit);
-    group.add(hit);
-    followers.push({ mesh: hit, dy: 0.06, cell: c });
   }
 
   // 範囲全体を 1 つの点線枠で囲み、四隅に黒い丸(本家 2.5)
@@ -168,6 +164,23 @@ export function createToolOverlay(
   addDashedEdge(w, true, h / 2 - inset);
   addDashedEdge(h, false, -(w / 2 - inset));
   addDashedEdge(h, false, w / 2 - inset);
+
+  /**
+   * 当たり判定の板(5.2)。範囲«全体»を 1 枚で覆う。
+   *
+   * タイルごとに置くと、2 タイル範囲の «まんなか»(タイルとタイルの境目)が
+   * どちらの板にも入らない穴になる。1 枚で覆えば穴が無くなり、
+   * 外周は 1 タイルの端から HIT_INSET だけ内側に留まるので、
+   * 隣のタイルに載った別のツールの板とは重ならない。
+   */
+  const hit = new THREE.Mesh(planeGeo, new THREE.MeshBasicMaterial({ visible: false }));
+  hit.rotation.x = -Math.PI / 2;
+  hit.scale.set(Math.max(0.2, w - HIT_INSET * 2), Math.max(0.2, h - HIT_INSET * 2), 1);
+  hit.position.set(cx, 0, cy);
+  hit.userData['toolIndex'] = toolIndex;
+  hitPlanes.push(hit);
+  group.add(hit);
+  followers.push({ mesh: hit, dy: 0.06 });
 
   const dotGeo = new THREE.CircleGeometry(0.075, 16);
   const dotMat = new THREE.MeshBasicMaterial({ color: 0x14100c, depthWrite: false });
