@@ -1,5 +1,14 @@
 # Scene agent guide (Phase 2) — read BRIEF.md and ARCHITECTURE.md first
 
+> **Historical.** Phase 2 is over: the eight scenes exist and the core is no
+> longer frozen. The file-ownership and "work around it inside your own files"
+> rules below applied to building scenes concurrently; the workarounds they
+> produced have since been adopted into the core (see ARCHITECTURE.md). What is
+> still current here is the **feel standard** and the **verification** section —
+> those are the bar any new or changed scene is held to, plus
+> `node dev/playthrough.mjs`, which must finish the whole chain on all four
+> devices with zero page errors.
+
 You are one of several agents building scenes CONCURRENTLY in the same working
 directory. Rules that keep you from stepping on each other:
 
