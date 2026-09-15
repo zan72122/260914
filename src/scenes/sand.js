@@ -158,23 +158,27 @@ export class SandScene extends Scene {
       for (let i = 1; i <= 3 && n > 0; i++) { this.debris[i].state = 'in-cup'; n--; }
     }
     if (this.persist.revealed) { this.revealT = 1; pile.state = 'in-cup'; }
-
-    // main.relayout() preserves progress by marking the first N debris DONE,
-    // which would swallow the whole pile (it is debris #0) on an orientation
-    // change. It skips anything flagged `dormant`, so the scene hides behind
-    // that for exactly one frame and restores its own saved state instead.
-    for (let i = 0; i < this.debris.length; i++) this.debris[i].dormant = true;
-    this._wake = true;
   }
+
+  /**
+   * Everything this scene needs across an orientation change is already in
+   * `persist` (the height field itself, the grit count, the buried three), and
+   * layout() has just replayed it, so the core's index-based replay would only
+   * double-count. Opt out of it.
+   */
+  saveProgress() { return null; }
+  restoreProgress() {}
 
   // ---------------------------------------------------------------- update
 
   update(dt, ctx) {
     const list = this.debris;
-    if (this._wake) { this._wake = false; for (let i = 0; i < list.length; i++) list[i].dormant = false; }
-    this.pile.update(dt, ctx.vacuum, ctx.world, ctx);
+    this.pile.update(dt, ctx.vacuum, ctx.world);
     for (let i = 1; i < list.length; i++) list[i].update(dt, ctx.vacuum, ctx.world);
     resolveProps(ctx.vacuum, this.props, dt);
+
+    // the "zazaa": a whole mass draining is a wide noise bed, not a pop per grain
+    if (ctx.audio) ctx.audio.setStream(clamp(this.pile.roar * 1.15, 0, 1));
 
     if (this.remaining() === 0 && this.revealT < 1) {
       this.revealT = clamp(this.revealT + dt / 1.2, 0, 1);

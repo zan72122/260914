@@ -169,6 +169,7 @@ export class SofaScene extends Scene {
     this.carpetImg = makeCarpet(this.carpet, this.carpetEdge);
     this.sofaImg = makeSofaImage(s);
     this._buildFilm();
+    this._replayClean();
     this._buildMotes();
     this.clearStartZone(215);
     for (let i = 0; i < this.debris.length; i++) {
@@ -224,10 +225,21 @@ export class SofaScene extends Scene {
     g.globalCompositeOperation = 'source-over';
   }
 
-  /** Wipe the dust film clean at a world point. */
-  _clean(wx, wy, r) {
+  /**
+   * Wipe the dust film clean at a world point, and remember it (normalized to
+   * the cavity) so an orientation change keeps the patches the player cleaned.
+   */
+  _clean(wx, wy, r, replay) {
     const f = this.film;
     if (!f) return;
+    if (!replay) {
+      const s = this.sofa;
+      const W = s.x1 - s.x0, H = s.yEdge - s.yBack;
+      const list = this.persist.clean || (this.persist.clean = []);
+      if (list.length < 500) {
+        list.push([+((wx - s.x0) / W).toFixed(4), +((wy - s.yBack) / H).toFixed(4), +(r / W).toFixed(4)]);
+      }
+    }
     const g = f.ctx;
     const x = wx - f.x, y = wy - f.y;
     g.save();
@@ -239,6 +251,17 @@ export class SofaScene extends Scene {
     g.fillStyle = grad;
     g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
     g.restore();
+  }
+
+  /** Orientation change: put the cleaned patches back into the fresh film. */
+  _replayClean() {
+    const list = this.persist.clean;
+    if (!list || !list.length) return;
+    const s = this.sofa;
+    const W = s.x1 - s.x0, H = s.yEdge - s.yBack;
+    for (let i = 0; i < list.length; i++) {
+      this._clean(s.x0 + list[i][0] * W, s.yBack + list[i][1] * H, list[i][2] * W, true);
+    }
   }
 
   _buildMotes() {
@@ -283,6 +306,7 @@ export class SofaScene extends Scene {
     hl.on = lightU > 0.035;
     hl.r = (this.pose === 'portrait' ? 215 : 205);
     hl.cone = 0.16;                       // a torch beam, not a floodlight
+    hl.softness = 1;                      // ...with a spill, so it has no cut edge
     hl.intensity = clamp(lightU * 1.35, 0, 1);
     this.lightU = lightU;
 
@@ -315,24 +339,17 @@ export class SofaScene extends Scene {
 
   _camera(dt, cam, vac, u) {
     const r = this.rest, c = this.cave;
-    let tx = lerp(r.x, c.x, u), ty = lerp(r.y, c.y, u);
-    const tz = lerp(r.zoom, c.zoom, u), tt = lerp(r.tilt, c.tilt, u);
-    if (u > 0.02) {
-      // bounded follow (gain < 1, so it settles): she can push deeper and
-      // travel sideways along the cavity without the camera running away
-      tx += clamp((vac.nozzle.x - c.x) * 0.45, -this.follow.x, this.follow.x) * u;
-      ty += clamp((vac.nozzle.y - c.y) * 0.40, -this.follow.y, this.follow.y) * u;
-    }
-    if (!this._camReady) {
-      this._camReady = true;
-      cam.set(tx, ty, tz, tt);
-      return;
-    }
-    const k = 1 - Math.exp(-2.8 * dt);
-    cam.x += (tx - cam.x) * k;
-    cam.y += (ty - cam.y) * k;
-    cam.zoom += (tz - cam.zoom) * k;
-    cam.tilt += (tt - cam.tilt) * k;
+    // the composition: out in the room at u=0, framing the cavity at u=1
+    const A = this._camAnchor || (this._camAnchor = { x: 0, y: 0, zoom: 1, tilt: 0 });
+    A.x = lerp(r.x, c.x, u); A.y = lerp(r.y, c.y, u);
+    A.zoom = lerp(r.zoom, c.zoom, u); A.tilt = lerp(r.tilt, c.tilt, u);
+    // ...plus a bounded-gain follow toward the nozzle, so she can push deeper
+    // and travel sideways without the camera running away (core helper)
+    const lim = this._camLimit || (this._camLimit = { x: 0, y: 0 });
+    lim.x = this.follow.x * u; lim.y = this.follow.y * u;
+    const subject = u > 0.02 ? vac.nozzle : null;
+    cam.followTo(dt, A, subject, lim, { x: 0.45 * u, y: 0.40 * u }, 2.8, !this._camReady);
+    this._camReady = true;
   }
 
   _motes(dt, vac, u) {
@@ -366,26 +383,14 @@ export class SofaScene extends Scene {
   }
 
   /**
-   * The motor, muffled under the furniture, and strangled while the sock plugs
-   * the mouth. Core audio owns the graph; we only re-target its parameters
-   * after vacuum.update() has set them, so nothing in core changes.
+   * Under the furniture the room closes down around the motor. The core owns
+   * the graph; the scene only says where it is. The strangled note while
+   * something plugs the intake comes from `vac.clog`, which the sock and the
+   * mother bunny set themselves.
    */
   _audio(audio, vac, u) {
-    if (!audio || !audio.ready || !audio.motorGain || !audio.o1) return;
-    const sk = this.sock;
-    const clog = sk && !sk.gulped ? sk.clogAmount : 0;
-    if (u < 0.02 && clog < 0.02) return;
-    try {
-      const t = audio.ctx.currentTime;
-      const p = (vac.power - 1) / 1.2;
-      const f = (62 + p * 52 - vac.load * 9) * (1 - 0.10 * u - 0.34 * clog);
-      audio.o1.frequency.setTargetAtTime(f, t, 0.07);
-      audio.o2.frequency.setTargetAtTime(f * 1.503, t, 0.07);
-      audio.motorGain.gain.setTargetAtTime((0.16 + p * 0.2) * (1 - 0.28 * u) * (1 + 0.45 * clog), t, 0.09);
-      audio.airGain.gain.setTargetAtTime(
-        Math.max(0, (0.02 + p * 0.05 + vac.load * 0.05) * (1 - 0.78 * u - 0.6 * clog)), t, 0.08);
-      audio.airBP.frequency.setTargetAtTime((1100 + p * 900) * (1 - 0.55 * u - 0.2 * clog), t, 0.1);
-    } catch (_) {}
+    if (!audio) return;
+    audio.setSpace({ muffle: u });
   }
 
   /** Completion: a clean stripe wipes from the back of the cavity to the front. */
@@ -502,27 +507,6 @@ export class SofaScene extends Scene {
     // a whisper of bounce light along the slot, so the way out is never lost
     cam.toScreen((s.x0 + s.x1) * 0.5, s.yEdge - 4, SP);
     L.addLight(SP.x, SP.y, (s.x1 - s.x0) * 0.55 * zoom, 0.16 * u);
-    this._beam(L, cam, vac, u);
-  }
-
-  /**
-   * Soft edges for the headlight: the core cone comes from vacuum/light.js and
-   * is deliberately hard, so we wrap it in two wider, weaker cones and a pool at
-   * the mouth. The result is a torch beam with a spill, not a pie slice.
-   */
-  _beam(L, cam, vac, u) {
-    if (!vac.headlight.on) return;
-    cam.toScreen(vac.mouthX, vac.mouthY, SP);
-    const mx = SP.x, my = SP.y;
-    cam.toScreen(vac.mouthX + vac.dirX * 40, vac.mouthY + vac.dirY * 40, SP);
-    let dx = SP.x - mx, dy = SP.y - my;
-    const l = Math.hypot(dx, dy) || 1;
-    dx /= l; dy /= l;
-    const r = vac.headlight.r * cam.zoom;
-    const i = vac.headlight.intensity * (0.6 + 0.4 * vac.powerN);
-    L.addLight(mx + dx * r * 0.22, my + dy * r * 0.22, r * 0.84, 0.40 * i, dx, dy, 0.34);
-    L.addLight(mx, my, 190 * cam.zoom, 0.13 * i);   // the glow you work inside
-    L.addLight(mx, my, 76 * cam.zoom, 0.5 * i);     // and the bright spot at the mouth
   }
 
   // ------------------------------------------------------------- contract
@@ -532,7 +516,11 @@ export class SofaScene extends Scene {
   exit() { return { to: this.exitCam, dur: 1.7, next: 'carpet' }; }
 
   entry() {
-    return { x: this.rest.x, y: this.rest.y + this.vh * 0.14, zoom: this.scale * 1.06, tilt: 0.06 };
+    // arriving from the entrance hall: portrait came toward the viewer, so we
+    // start low; landscape came rightwards past the shoe rack, so we start left
+    return this.pose === 'portrait'
+      ? { x: this.rest.x, y: this.rest.y + this.vh * 0.14, zoom: this.scale * 1.06, tilt: 0.06 }
+      : { x: this.rest.x - this.vw * 0.42, y: this.rest.y + this.vh * 0.08, zoom: this.scale * 1.06, tilt: 0.06 };
   }
 
   snapshot() {

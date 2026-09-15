@@ -134,17 +134,10 @@ export class CarpetScene extends Scene {
       this.surface.push(b);
     }
 
-    for (const d of this.debris) { d._px = d.x; d._py = d.y; }
+    // Debris.translate() carries the wrapped debris and its pieces along, so
+    // shoving something out of the parked nozzle's reach is one core call
     this.clearStartZone(215);
     for (const b of this.surface) { b._homeX = b.x; b._homeY = b.y; }
-    // anything clearStartZone shoved aside takes its own pieces with it
-    for (const d of this.debris) {
-      const ddx = d.x - d._px, ddy = d.y - d._py;
-      if (!d.inner) continue;
-      d.inner.x = d.x; d.inner.y = d.y; d.inner.hx = d.x; d.inner.hy = d.y;
-      const parts = d.inner.bits || d.inner.beads;
-      if (parts && (ddx || ddy)) for (const b of parts) { b.x += ddx; b.y += ddy; b.hx = b.x; b.hy = b.y; }
-    }
 
     this.exitCam = { x: 0, y: 0, zoom: this.scale * 0.82, tilt: 0 };
   }
@@ -185,6 +178,14 @@ export class CarpetScene extends Scene {
     // keep the combed stripes across an orientation change (cheap, not per frame)
     this._saveT = (this._saveT || 0) - dt;
     if (this._saveT <= 0) { this._saveT = 0.6; this.persist.comb = this.floor.save(); }
+
+    if (ctx.audio) {
+      // combing mass out of the pile, and then the whole cup draining into the
+      // bin, are both a wide noise bed rather than a pop per piece
+      const pour = this.fin && this.fin.phase === 'pour'
+        ? clamp(1 - (this.fin.t / Math.max(0.2, this.fin.pourEnd)), 0, 1) : 0;
+      ctx.audio.setStream(Math.max(clamp((this.combPower || 0) * 0.75, 0, 1), pour));
+    }
 
     if (!this.fin && this._roomClean()) this._beginFinale(ctx);
     if (this.fin) this._finale(dt, ctx);
@@ -296,15 +297,6 @@ export class CarpetScene extends Scene {
     if (ctx.audio) ctx.audio.pop('whoosh', 0.5);
   }
 
-  /** A point inside the dust cup (cup-local coords) in world space. */
-  _cupWorld(vac, lx, ly, out) {
-    const a = vac.bodyAngle + Math.PI / 2;
-    const ca = Math.cos(a), sa = Math.sin(a);
-    out.x = vac.body.x + lx * ca - ly * sa;
-    out.y = vac.body.y + lx * sa + ly * ca;
-    return out;
-  }
-
   _finale(dt, ctx) {
     const F = this.fin;
     const vac = ctx.vacuum;
@@ -378,7 +370,8 @@ export class CarpetScene extends Scene {
   /** Take everything out of the cup; from now on WE draw it. */
   _loadCup(vac, ctx) {
     const F = this.fin;
-    const src = vac.cup.slice();
+    // emptyCup() hands back the contents already placed in world coordinates
+    const src = vac.emptyCup();
     // a single scene's worth would be a trickle; a whole run is a rush
     const pad = 34 - src.length;
     for (let i = 0; i < pad; i++) {
@@ -392,7 +385,8 @@ export class CarpetScene extends Scene {
     const p = { x: 0, y: 0 };
     for (let i = 0; i < src.length; i++) {
       const c = src[i];
-      this._cupWorld(vac, c.x, c.y, p);
+      if (c.wx === undefined) vac.cupToWorld(c.x, c.y, p);
+      else { p.x = c.wx; p.y = c.wy; }
       F.items.push({
         lx: c.x, ly: c.y, x: p.x, y: p.y, r: c.r, kind: c.kind, color: c.color, rot: c.rot || 0,
         t0: i * 0.012, t: 0, dur: 0.50 + this.rng.range(0, 0.12), spin: this.rng.range(-9, 9),
@@ -402,7 +396,6 @@ export class CarpetScene extends Scene {
     F.pourEnd = src.length * 0.012 + 0.62;
     F.pourDone = false;
     if (ctx.audio) ctx.audio.pop('whoosh', 1);
-    vac.clearCup();
   }
 
   _pour(dt, vac, ctx) {
@@ -415,14 +408,14 @@ export class CarpetScene extends Scene {
       if (it.landed) continue;
       if (F.t < it.t0) {
         // still in the cup: ride along with the body until it is its turn
-        this._cupWorld(vac, it.lx, it.ly, p);
+        vac.cupToWorld(it.lx, it.ly, p);
         it.x = p.x; it.y = p.y;
         flying++;
         continue;
       }
       if (!it.started) {
         it.started = true;
-        this._cupWorld(vac, it.lx, it.ly, p);
+        vac.cupToWorld(it.lx, it.ly, p);
         it.sx = p.x; it.sy = p.y;
         it.ox = this.rng.range(-bin.w * 0.28, bin.w * 0.28);
         it.oy = this.rng.range(-bin.h * 0.10, bin.h * 0.14);
@@ -488,9 +481,20 @@ export class CarpetScene extends Scene {
     cam.apply(ctx);
     this._drawFlecks(ctx);
     if (this._vac) this._drawRoller(ctx, this._vac);
-    if (this.fin) this._drawPour(ctx);
     this._drawTableTop(ctx);
-    if (this.fin) this._drawShine(ctx);
+    ctx.restore();
+  }
+
+  /**
+   * The pour happens BETWEEN the cup and the bin, so it has to be in front of
+   * the machine — that is what the core `drawOver` hook is for.
+   */
+  drawOver(ctx, cam) {
+    if (!this.fin) return;
+    ctx.save();
+    cam.apply(ctx);
+    this._drawPour(ctx);
+    this._drawShine(ctx);
     ctx.restore();
   }
 

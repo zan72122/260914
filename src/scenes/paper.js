@@ -149,7 +149,7 @@ export class PaperScene extends Scene {
                           rev[i][2] * this.doodle.r);
       }
     }
-    if (this.persist.revealed) { this.floor.clearGrime(); this.floor.grime = null; this.revealT = 1; }
+    if (this.persist.revealed) { this.floor.clearGrime(); this.revealT = 1; }
   }
 
   // ------------------------------------------------------------------ sim
@@ -203,7 +203,8 @@ export class PaperScene extends Scene {
                             this.doodle.y + Math.sin(a) * rr * 0.86, 44);
         }
       }
-      if (this.revealT >= 1) { this.floor.clearGrime(); this.floor.grime = null; this.persist.revealed = true; }
+      // Floor.draw() skips a cleared grime layer, so this also buys the frame back
+      if (this.revealT >= 1) { this.floor.clearGrime(); this.persist.revealed = true; }
     }
     if (this.revealT >= 1) this.wheelT = clamp(this.wheelT + dt / 0.9, 0, 1);
   }

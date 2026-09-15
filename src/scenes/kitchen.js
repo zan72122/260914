@@ -128,9 +128,16 @@ export class KitchenScene extends Scene {
 
   update(dt, ctx) {
     const list = this.debris;
-    for (let i = 0; i < list.length; i++) list[i].update(dt, ctx.vacuum, ctx.world);
+    let skating = 0;
+    for (let i = 0; i < list.length; i++) {
+      const d = list[i];
+      d.update(dt, ctx.vacuum, ctx.world);
+      if (d.sliding) skating++;
+    }
     resolveCrumbs(list);
     resolveProps(ctx.vacuum, this.props, dt);
+    // a whole spill skating in at once hisses; one grain just ticks
+    if (ctx.audio) ctx.audio.setStream(clamp((skating - 1) / 7, 0, 1));
 
     if (this.remaining() === 0 && this.revealT < 1) {
       const prev = this.revealT;
@@ -221,7 +228,7 @@ export class KitchenScene extends Scene {
     ctx.restore();
   }
 
-  exit() { return { to: this.exitCam, dur: 1.5, next: null }; }
+  exit() { return { to: this.exitCam, dur: 1.5, next: 'paper' }; }
 
   entry() {
     const p = this.pose === 'portrait';

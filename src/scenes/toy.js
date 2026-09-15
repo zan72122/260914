@@ -3,7 +3,7 @@ import { State } from '../debris/base.js';
 import { DustBunny } from '../debris/dustBunny.js';
 import { Crumb, resolveCrumbs } from '../debris/crumb.js';
 import { Bead } from '../debris/bead.js';
-import { Prop, resolveProps } from '../props/prop.js';
+import { Prop, resolveProps, keepInside } from '../props/prop.js';
 import { ToyCar, PlushBear, BlockTrain, covers, rrect } from '../props/toys.js';
 import { makePlayroomFloor, paintSticker, paintDustPatch } from '../floors/playroom.js';
 import { TAU, clamp, smoothstep } from '../core/math.js';
@@ -28,7 +28,6 @@ export class ToyScene extends Scene {
     this.nests = [];
     this.rides = [];
     this.puffs = [];
-    this.solids = [];
     this.thread = null;
     this._glow = null;
   }
@@ -45,7 +44,6 @@ export class ToyScene extends Scene {
     this.nests.length = 0;
     this.rides.length = 0;
     this.puffs.length = 0;
-    this.solids.length = 0;
     this._glow = null;
     const rng = this.rng;
     const portrait = pose === 'portrait';
@@ -67,6 +65,8 @@ export class ToyScene extends Scene {
         { k: 'train', p: this._p(0.40, 0.215), a: 0.06 },
       ];
       this.exitCam = { x: this.door.x, y: this.wall.y - 40, zoom: this.scale * 1.05, tilt: 0.36 };
+      // toys stay in the room: never behind the wall, never off the side
+      this.bounds = { x0: -w * 0.5, y0: this.wall.y, x1: w * 0.5, y1: h * 0.40, inset: 0.8 };
     } else {
       // WIDE floor: the toys strung out left to right, a solid toy chest
       // along the back that the head has to slide around
@@ -82,11 +82,11 @@ export class ToyScene extends Scene {
       const c = this._p(0.38, 0.145);
       this.chest = { x: c.x, y: c.y, w: 250, h: 104 };
       this.exitCam = { x: w * 0.40, y: -h * 0.02, zoom: this.scale * 1.05, tilt: 0.24 };
+      this.bounds = { x0: -w * 0.5, y0: -h * 0.5, x1: this.wall.x, y1: h * 0.5, inset: 0.8 };
     }
 
     if (this.chest) {
       const c = this.chest;
-      this.solids.push(c);
       this.props.push(new Prop({
         x: c.x, y: c.y, shape: 'rect', w: c.w, h: c.h, pushable: false,
         shadow: false, draw: (ctx) => this._drawChest(ctx),
@@ -127,7 +127,7 @@ export class ToyScene extends Scene {
       if (!p) continue;
       n.prop.x += (p.mx || 0) * this.vw;
       n.prop.y += (p.my || 0) * this.vh;
-      this._keepOnFloor(n.prop);
+      keepInside(n.prop, this.bounds);
       for (let k = 0; k < n.items.length; k++) {
         const d = n.items[k];
         d.dormant = covers(n.prop, d.x, d.y, 0.99);
@@ -146,9 +146,15 @@ export class ToyScene extends Scene {
         this.floor.reveal(n.patch.x + rev[k][0] * R, n.patch.y + rev[k][1] * R, rev[k][2] * R);
       }
     }
-    // already-eaten pieces first, so main.js's own progress replay lands on them
-    this.debris.sort((a, b) => (a.state === State.DONE ? 0 : 1) - (b.state === State.DONE ? 0 : 1));
   }
+
+  /**
+   * The room is rebuilt from `persist` above — how far each toy was shoved, how
+   * much of each nest was eaten, every hole wiped in the dust — so the core's
+   * generic replay has nothing left to do.
+   */
+  saveProgress() { return null; }
+  restoreProgress() {}
 
   _persistFor(nest) {
     const all = this.persist.nests || (this.persist.nests = []);
@@ -278,17 +284,8 @@ export class ToyScene extends Scene {
       if (p.sense) p.sense(dt, vac);
     }
 
-    resolveProps(vac, this.props, dt);
-
-    this._separateToys();
-
-    // toys must not end up inside the toy chest or through the back wall
-    for (let i = 0; i < this.props.length; i++) {
-      const p = this.props[i];
-      if (!p.pushable) continue;
-      for (let j = 0; j < this.solids.length; j++) this._pushOut(p, this.solids[j]);
-      this._keepOnFloor(p);
-    }
+    // the core does the shoving, the toy-on-toy separation and the room bounds
+    resolveProps(vac, this.props, dt, { separate: true, bounds: this.bounds });
 
     // a toy sliding off its nest uncovers it, piece by piece
     for (let i = 0; i < this.debris.length; i++) {
@@ -320,66 +317,8 @@ export class ToyScene extends Scene {
     this._updateReveals(dt);
   }
 
-  /** Toys shoulder each other aside instead of stacking up. */
-  _separateToys() {
-    const list = this.props;
-    for (let i = 0; i < list.length; i++) {
-      const a = list[i];
-      if (!a.pushable) continue;
-      for (let j = i + 1; j < list.length; j++) {
-        const b = list[j];
-        if (!b.pushable) continue;
-        const rr = (a.radius + b.radius) * 0.78;
-        let dx = b.x - a.x, dy = b.y - a.y;
-        const d = Math.hypot(dx, dy);
-        if (d > rr || d < 1e-4) continue;
-        const nx = dx / d, ny = dy / d;
-        const ma = 1 / Math.max(0.2, a.mass), mb = 1 / Math.max(0.2, b.mass);
-        const tot = ma + mb;
-        const push = (rr - d);
-        a.x -= nx * push * (ma / tot); a.y -= ny * push * (ma / tot);
-        b.x += nx * push * (mb / tot); b.y += ny * push * (mb / tot);
-        const rel = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-        if (rel < 0) {
-          a.vx += nx * rel * (ma / tot); a.vy += ny * rel * (ma / tot);
-          b.vx -= nx * rel * (mb / tot); b.vy -= ny * rel * (mb / tot);
-          a.nudge = Math.max(a.nudge, 0.55); b.nudge = Math.max(b.nudge, 0.55);
-        }
-      }
-    }
-  }
 
-  _pushOut(p, s) {
-    const hw = s.w * 0.5 + (p.shape === 'circle' ? p.r : p.w * 0.42);
-    const hh = s.h * 0.5 + (p.shape === 'circle' ? p.r : p.h * 0.42);
-    const dx = p.x - s.x, dy = p.y - s.y;
-    if (Math.abs(dx) >= hw || Math.abs(dy) >= hh) return;
-    const ox = hw - Math.abs(dx), oy = hh - Math.abs(dy);
-    if (ox < oy) { p.x = s.x + (dx < 0 ? -hw : hw); p.vx = 0; }
-    else { p.y = s.y + (dy < 0 ? -hh : hh); p.vy = 0; }
-  }
 
-  /** Toys stay in the room: never behind the wall, never off the side. */
-  _keepOnFloor(p) {
-    const half = p.shape === 'circle' ? p.r : Math.max(p.w, p.h) * 0.5;
-    if (this.pose === 'portrait') {
-      const top = this.wall.y + half * 0.75;
-      if (p.y < top) { p.y = top; p.vy = 0; }
-      const bot = this.vh * 0.40;
-      if (p.y > bot) { p.y = bot; p.vy = 0; }
-      const sx = this.vw * 0.5 - half * 0.85;
-      if (p.x < -sx) { p.x = -sx; p.vx = 0; }
-      if (p.x > sx) { p.x = sx; p.vx = 0; }
-    } else {
-      const right = this.wall.x - half * 0.8;
-      if (p.x > right) { p.x = right; p.vx = 0; }
-      const left = -this.vw * 0.5 + half * 0.8;
-      if (p.x < left) { p.x = left; p.vx = 0; }
-      const sy = this.vh * 0.5 - half * 0.7;
-      if (p.y < -sy) { p.y = -sy; p.vy = 0; }
-      if (p.y > sy) { p.y = sy; p.vy = 0; }
-    }
-  }
 
   /** Make the transit visibly BOUNCE down the tube instead of gliding. */
   _updateRides(dt) {

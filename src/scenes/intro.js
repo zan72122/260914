@@ -221,5 +221,9 @@ export class IntroScene extends Scene {
     const next = 'kitchen';
     return { to: this.exitCam, dur: 1.45, next };
   }
-  entry() { return { x: this.rest.x, y: this.rest.y, zoom: this.scale, tilt: 0 }; }
+  /**
+   * The first room, and also the room the game loops back to: carpet's finale
+   * pulls the camera back off the empty cup, so this pushes gently in again.
+   */
+  entry() { return { x: this.rest.x, y: this.rest.y, zoom: this.scale * 0.9, tilt: 0 }; }
 }

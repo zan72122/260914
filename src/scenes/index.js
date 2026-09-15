@@ -8,17 +8,18 @@ import { ThreadScene } from './thread.js';
 import { CarpetScene } from './carpet.js';
 
 /**
- * Ordered scene registry. Later agents append one line per scene here and add
- * their file under src/scenes/ — nothing in src/core or src/vacuum changes.
+ * Ordered scene registry. This order IS the chain the game plays:
+ *   intro -> kitchen -> paper -> toy -> thread -> sand -> sofa -> carpet -> intro
+ * Each scene's exit().next must agree with it.
  */
 export const SCENES = [
   { id: 'intro', make: (rng) => new IntroScene(rng) },
   { id: 'kitchen', make: (rng) => new KitchenScene(rng) },
   { id: 'paper', make: (rng) => new PaperScene(rng) },
-  { id: 'sand', make: (rng) => new SandScene(rng) },
   { id: 'toy', make: (rng) => new ToyScene(rng) },
-  { id: 'sofa', make: (rng) => new SofaScene(rng) },
   { id: 'thread', make: (rng) => new ThreadScene(rng) },
+  { id: 'sand', make: (rng) => new SandScene(rng) },
+  { id: 'sofa', make: (rng) => new SofaScene(rng) },
   { id: 'carpet', make: (rng) => new CarpetScene(rng) },
 ];
 

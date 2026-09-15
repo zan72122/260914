@@ -99,7 +99,9 @@ export class ThreadScene extends Scene {
       });
     }
     this._makeLegProps();
-    this._clearStrands(140);
+    // Debris.translate()/aim() let the core do this now: a strand is measured
+    // and moved by its TIP, and the tied ribbon is left alone.
+    this.clearStartZone(140);
   }
 
   _layoutPortrait(w, h, rng) {
@@ -234,19 +236,6 @@ export class ThreadScene extends Scene {
       pushable: false, shadow: false, draw: () => {} }));
   }
 
-  /** Nothing may sit inside the parked nozzle's airflow, or it is eaten at once. */
-  _clearStrands(minDist) {
-    const p = this.parkPoint();
-    for (let i = 0; i < this.debris.length; i++) {
-      const d = this.debris[i];
-      if (!d.translate || d.anchored) continue;
-      let dx = d.px[0] - p.x, dy = d.py[0] - p.y;
-      let l = Math.hypot(dx, dy);
-      if (l >= minDist) continue;
-      if (l < 1e-3) { dx = 0; dy = -1; l = 1; }
-      d.translate((dx / l) * (minDist - l), (dy / l) * (minDist - l));
-    }
-  }
 
   _paintHaze() {
     const g = this.floor.gctx;
@@ -300,6 +289,23 @@ export class ThreadScene extends Scene {
     }
   }
 
+  /**
+   * The core puts the same strands back in the DONE state (by identity); this
+   * also replays the clean lines they wiped through the haze, so the floor
+   * still remembers where the player has been after an orientation change.
+   */
+  restoreProgress(p) {
+    super.restoreProgress(p);
+    let left = 0;
+    for (let i = 0; i < this.debris.length; i++) {
+      const d = this.debris[i];
+      if (d.state !== State.DONE) { if (!d.decor) left++; continue; }
+      d._wiped = true;
+      this._wipe(d);
+    }
+    if (left === 0) { this.shineT = 1; this.floor.clearGrime(); }
+  }
+
   _wipe(d) {
     if (!d.hxs || !this.floor.gctx) return;
     for (let k = 0; k < d.n; k++) this.floor.reveal(d.hxs[k], d.hys[k], 36);
@@ -335,6 +341,36 @@ export class ThreadScene extends Scene {
   isComplete() { return this.remaining() === 0 && this.shineT >= 1; }
 
   // -------------------------------------------------------------------- draw
+
+  /**
+   * A strand is taken in through the mouth, so while it is reeling it must be
+   * drawn ON TOP of the head — otherwise the last half metre disappears behind
+   * the nozzle exactly when it is most fun to watch. `drawDebris` skips it and
+   * the core's drawOver hook puts it back in front of the machine.
+   */
+  drawOver(ctx, cam) {
+    let any = false;
+    for (let i = 0; i < this.debris.length; i++) if (this.debris[i].phase === 'reel') { any = true; break; }
+    if (!any) return;
+    ctx.save();
+    cam.apply(ctx);
+    for (let i = 0; i < this.debris.length; i++) {
+      const d = this.debris[i];
+      if (d.phase === 'reel') d.draw(ctx, cam);
+    }
+    ctx.restore();
+  }
+
+  drawDebris(ctx, cam) {
+    ctx.save();
+    cam.apply(ctx);
+    for (let i = 0; i < this.debris.length; i++) {
+      const d = this.debris[i];
+      if (d.dormant || d.phase === 'reel') continue;
+      d.draw(ctx, cam);
+    }
+    ctx.restore();
+  }
 
   draw(ctx, cam) {
     this.drawFloor(ctx, cam);
