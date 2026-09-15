@@ -26,6 +26,8 @@ import { LEAD } from '../vacuum/vacuum.js';
  * Everything else (vacuum, field, transit, cup, harness) is core and must not
  * be modified to add a scene.
  */
+const CSZ_R = { x0: 0, y0: 0, x1: 0, y1: 0 };
+
 export class Scene {
   constructor(id, rng) {
     this.id = id;
@@ -106,6 +108,7 @@ export class Scene {
   clearStartZone(minDist = 240, leadPx = 92) {
     const p = this.parkPoint(leadPx);
     const a = { x: 0, y: 0 };
+    const R = this.reachRect(CSZ_R, 0);
     for (let i = 0; i < this.debris.length; i++) {
       const d = this.debris[i];
       if (d.dormant || d.anchored) continue;        // hidden / tied down: leave it
@@ -114,7 +117,23 @@ export class Scene {
       let l = Math.hypot(dx, dy);
       if (l >= minDist) continue;
       if (l < 1e-3) { dx = 0; dy = 1; l = 1; }
-      d.translate((dx / l) * (minDist - l), (dy / l) * (minDist - l));
+      // Straight out from the parked nozzle is the obvious direction, and it is
+      // sometimes wrong: pushing a piece "away" can push it off the bottom of
+      // the screen, where the head can never follow and the room can never be
+      // finished. Fan around until the piece lands somewhere reachable.
+      const a0 = Math.atan2(dy / l, dx / l);
+      let bx = p.x + (dx / l) * minDist, by = p.y + (dy / l) * minDist;
+      let bestScore = -1;
+      for (let k = 0; k < 16; k++) {
+        const off = ((k + 1) >> 1) * (k % 2 ? -1 : 1) * 0.3927;   // 0, ±22.5°, ±45°, ...
+        const ang = a0 + off;
+        const cx = p.x + Math.cos(ang) * minDist, cy = p.y + Math.sin(ang) * minDist;
+        const inX = cx > R.x0 && cx < R.x1, inY = cy > R.y0 && cy < R.y1;
+        const score = (inX ? 2 : 0) + (inY ? 2 : 0) - Math.abs(off) * 0.1;
+        if (score > bestScore) { bestScore = score; bx = cx; by = cy; }
+        if (inX && inY) break;
+      }
+      d.translate(bx - a.x, by - a.y);
     }
   }
 

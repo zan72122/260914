@@ -80,6 +80,7 @@ function AUTOPILOT(cfg) {
   let holdUntil = 0;
   let avoid = {};                        // id -> time it may be tried again
   let rasterI = 0;
+  let inFlow = false;
   let last = now();
   const P = { x: 0, y: 0 };
   const AIMP = { x: 0, y: 0 };
@@ -176,6 +177,9 @@ function AUTOPILOT(cfg) {
     if (pick) {
       if (pick.d.id !== targetId) { targetId = pick.d.id; sinceTarget = 0; bestErr = 1e9; stall = 0; }
       tx = pick.nx; ty = pick.ny;
+      // is the flow actually reaching it? That decides whether standing still is
+      // patience (the mother bunny takes a long, long hold) or futility
+      inFlow = pick.d.strength > 0.08;
     } else if (sc.id === 'carpet' && sc.rug && sc.combFrac !== undefined && sc.combFrac < 0.66) {
       // the room is clear but the rug is not combed: raster it, cell by cell,
       // moving on as soon as the roller has actually reached each one
@@ -211,14 +215,15 @@ function AUTOPILOT(cfg) {
     // Nothing is getting closer: stop dead and let the airflow work. That is
     // the press-and-hold the whole game is built on, and it is also the only
     // way to win the deep nook under the sofa, where the head cannot reach.
-    if (stall > 0.8 && t > holdUntil) holdUntil = t + 2200;
+    if (stall > 0.8 && t > holdUntil) holdUntil = t + (inFlow ? 4500 : 2200);
     if (t < holdUntil) {
       window.game.input.pointer(F.x, F.y, true);
-      // give up on this one for a while if even holding does nothing
-      if (stall > 5.5 && targetId) { avoid[targetId] = t + 9000; stall = 0; bestErr = 1e9; }
+      // Give up only when the airflow is NOT reaching it: if it is, holding
+      // still is the winning move and the only question is how long.
+      if (!inFlow && stall > 5.5 && targetId) { avoid[targetId] = t + 9000; stall = 0; bestErr = 1e9; }
       return;
     }
-    if (sinceTarget > 22 && targetId) { avoid[targetId] = t + 12000; sinceTarget = 0; }
+    if (!inFlow && sinceTarget > 22 && targetId) { avoid[targetId] = t + 12000; sinceTarget = 0; }
 
     if (err > 0.012) {
       const step = Math.min(1, (dt * 2.6) / Math.max(0.08, err)) * 0.55;
