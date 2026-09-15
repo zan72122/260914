@@ -25,7 +25,7 @@ import {
   clamp, lerp, easeOutCubic, easeInOutCubic, easeOutBack, damp
 } from '../core/tween.js';
 import {
-  glowCircle, radialFlood, withAlpha, lerpColor, shade, vignette, softDisc,
+  glowCircle, glowLine, radialFlood, withAlpha, lerpColor, shade, vignette, softDisc,
   cachedLinear, fillRoundRect
 } from '../core/draw.js';
 
@@ -33,13 +33,13 @@ const DEF = ELEMENT_BY_ID['barium'];
 
 // ---- plane geometry (world units, the device sits at the origin of the plaza plane)
 const PANEL_COUNT = 6;          // §2.5 "5〜7枚"
-const DEVICE_R = 46;            // turntable radius
-const GROOVE_R = 31;            // the circular groove the panels snap into
-const RING_R = 33;              // where a standing panel lives
+const DEVICE_R = 58;            // turntable radius
+const GROOVE_R = 42;            // the circular groove the panels snap into
+const RING_R = 42;              // where a standing panel lives (the OUTER groove ring)
 const DECK_Y = 9;               // deck height above the ground
 const PLAZA_R = 150;
-const PANEL_W = 34;
-const PANEL_H = 44;
+const PANEL_W = 28;
+const PANEL_H = 30;
 const TURNS_REQUIRED = 2.5;     // §2.5 900°
 const RIPPLE_SECONDS = 1.8;     // §2.5 the ripple takes 1.8s to reach the horizon
 const RIPPLE_0 = 150;           // the ripple starts at the plaza edge
@@ -49,6 +49,8 @@ const VOICE_AT = 2.0;           // s after the device blazes: ripple at the hori
 const LEAVE_AT = 6.0;          // s after the blaze: let the child drink in the widest view, then shrink
 const LEAVE_AFTER_UP = 2.0;    // ...but never leave while a finger is still on the glass
 const LEAVE_HARD = 26.0;       // safety net if an up event is ever lost
+const TAP_MS = 120;            // touches shorter than this are taps: they must not turn the device
+const DEMO_DUR = 1.7;          // the wordless demo: one panel rides the groove one full turn
 
 export default {
   id: DEF.id,
@@ -98,6 +100,13 @@ export default {
     let panelSfxAt = -1;
     let fingerDown = false;
     let lastUpT = 0;
+    let demoT = -1;                 // >=0 while the demo panel is riding the groove
+    let demoSpin = 0;
+    let nextDemo = 0;               // scene time of the next demo repeat
+    let finger = null;              // {x,y} css px while a finger is on the glass
+    let downPt = null;              // the pending touch, held back until TAP_MS has passed
+    let downAt = 0;
+    let armed = false;              // true once the touch is long enough to count as a turn
 
     // ------------------------------------------------------------ props (deterministic)
     const panels = [];
@@ -248,6 +257,7 @@ export default {
       engine.audio.play('burst');
       engine.audio.play('spread');
       if (spinSfx) { spinSfx.stop(); spinSfx = null; }
+      if (engine.camera.stopTweens) engine.camera.stopTweens();
       engine.camera.zoomTo(0.4, 2.2, 'easeInOutCubic');   // §2.5 1.2 -> 0.4 大俯瞰
       engine.camera.tiltTo(0, 2.0, 'easeInOutCubic');     // ティルトダウン -> 水平
       const s = engine.camera.worldToScreen(L.cx, L.horizonY + camH * L.focal / camD);
@@ -302,6 +312,7 @@ export default {
 
     function enter() {
       layout(engine.width, engine.height);
+      if (engine.camera.stopTweens) engine.camera.stopTweens();
       engine.camera.zoom = 1.2;                 // §2.5 回している間は寄り気味
       engine.camera.tiltTo(10, 1.2, 'easeOutCubic');
       if (handoff && handoff.particles) engine.particles.inject(handoff.particles);
@@ -330,7 +341,7 @@ export default {
       freshInput = false;
       const light = 0.75 + 0.85 * turns01;                  // 回るほど軽くなる手応え
       if (changeT < 0) {
-        deviceAngle += spinVel * dt * 0.55 * light;
+        deviceAngle += spinVel * dt * 0.85 * light;
         orbit += spinVel * dt * 0.17;                        // §2.5 入力と連動したオービット
       } else {
         deviceAngle += dt * (1.9 + 3.4 * clamp(1 - changeT / 2.2));
@@ -341,6 +352,22 @@ export default {
 
       if (spinSfx) spinSfx.setLevel(clamp(0.2 + turns01 * 0.8) * clamp(0.25 + Math.abs(spinVel) * 0.22));
 
+      // ---- the wordless demo (§2.5 誘い): one panel gets up on its own and rides the
+      // groove one whole turn, so a still frame already shows WHAT the groove is for.
+      if (phase === 'invite' && demoT < 0 && t >= nextDemo) { demoT = 0; demoSpin = 0; }
+      if (demoT >= 0) {
+        if (phase === 'acting' || changeT >= 0) { demoT = -1; demoSpin = 0; }
+        else {
+          demoT += dt;
+          const ride = clamp((demoT - 0.28) / 0.8);
+          demoSpin = easeInOutCubic(ride) * Math.PI * 2;      // exactly one lap
+          if (demoT >= DEMO_DUR) { demoT = -1; demoSpin = 0; nextDemo = t + 4.0; }
+        }
+      }
+      const demoP = demoT >= 0 ? panels[0] : null;
+      const demoLift = demoT < 0 ? 0
+        : easeOutCubic(clamp(demoT / 0.28)) * (1 - easeInOutCubic(clamp((demoT - 1.12) / 0.5)));
+
       // ---- panels stand up one by one, in order, as the turns accumulate
       const k = damp(0.86, dt);
       for (let i = 0; i < panels.length; i++) {
@@ -350,6 +377,11 @@ export default {
         if (want && !p.locked) {
           p.locked = true;
           if (panelSfxAt !== i) { panelSfxAt = i; engine.audio.play('snap'); }
+        }
+        if (p === demoP && !want) {
+          p.snap = demoLift;
+          p.stand = Math.max(demoLift, 0.17);
+          continue;
         }
         const lean = want ? 0 : 0.17 + 0.07 * (0.5 + 0.5 * Math.sin(t * 1.5 + p.wob));  // 溝へ傾く
         p.snap = lerp(p.snap, want, k);
@@ -749,7 +781,7 @@ export default {
       // fallen pose: lying on the plaza, its far edge already tipping toward the groove
       const fx = Math.cos(p.a0) * p.r0, fz = Math.sin(p.a0) * p.r0;
       // standing pose: in the groove, turning with the device
-      const sa = p.slot + deviceAngle;
+      const sa = p.slot + deviceAngle + (p.i === 0 ? demoSpin : 0);
       const sx = Math.cos(sa) * RING_R, sz = Math.sin(sa) * RING_R;
       const e = easeInOutCubic(p.snap);
       const cx = lerp(fx, sx, e), cz = lerp(fz, sz, e);
@@ -819,7 +851,7 @@ export default {
     function drawHinoko(g, worldAlpha) {
       const p = proj(0, 0, DECK_Y + 2);
       if (!p.ok) return;
-      const r = Math.max(5, 23 * p.k);
+      const r = Math.max(5, 20 * p.k);
       const spin = hinokoSpin;
       const face = Math.cos(spin);
       const bw = r * (0.62 + 0.38 * Math.abs(face));
@@ -858,15 +890,41 @@ export default {
       g.restore();
     }
 
+    /** §review E-b: while the finger is down, an arm of light ties it to the device. */
+    function drawArm(g, worldAlpha) {
+      if (!finger || changeT >= 0) return;
+      const c = proj(0, 0, DECK_Y + 2);
+      if (!c.ok) return;
+      const f = engine.camera.screenToWorld(finger.x, finger.y);
+      const dx = f.x - c.x, dy = f.y - c.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 4) return;
+      const pts = [];
+      const bend = 0.10 * (armed ? 1 : 0.4);
+      for (let i = 0; i <= 10; i++) {
+        const u = i / 10;
+        const px = c.x + dx * u - dy * bend * Math.sin(u * Math.PI);
+        const py = c.y + dy * u + dx * bend * Math.sin(u * Math.PI);
+        pts.push({ x: px, y: py });
+      }
+      g.save();
+      g.globalAlpha = worldAlpha;
+      glowLine(g, pts, Math.max(1.2, L.vhV * 0.0055), DEF.glowColor, 0.55 + 0.35 * turns01);
+      glowCircle(g, f.x, f.y, Math.max(6, L.vhV * 0.028), DEF.flameColor, 0.75);
+      glowCircle(g, f.x, f.y, Math.max(3, L.vhV * 0.012), '#f2fff0', 0.9);
+      g.restore();
+    }
+
     /** §2.5 the finale: a WIDE HORIZONTAL CURTAIN, not a sphere. */
     function drawCurtain(g, worldAlpha) {
       if (curtain <= 0) return;
       const k = easeOutCubic(curtain);
-      const skyH = Math.min(Math.max(40, L.horizonY - L.top), L.vhV * 0.30);
-      const halfW = L.vwV * 0.58 * k;
-      const yMid = L.horizonY - skyH * 0.95;
-      const yTop = yMid - skyH * 0.85;
-      const fade = clamp(1 - (changeT - 2.6) / 1.8);
+      const skyH = Math.min(Math.max(40, L.horizonY - L.top), L.vhV * 0.34);
+      const halfW = L.vwV * 0.60 * k;
+      const yMid = L.horizonY - skyH * 0.62;                 // a band across the upper sky
+      const yTop = yMid - skyH * 0.70;
+      // it must still be blazing while the child looks at the wide view
+      const fade = Math.max(0.55, clamp(1 - (changeT - 5.2) / 2.6));
       const alpha = worldAlpha * fade;
       g.save();
       g.globalCompositeOperation = 'lighter';
@@ -877,15 +935,16 @@ export default {
         const u = i / blobs;
         const x = L.cx - halfW + 2 * halfW * u;
         const edge = Math.pow(Math.max(0, 1 - Math.pow(Math.abs(u - 0.5) * 2, 3)), 0.8);
-        glowCircle(g, x, yMid, skyH * (0.45 + 0.35 * edge), DEF.flameColor, 0.20 * edge * alpha);
-        glowCircle(g, x, yMid, skyH * 0.22, DEF.glowColor, 0.14 * edge * alpha);
+        glowCircle(g, x, yMid, skyH * (0.50 + 0.40 * edge), DEF.flameColor, 0.52 * edge * alpha);
+        glowCircle(g, x, yMid, skyH * 0.26, DEF.glowColor, 0.34 * edge * alpha);
+        glowCircle(g, x, yMid, skyH * 0.09, '#d8ffdd', 0.12 * edge * alpha);
       }
 
       g.globalAlpha = alpha;
       // the bright horizontal core of the curtain
       g.lineCap = 'round';
-      g.strokeStyle = withAlpha('#eaffe9', 0.9);
-      g.lineWidth = Math.max(1.5, skyH * 0.014);
+      g.strokeStyle = withAlpha('#eaffe9', 0.95);
+      g.lineWidth = Math.max(1.6, skyH * 0.014);
       g.beginPath();
       for (let i = 0; i <= 44; i++) {
         const u = i / 44;
@@ -904,9 +963,9 @@ export default {
         const wobble = 0.55 + 0.45 * Math.sin(u * 23 + 1.3);
         const len = skyH * (0.30 + 0.62 * edge) * wobble * k;
         const sway = Math.sin(u * 9 + t * 1.6) * skyH * 0.05;
-        g.globalAlpha = alpha * (0.2 + 0.7 * edge);
-        g.strokeStyle = i % 3 === 0 ? withAlpha(DEF.glowColor, 0.8) : withAlpha(DEF.flameColor, 0.7);
-        g.lineWidth = Math.max(1, skyH * 0.008);
+        g.globalAlpha = alpha * (0.3 + 0.6 * edge);
+        g.strokeStyle = i % 3 === 0 ? withAlpha(DEF.glowColor, 0.85) : withAlpha(DEF.flameColor, 0.9);
+        g.lineWidth = Math.max(1.4, skyH * 0.013);
         g.beginPath();
         g.moveTo(x, yMid);
         g.quadraticCurveTo(x + sway, yMid + len * 0.55, x + sway * 2, yMid + len);
@@ -919,8 +978,8 @@ export default {
         g.stroke();
         // glowing bead at the tip of each hanging strand
         if (i % 2 === 0) {
-          glowCircle(g, x + sway * 2, yMid + len, Math.max(2, skyH * 0.035),
-            DEF.glowColor, 0.5 * edge * alpha);
+          glowCircle(g, x + sway * 2, yMid + len, Math.max(3, skyH * 0.045),
+            DEF.glowColor, 0.85 * edge * alpha);
         }
       }
       g.restore();
@@ -954,12 +1013,13 @@ export default {
       drawTown(g);
       drawTrees(g);
 
-      // painter's order: deck, panels behind ヒノコ, ヒノコ, panels in front of him
+      // painter's order: deck, the groove ring of panels (far -> near), then ヒノコ on top —
+      // the ring stands AROUND him and never hides his eyes (§review Y).
       const order = panels.slice().sort((a, b) => panelDepth(b) - panelDepth(a));
       drawDevice(g);
-      for (const p of order) if (panelDepth(p) >= camD) drawPanel(g, p, 1);
+      for (const p of order) drawPanel(g, p, 1);
       drawHinoko(g, 1);
-      for (const p of order) if (panelDepth(p) < camD) drawPanel(g, p, 1);
+      drawArm(g, 1);
       drawCurtain(g, 1);
 
       // the device blazes green through everything, and stays a beacon afterwards
@@ -988,7 +1048,7 @@ export default {
     function panelDepth(p) {
       const e = easeInOutCubic(p.snap);
       const fx = Math.cos(p.a0) * p.r0, fz = Math.sin(p.a0) * p.r0;
-      const sa = p.slot + deviceAngle;
+      const sa = p.slot + deviceAngle + (p.i === 0 ? demoSpin : 0);
       const cx = lerp(fx, Math.cos(sa) * RING_R, e), cz = lerp(fz, Math.sin(sa) * RING_R, e);
       return camD + (cx * orbSin + cz * orbCos);
     }
@@ -1029,9 +1089,34 @@ export default {
         beginChange();
       },
 
-      onPointerDown(p) { fingerDown = true; rec.down(p); },
-      onPointerMove(p) { rec.move(p); },
-      onPointerUp(p) { fingerDown = false; lastUpT = t; rec.up(p); }
+      // A pure tap (< TAP_MS) never reaches the circle recognizer, so it cannot add
+      // angle: the device only turns for a real swipe or circle (§review E-c).
+      onPointerDown(p) {
+        fingerDown = true;
+        finger = { x: p.x, y: p.y };
+        downPt = p;
+        downAt = p.t || performance.now();
+        armed = false;
+      },
+      onPointerMove(p) {
+        finger = { x: p.x, y: p.y };
+        const now = p.t || performance.now();
+        if (!armed) {
+          if (now - downAt < TAP_MS) return;
+          armed = true;
+          rec.down(p);                 // start counting the angle from here
+          return;
+        }
+        rec.move(p);
+      },
+      onPointerUp(p) {
+        fingerDown = false;
+        finger = null;
+        downPt = null;
+        lastUpT = t;
+        if (armed) rec.up(p);
+        armed = false;
+      }
     };
 
     return scene;
