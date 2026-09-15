@@ -27,6 +27,77 @@ const TIME_SCALE = TESTABLE
   ? Math.max(0.25, Math.min(4, parseFloat(QS.get('speed')) || 1))
   : 1;
 
+// ------------------------------------------------------------------- icons
+/**
+ * Draws the jack-o'-lantern used for every icon on a 2D canvas of side `size`.
+ * Shared by the home-screen icon so nothing has to be fetched: the favicon in
+ * index.html is the same face as an inline SVG.
+ */
+function drawPumpkinIcon(g, size) {
+  const u = size / 192;
+  g.fillStyle = '#0b1030';
+  g.fillRect(0, 0, size, size);
+
+  // stalk
+  g.fillStyle = '#4c6b2e';
+  g.beginPath();
+  g.roundRect ? g.roundRect(86 * u, 62 * u, 12 * u, 22 * u, 5 * u)
+              : g.rect(86 * u, 62 * u, 12 * u, 22 * u);
+  g.fill();
+
+  // body: three overlapping lobes so it reads as a pumpkin, not a circle
+  g.fillStyle = '#d8641c';
+  for (const [cx, rx] of [[70, 34], [122, 34], [96, 54]]) {
+    g.beginPath();
+    g.ellipse(cx * u, 122 * u, rx * u, 46 * u, 0, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.fillStyle = 'rgba(255,170,80,0.28)';
+  g.beginPath();
+  g.ellipse(80 * u, 108 * u, 18 * u, 26 * u, -0.3, 0, Math.PI * 2);
+  g.fill();
+
+  // face
+  g.fillStyle = '#2a1200';
+  const tri = (pts) => {
+    g.beginPath();
+    g.moveTo(pts[0] * u, pts[1] * u);
+    g.lineTo(pts[2] * u, pts[3] * u);
+    g.lineTo(pts[4] * u, pts[5] * u);
+    g.closePath();
+    g.fill();
+  };
+  tri([64, 112, 88, 124, 64, 132]);   // left eye
+  tri([128, 112, 104, 124, 128, 132]); // right eye
+  g.beginPath();                       // grin
+  g.moveTo(62 * u, 142 * u);
+  g.quadraticCurveTo(96 * u, 176 * u, 130 * u, 142 * u);
+  g.quadraticCurveTo(114 * u, 154 * u, 106 * u, 146 * u);
+  g.quadraticCurveTo(96 * u, 156 * u, 86 * u, 146 * u);
+  g.quadraticCurveTo(78 * u, 154 * u, 62 * u, 142 * u);
+  g.fill();
+}
+
+/**
+ * Add-to-Home-Screen wants a raster icon, and this build ships no files, so
+ * the 180x180 apple-touch-icon is painted once at startup and handed over as a
+ * PNG data URL. index.html carries the SVG `rel="icon"` for the tab.
+ */
+(function appleTouchIcon() {
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = 180;
+    const g = c.getContext('2d');
+    if (!g) return;
+    drawPumpkinIcon(g, 180);
+    const link = document.createElement('link');
+    link.rel = 'apple-touch-icon';
+    link.setAttribute('sizes', '180x180');
+    link.href = c.toDataURL('image/png');
+    document.head.appendChild(link);
+  } catch (e) { /* an icon is never worth breaking startup over */ }
+})();
+
 // ---------------------------------------------------------------- manifest
 (function manifest() {
   const icon = 'data:image/svg+xml;utf8,' + encodeURIComponent(
@@ -286,6 +357,7 @@ let pointerDown = null;
 const el = renderer.domElement;
 el.addEventListener('pointerdown', (e) => {
   A.unlock();
+  A.resumeIfSuspended();
   pointerDown = { x: e.clientX, y: e.clientY, t: performance.now() };
 }, { passive: true });
 el.addEventListener('pointerup', (e) => {
@@ -311,13 +383,18 @@ document.addEventListener('touchend', (e) => {
   lastTouchEnd = now;
 }, { passive: false });
 document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
-window.addEventListener('pointerdown', () => A.unlock(), { once: true });
+// Every pointer down, not just the first: iOS leaves the context suspended
+// after a lock screen or an app switch, and only a gesture reliably revives it.
+window.addEventListener('pointerdown', () => { A.unlock(); A.resumeIfSuspended(); }, { passive: true });
 
 // ------------------------------------------------------------------- loop
 let last = performance.now(), elapsed = 0;
 let frames = 0, fpsT = 0, fps = 60, lastCalls = 0, lastTris = 0;
 let paused = false;
 let rafId = 0;
+let running = false;       // is the rAF loop scheduled at all
+let hidden = false;        // page is in the background / screen locked
+let contextLost = false;   // the WebGL context went away
 
 /**
  * One simulation + render step. `step(dt, n)` below drives exactly this, so a
@@ -358,13 +435,77 @@ function frame(dt, render = true) {
 }
 
 function animate() {
+  if (!running) return;
   const now = performance.now();
   const dt = Math.min(0.1, (now - last) / 1000) * TIME_SCALE;
   last = now;
   if (!paused) frame(dt);
   rafId = requestAnimationFrame(animate);
 }
-rafId = requestAnimationFrame(animate);
+
+/**
+ * The rAF loop is stopped outright - not just paused - while the page is
+ * hidden or the WebGL context is gone. `paused` stays what the test API set it
+ * to; these two are a separate concern.
+ */
+function startLoop() {
+  if (running || hidden || contextLost) return;
+  running = true;
+  last = performance.now();          // no giant dt for the first frame back
+  rafId = requestAnimationFrame(animate);
+}
+function stopLoop() {
+  running = false;
+  if (rafId) cancelAnimationFrame(rafId);
+  rafId = 0;
+}
+startLoop();
+
+// ------------------------------------------------- visibility (iOS / lock)
+function onPageVisible() {
+  hidden = false;
+  A.resumeIfSuspended();
+  A.setMuted(false);                 // fade back in, so the return is not a burst
+  startLoop();
+}
+function onPageHidden() {
+  hidden = true;
+  A.setMuted(true);
+  stopLoop();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') onPageVisible(); else onPageHidden();
+});
+window.addEventListener('pageshow', onPageVisible);
+window.addEventListener('pagehide', onPageHidden);
+
+// ------------------------------------------- WebGL context loss (iOS OOM)
+// Safari drops the context under memory pressure. Preventing the default makes
+// the loss recoverable; if the restore never arrives we reload, which is silent
+// and text-free either way.
+let restoreTimer = 0;
+el.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  contextLost = true;
+  stopLoop();
+  A.setMuted(true);
+  if (!restoreTimer) {
+    restoreTimer = setTimeout(() => {
+      restoreTimer = 0;
+      if (contextLost) location.reload();
+    }, 3000);
+  }
+}, false);
+el.addEventListener('webglcontextrestored', () => {
+  contextLost = false;
+  if (restoreTimer) { clearTimeout(restoreTimer); restoreTimer = 0; }
+  // three.js has re-initialised the GL state by now; the composer still holds
+  // render targets from the dead context, so size them again to rebuild them.
+  resize();
+  A.resumeIfSuspended();
+  A.setMuted(false);
+  startLoop();
+}, false);
 
 // --------------------------------------------------------------- test hook
 function simplify(r) {
@@ -496,7 +637,7 @@ const api = {
 
   // ---- deterministic time -----------------------------------------------
   pause() { paused = true; },
-  resume() { paused = false; last = performance.now(); },
+  resume() { paused = false; last = performance.now(); startLoop(); },
   /** advance the real update loop n times by exactly dt seconds each */
   step(dt = 1 / 60, n = 1) {
     paused = true;

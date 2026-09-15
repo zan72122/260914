@@ -9,6 +9,9 @@ let started = false;
 let musicTimer = 0;
 let musicStep = 0;
 
+/** the level the master gain settles at once the first tap has unlocked audio */
+const MASTER_LEVEL = 0.85;
+
 export function isReady() { return started && ctx && ctx.state === 'running'; }
 
 export function unlock() {
@@ -32,9 +35,39 @@ export function unlock() {
     const s = ctx.createBufferSource(); s.buffer = b; s.connect(ctx.destination); s.start(0);
     buildAmbient();
     master.gain.setValueAtTime(0.0001, ctx.currentTime);
-    master.gain.exponentialRampToValueAtTime(0.85, ctx.currentTime + 2.5);
+    master.gain.exponentialRampToValueAtTime(MASTER_LEVEL, ctx.currentTime + 2.5);
   }
   return true;
+}
+
+/**
+ * iOS suspends the AudioContext whenever Safari goes to the background or the
+ * screen locks, and it stays suspended on the way back. Call this on every
+ * pointer event and every time the page becomes visible again; it never
+ * creates a context and never re-runs the one-time unlock ramp.
+ */
+export function resumeIfSuspended() {
+  if (!ctx) return false;
+  if (ctx.state === 'suspended') {
+    try { ctx.resume(); } catch (e) { return false; }
+  }
+  return true;
+}
+
+/**
+ * Quick master fade for page hide / show. Fading out before the tab goes away
+ * and back in on return means the return never lands as a burst of whatever
+ * was mid-envelope when we left.
+ */
+export function setMuted(muted) {
+  if (!ctx || !master || !started) return;
+  const t = ctx.currentTime;
+  const g = master.gain;
+  try {
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(Math.max(0.0001, g.value), t);
+    g.exponentialRampToValueAtTime(muted ? 0.0001 : MASTER_LEVEL, t + (muted ? 0.08 : 0.5));
+  } catch (e) { /* a context that is going away is not worth reporting */ }
 }
 
 function noiseBuffer(seconds = 3) {
