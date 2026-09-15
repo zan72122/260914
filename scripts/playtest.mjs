@@ -200,6 +200,18 @@ async function runOrientation(browser, label, viewport, outDir, log) {
     }
   }
 
+  // 窓開けの間に偶然良い向きになっていることがある。帯が「集まっていく」過程を撮るため、
+  // 一度しっかり転がして向きを外してから探し直す（指の操作だけで行う）。
+  for (let k = 0; k < 14 && (await stats()).align > 0.35; k++) {
+    sc = await screen();
+    const L = sc.r * 1.1;
+    await stroke(f, [
+      [sc.x - L / 2, sc.y], [sc.x - L / 4, sc.y], [sc.x, sc.y],
+      [sc.x + L / 4, sc.y], [sc.x + L / 2, sc.y]
+    ], 12);
+  }
+  log(`  一度外した: align=${(await stats()).align.toFixed(3)}`);
+
   const dirs = [[1, 0], [0, -1], [-1, 0], [0, 1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]];
   let di = 0;
   let prevA = (await stats()).align;

@@ -219,7 +219,7 @@ void main(){
   }
   // 中心から離れるほど細く淡く（六条が「石の中で光る」ように減衰させる）
   // 原石期の帯は中心から遠くまで伸びる（＝一本の帯として石を横切る）
-  star *= exp(-hl * mix(2.6, 7.0, smoothness * form));
+  star *= exp(-hl * mix(3.4, 7.0, smoothness * form));
   star *= 0.55 + 0.75 * uSilkDensity;
   // 研磨前は弱まるが、帯としてはっきり見える強さは残す
   star *= mix(0.55, 1.0, clamp(smoothness + win * 0.75, 0.0, 1.0));
@@ -234,7 +234,7 @@ void main(){
              * smoothstep(0.05, 0.45, ndvS);
 
   vec3 starCol = mix(vec3(0.66, 0.80, 1.0), vec3(0.90, 0.95, 1.0), form);
-  col += starCol * star * uStarBoost * mix(2.2, 1.0, form);
+  col += starCol * star * uStarBoost * mix(1.4, 1.0, form);
   col += mix(starCol, vec3(1.0), 0.6) * core * uStarBoost * 0.55;
 
   // ---- 誘い（文字なしの導線） ----
