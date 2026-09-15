@@ -1,11 +1,27 @@
 import * as THREE from 'three';
-import type { Tile, Tool, Vec2 } from '../core/types';
-import { STEP_HEIGHT, TILE_THICKNESS } from './tileMesh';
+import type { Tool, Vec2 } from '../core/types';
+import { topYOf } from './tileMesh';
 import { iconTexture } from './textures';
 
 /** アイコンの当たり判定は見た目の 1.4 倍(5.2) */
 export const HIT_SCALE = 1.4;
-const ICON_SIZE = 0.62;
+/**
+ * アイコンの大きさ(タイル幅に対する割合)。
+ * 下にあるカーブの形が読めるよう、タイル幅の 45% 程度に留める。
+ */
+const ICON_SIZE = 0.45;
+/** 当たり判定はアイコンより大きく取りたいので、下限をタイル幅の 7 割にする(5.2) */
+const HIT_SIZE = Math.max(ICON_SIZE * HIT_SCALE, 0.7);
+/** 半透明オーバーレイの基準不透明度。道の向きが透けて見える濃さにする */
+export const OVERLAY_OPACITY = 0.15;
+
+interface Follower {
+  readonly mesh: THREE.Mesh;
+  /** タイル上面からの持ち上げ量 */
+  readonly dy: number;
+  /** 追従するセル。undefined なら範囲全体の最大高さに追従する */
+  readonly cell?: Vec2;
+}
 
 export interface ToolOverlay {
   readonly group: THREE.Group;
@@ -14,13 +30,13 @@ export interface ToolOverlay {
   /** 押し込みアニメの対象(アイコン) */
   readonly icons: THREE.Mesh[];
   readonly overlayMats: THREE.MeshBasicMaterial[];
+  /** ツールの中心(ワールド座標)。デバッグ用のタップ位置計算に使う */
+  readonly center: THREE.Vector3;
+  /** タイルの上下アニメに追従させる。liftAt はセルの現在の高さ(0..1) */
+  syncHeights(liftAt: (cell: Vec2) => number): void;
 }
 
 const planeGeo = new THREE.PlaneGeometry(1, 1);
-
-function cellTopY(tile: Tile | undefined): number {
-  return (tile?.height ?? 0) * STEP_HEIGHT + TILE_THICKNESS;
-}
 
 /** 点線枠の破線 1 本分 */
 function dash(len: number): THREE.Mesh {
@@ -33,65 +49,72 @@ function dash(len: number): THREE.Mesh {
 
 /**
  * ツール範囲の表示(4.2 共通表示 / G3)。
- * 半透明の暗いオーバーレイ 0.25 + 白い点線枠 + 四隅の黒い丸 + 中央の白いアイコン。
+ *
+ * - 範囲内の各タイルに半透明の暗いオーバーレイと白いアイコン
+ * - 範囲「全体」を 1 つの白い点線枠で囲み、四隅に黒い丸(本家 2.5)
+ * - 当たり判定は範囲全体(どのタイルを押しても効く)
  */
-export function createToolOverlay(tool: Tool, toolIndex: number, tileAtFn: (p: Vec2) => Tile | undefined): ToolOverlay {
+export function createToolOverlay(
+  tool: Tool,
+  toolIndex: number,
+  liftAt: (cell: Vec2) => number,
+): ToolOverlay {
   const group = new THREE.Group();
   const hitPlanes: THREE.Mesh[] = [];
   const icons: THREE.Mesh[] = [];
   const overlayMats: THREE.MeshBasicMaterial[] = [];
+  const followers: Follower[] = [];
 
   const iconMap = iconTexture(tool.kind);
 
   for (const c of tool.cells) {
-    const y = cellTopY(tileAtFn(c));
-
     // 半透明の暗いオーバーレイ
     const omat = new THREE.MeshBasicMaterial({
       color: 0x000000,
       transparent: true,
-      opacity: 0.25,
+      opacity: OVERLAY_OPACITY,
       depthWrite: false,
     });
     overlayMats.push(omat);
     const overlay = new THREE.Mesh(planeGeo, omat);
     overlay.rotation.x = -Math.PI / 2;
-    overlay.position.set(c.x, y + 0.012, c.y);
+    overlay.position.set(c.x, 0, c.y);
     overlay.renderOrder = 2;
     group.add(overlay);
+    followers.push({ mesh: overlay, dy: 0.012, cell: c });
 
     // 白いアイコン
     const imat = new THREE.MeshBasicMaterial({ map: iconMap, transparent: true, depthWrite: false, depthTest: false });
     const icon = new THREE.Mesh(planeGeo, imat);
     icon.rotation.x = -Math.PI / 2;
     icon.scale.setScalar(ICON_SIZE);
-    icon.position.set(c.x, y + 0.05, c.y);
+    icon.position.set(c.x, 0, c.y);
     icon.renderOrder = 4;
     icons.push(icon);
     group.add(icon);
+    followers.push({ mesh: icon, dy: 0.05, cell: c });
 
-    // 当たり判定用の見えない板(5.2)
+    // 当たり判定用の見えない板(5.2)。範囲内のどのタイルでも押せる
     const hit = new THREE.Mesh(planeGeo, new THREE.MeshBasicMaterial({ visible: false }));
     hit.rotation.x = -Math.PI / 2;
-    hit.scale.setScalar(ICON_SIZE * HIT_SCALE);
-    hit.position.set(c.x, y + 0.06, c.y);
+    hit.scale.setScalar(HIT_SIZE);
+    hit.position.set(c.x, 0, c.y);
     hit.userData['toolIndex'] = toolIndex;
     hitPlanes.push(hit);
     group.add(hit);
+    followers.push({ mesh: hit, dy: 0.06, cell: c });
   }
 
-  // 範囲の外周に白い点線枠 + 四隅の黒い丸
+  // 範囲全体を 1 つの点線枠で囲み、四隅に黒い丸(本家 2.5)
   let minX = Infinity;
   let maxX = -Infinity;
   let minY = Infinity;
   let maxY = -Infinity;
-  let frameY = 0;
   for (const c of tool.cells) {
     minX = Math.min(minX, c.x - 0.5);
     maxX = Math.max(maxX, c.x + 0.5);
     minY = Math.min(minY, c.y - 0.5);
     maxY = Math.max(maxY, c.y + 0.5);
-    frameY = Math.max(frameY, cellTopY(tileAtFn(c)));
   }
   const w = maxX - minX;
   const h = maxY - minY;
@@ -108,13 +131,14 @@ export function createToolOverlay(tool: Tool, toolIndex: number, tileAtFn: (p: V
     for (let i = 0; i < n; i++) {
       const pos = -usable / 2 + step * (i + 0.5);
       const d = dash(Math.min(dashLen, step * 0.7));
-      if (horizontal) d.position.set(cx + pos, frameY + 0.03, cy + offset);
+      if (horizontal) d.position.set(cx + pos, 0, cy + offset);
       else {
         d.rotation.z = Math.PI / 2;
-        d.position.set(cx + offset, frameY + 0.03, cy + pos);
+        d.position.set(cx + offset, 0, cy + pos);
       }
       d.renderOrder = 3;
       group.add(d);
+      followers.push({ mesh: d, dy: 0.03 });
     }
   };
   addDashedEdge(w, true, -(h / 2 - inset));
@@ -132,23 +156,46 @@ export function createToolOverlay(tool: Tool, toolIndex: number, tileAtFn: (p: V
   ] as const) {
     const dot = new THREE.Mesh(dotGeo, dotMat);
     dot.rotation.x = -Math.PI / 2;
-    dot.position.set(cx + sx * (w / 2 - inset), frameY + 0.035, cy + sy * (h / 2 - inset));
+    dot.position.set(cx + sx * (w / 2 - inset), 0, cy + sy * (h / 2 - inset));
     dot.renderOrder = 3;
     group.add(dot);
+    followers.push({ mesh: dot, dy: 0.035 });
   }
 
-  return { group, hitPlanes, icons, overlayMats };
+  const cells = tool.cells;
+  function syncHeights(fn: (cell: Vec2) => number): void {
+    let maxLift = 0;
+    for (const c of cells) maxLift = Math.max(maxLift, fn(c));
+    const frameY = topYOf(maxLift);
+    for (const f of followers) {
+      f.mesh.position.y = (f.cell ? topYOf(fn(f.cell)) : frameY) + f.dy;
+    }
+  }
+  syncHeights(liftAt);
+
+  return {
+    group,
+    hitPlanes,
+    icons,
+    overlayMats,
+    center: new THREE.Vector3(cx, 0, cy),
+    syncHeights,
+  };
 }
 
 /** 未使用ツールの明滅(1.5 秒周期の sine、7.4) */
 export function pulseOverlay(ov: ToolOverlay, t: number, active: boolean): void {
-  const base = 0.25;
+  const base = OVERLAY_OPACITY;
   if (!active) {
     for (const m of ov.overlayMats) m.opacity = base;
+    for (const icon of ov.icons) {
+      const mat = icon.material as THREE.MeshBasicMaterial;
+      mat.opacity = 1;
+    }
     return;
   }
   const s = 0.5 + 0.5 * Math.sin((t / 1.5) * Math.PI * 2);
-  for (const m of ov.overlayMats) m.opacity = base + s * 0.18;
+  for (const m of ov.overlayMats) m.opacity = base + s * 0.12;
   for (const icon of ov.icons) {
     const mat = icon.material as THREE.MeshBasicMaterial;
     mat.opacity = 0.75 + s * 0.25;

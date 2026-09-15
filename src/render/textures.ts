@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { connectionsOf } from '../core/board';
-import { EAST, NORTH, SOUTH, WEST, type Direction, type TileKind } from '../core/types';
+import { EAST, NORTH, SOUTH, WEST, type Direction, type Layer, type TileKind } from '../core/types';
 
 const SIZE = 128;
 
@@ -76,17 +76,108 @@ export function roadTexture(kind: TileKind, roadColor: string, groundColor: stri
   });
 }
 
-/** ゴールタイルの上面: 白い円 + 4 つの目盛(本家 2.1) */
-export function goalTexture(roadColor: string, groundColor: string): THREE.CanvasTexture {
-  return cached(`goal:${roadColor}:${groundColor}`, (ctx) => {
+/**
+ * 線路タイルの上面テクスチャ(4.1)。枕木 + 2 本のレール。
+ * 道路と見た目がはっきり違うので、レイヤーの違いが形で読める(7.6)。
+ */
+export function railTexture(kind: TileKind, railColor: string, groundColor: string): THREE.CanvasTexture {
+  const dirs = connectionsOf({ kind, rot: 0, height: 0, layer: 'rail' });
+  return cached(`rail:${kind}:${railColor}:${groundColor}`, (ctx) => {
     const c = SIZE / 2;
     ctx.fillStyle = groundColor;
     ctx.fillRect(0, 0, SIZE, SIZE);
-    // 北へ伸びる道の腕(goal の接続は基準形で北)
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(c - SIZE * 0.24, 0, SIZE * 0.48, c);
-    ctx.fillStyle = roadColor;
-    ctx.fillRect(c - SIZE * 0.2, 0, SIZE * 0.4, c);
+
+    const bed = SIZE * 0.2; // 道床の半幅
+    const gauge = SIZE * 0.1; // レール間隔の半分
+    const sleeper = SIZE * 0.05;
+
+    // 道床(砂利)
+    ctx.fillStyle = railColor;
+    ctx.fillRect(c - bed, c - bed, bed * 2, bed * 2);
+    for (const d of dirs) {
+      const v = DIR_VEC[d];
+      const x0 = v[0] === 0 ? c - bed : v[0] > 0 ? c : 0;
+      const y0 = v[1] === 0 ? c - bed : v[1] > 0 ? c : 0;
+      ctx.fillRect(x0, y0, v[0] === 0 ? bed * 2 : c, v[1] === 0 ? bed * 2 : c);
+    }
+
+    // 枕木と 2 本のレールを、各接続方向の腕へ描く
+    const dark = '#3B2E26';
+    const steel = '#CFD4D8';
+    for (const d of dirs) {
+      const v = DIR_VEC[d];
+      const horizontal = v[0] !== 0;
+      for (let s = 0.12; s < 0.5; s += 0.125) {
+        const px = c + v[0] * SIZE * s;
+        const py = c + v[1] * SIZE * s;
+        ctx.fillStyle = dark;
+        if (horizontal) ctx.fillRect(px - sleeper / 2, py - bed * 0.85, sleeper, bed * 1.7);
+        else ctx.fillRect(px - bed * 0.85, py - sleeper / 2, bed * 1.7, sleeper);
+      }
+      ctx.fillStyle = steel;
+      const railW = SIZE * 0.028;
+      for (const side of [-1, 1] as const) {
+        if (horizontal) {
+          const x0 = v[0] > 0 ? c : 0;
+          ctx.fillRect(x0, c + side * gauge - railW / 2, c, railW);
+        } else {
+          const y0 = v[1] > 0 ? c : 0;
+          ctx.fillRect(c + side * gauge - railW / 2, y0, railW, c);
+        }
+      }
+    }
+  });
+}
+
+/** 瓦礫タイル(block)の上面。土と小石(4.1 の「岩・廃屋」) */
+export function rubbleTexture(groundColor: string): THREE.CanvasTexture {
+  return cached(`rubble:${groundColor}`, (ctx) => {
+    const base = new THREE.Color(groundColor).multiplyScalar(0.72);
+    ctx.fillStyle = `#${base.getHexString()}`;
+    ctx.fillRect(0, 0, SIZE, SIZE);
+    const dot = new THREE.Color(groundColor).multiplyScalar(0.55);
+    ctx.fillStyle = `#${dot.getHexString()}`;
+    // 位置は固定(乱数を使わず、毎回同じ見た目にする)
+    const pts: [number, number, number][] = [
+      [0.22, 0.3, 0.06],
+      [0.7, 0.24, 0.05],
+      [0.36, 0.72, 0.07],
+      [0.78, 0.66, 0.045],
+      [0.52, 0.46, 0.05],
+      [0.14, 0.6, 0.04],
+    ];
+    for (const [px, py, r] of pts) {
+      ctx.beginPath();
+      ctx.arc(px * SIZE, py * SIZE, r * SIZE, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+}
+
+/** ゴールタイルの上面: 白い円 + 4 つの目盛(本家 2.1) */
+export function goalTexture(roadColor: string, groundColor: string, layer: Layer = 'road'): THREE.CanvasTexture {
+  return cached(`goal:${roadColor}:${groundColor}:${layer}`, (ctx) => {
+    const c = SIZE / 2;
+    ctx.fillStyle = groundColor;
+    ctx.fillRect(0, 0, SIZE, SIZE);
+    // 北へ伸びる腕(goal の接続は基準形で北)
+    if (layer === 'rail') {
+      ctx.fillStyle = roadColor;
+      ctx.fillRect(c - SIZE * 0.2, 0, SIZE * 0.4, c);
+      ctx.fillStyle = '#3B2E26';
+      for (let s = 0.12; s < 0.5; s += 0.125) {
+        ctx.fillRect(c - SIZE * 0.17, c - SIZE * s - SIZE * 0.025, SIZE * 0.34, SIZE * 0.05);
+      }
+      ctx.fillStyle = '#CFD4D8';
+      for (const side of [-1, 1] as const) {
+        ctx.fillRect(c + side * SIZE * 0.1 - SIZE * 0.014, 0, SIZE * 0.028, c);
+      }
+    } else {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(c - SIZE * 0.24, 0, SIZE * 0.48, c);
+      ctx.fillStyle = roadColor;
+      ctx.fillRect(c - SIZE * 0.2, 0, SIZE * 0.4, c);
+    }
 
     ctx.strokeStyle = '#FFFFFF';
     ctx.lineWidth = SIZE * 0.06;

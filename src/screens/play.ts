@@ -3,24 +3,53 @@ import { findTile, tileAt } from '../core/board';
 import { solve } from '../core/solve';
 import { applyTool } from '../core/tools';
 import { markCleared } from '../core/progress';
-import type { GameState, Tile, Vec2 } from '../core/types';
+import type { GameState, Vec2 } from '../core/types';
 import { buildBoard, buildTools, PALETTES, type Level } from '../levels/schema';
 import { attachTouchInput } from '../input/touch';
 import { resumeAudio } from '../audio/context';
 import { createStage, type Stage } from '../render/scene';
-import { createTileMesh, createBlockProp, updateTileMesh, STEP_HEIGHT, TILE_THICKNESS } from '../render/tileMesh';
+import {
+  createTileMesh,
+  createBlockProp,
+  rubbleColor,
+  setTileLift,
+  topYOf,
+  updateTileMesh,
+  STEP_HEIGHT,
+  TILE_THICKNESS,
+} from '../render/tileMesh';
 import { createToolOverlay, pressOverlay, pulseOverlay, type ToolOverlay } from '../render/overlay';
 import { createPathLine } from '../render/pathLine';
 import { createVehicle } from '../render/vehicle';
-import { createConfetti } from '../render/fx';
+import { createConfetti, createDebris, createDust } from '../render/fx';
 import { createGoalFlag, createSurroundings } from '../render/props';
 
 /** 経路が繋がってから発車するまでの溜め(4.4) */
 const LAUNCH_DELAY = 0.5;
 /** 無操作でヒント演出に入るまで(3.4) */
 const HINT_IDLE = 6;
+/** タイルの上下アニメ(7.4: 0.30s ease-in-out + 着地時に微バウンス) */
+const LIFT_DURATION = 0.3;
+
+/** ease-in-out + 着地の微バウンス */
+function liftEase(p: number): number {
+  const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+  if (p <= 0.7) return e;
+  // 行き過ぎてから戻る小さな跳ね返り
+  return e + Math.sin(((p - 0.7) / 0.3) * Math.PI) * 0.07;
+}
+
+/** デバッグ用に露出する読み取り口(E2E のタップ位置計算に使う) */
+export interface PlayDebug {
+  tools(): { index: number; used: boolean; x: number; y: number; z: number }[];
+  /** ワールド座標 → キャンバス上の CSS ピクセル座標 */
+  project(x: number, y: number, z: number): { x: number; y: number };
+  connected(): boolean;
+  cleared(): boolean;
+}
 
 export interface PlayScreen {
+  readonly debug: PlayDebug;
   dispose(): void;
 }
 
@@ -31,30 +60,40 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
 
   let state: GameState = { board: buildBoard(level), tools: buildTools(level) };
   const { w, h } = level.size;
+  const idx = (x: number, y: number): number => y * w + x;
 
   stage.root.add(createSurroundings(w, h, palette));
 
   // --- タイル ---
   const tileMeshes: THREE.Mesh[] = [];
-  const blockProps: (THREE.Mesh | undefined)[] = [];
-  /** 回転・上下のアニメーション目標 */
+  const blockProps: (THREE.Group | undefined)[] = [];
+  /** 回転アニメの目標角 */
   const targetRotY: number[] = [];
-  const targetY: number[] = [];
+  /** 上下アニメ。lift は 0..1 の連続値(0 = 低い、1 = 1 段高い) */
+  const lift: number[] = [];
+  const liftFrom: number[] = [];
+  const liftTo: number[] = [];
+  /** 経過時間。負なら停止中 */
+  const liftT: number[] = [];
 
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const i = y * w + x;
+      const i = idx(x, y);
       const tile = state.board.tiles[i]!;
       const mesh = createTileMesh(tile, palette);
       updateTileMesh(mesh, tile, palette, x, y);
+      setTileLift(mesh, tile.height);
       stage.root.add(mesh);
       tileMeshes.push(mesh);
       targetRotY.push(mesh.rotation.y);
-      targetY.push(mesh.position.y);
+      lift.push(tile.height);
+      liftFrom.push(tile.height);
+      liftTo.push(tile.height);
+      liftT.push(-1);
 
       if (tile.kind === 'block') {
-        const prop = createBlockProp(palette);
-        prop.position.set(x, tile.height * STEP_HEIGHT + TILE_THICKNESS + 0.2, y);
+        const prop = createBlockProp(palette, x, y);
+        prop.position.set(x, topYOf(tile.height), y);
         stage.root.add(prop);
         blockProps.push(prop);
       } else {
@@ -63,33 +102,48 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
     }
   }
 
+  /** セルの現在の(アニメ中の)高さ */
+  const liftAt = (c: Vec2): number => {
+    if (c.x < 0 || c.y < 0 || c.x >= w || c.y >= h) return 0;
+    return lift[idx(c.x, c.y)] ?? 0;
+  };
+
   // --- ゴールの旗 ---
   const goalPos = findTile(state.board, 'goal');
   const flag = createGoalFlag();
   if (goalPos) {
-    const gt = tileAt(state.board, goalPos);
-    flag.position.set(goalPos.x, (gt?.height ?? 0) * STEP_HEIGHT + TILE_THICKNESS, goalPos.y);
+    flag.position.set(goalPos.x, topYOf(liftAt(goalPos)), goalPos.y);
     stage.root.add(flag);
   } else {
     flag.visible = false;
   }
-  const flagBaseY = flag.position.y;
 
-  // --- 経路プレビュー線・乗り物・紙吹雪 ---
+  // --- 経路プレビュー線・乗り物・エフェクト ---
   const pathLine = createPathLine();
   stage.root.add(pathLine.group);
 
   const vehicle = createVehicle(level.vehicle);
   stage.root.add(vehicle.group);
+  // 乗り物はタイルの上に乗っているので、上下アニメに追従させる(4.2 T2)
+  vehicle.setLiftOffset((cx, cy) => {
+    const c = { x: cx, y: cy };
+    const t = tileAt(state.board, c);
+    if (!t) return 0;
+    return (liftAt(c) - t.height) * STEP_HEIGHT;
+  });
 
   const confetti = createConfetti();
   stage.root.add(confetti.group);
+  const dust = createDust();
+  stage.root.add(dust.group);
+  const debris = createDebris();
+  stage.root.add(debris.group);
 
   // --- ツールのオーバーレイ ---
   const overlays: ToolOverlay[] = [];
   const hitObjects: THREE.Object3D[] = [];
-  state.tools.forEach((tool, idx) => {
-    const ov = createToolOverlay(tool, idx, (p: Vec2) => tileAt(state.board, p));
+  state.tools.forEach((tool, i) => {
+    const ov = createToolOverlay(tool, i, liftAt);
     overlays.push(ov);
     hitObjects.push(...ov.hitPlanes);
     stage.root.add(ov.group);
@@ -113,23 +167,24 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
   const pressAmount: number[] = state.tools.map(() => 0);
   const pressTarget: number[] = state.tools.map(() => 0);
 
+  function startLift(i: number, to: number): void {
+    liftFrom[i] = lift[i] ?? 0;
+    liftTo[i] = to;
+    liftT[i] = 0;
+  }
+
   function refreshVisuals(): void {
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
-        const i = y * w + x;
+        const i = idx(x, y);
         const tile = state.board.tiles[i]!;
         const mesh = tileMeshes[i]!;
         const prevRot = mesh.rotation.y;
-        const prevY = mesh.position.y;
         updateTileMesh(mesh, tile, palette, x, y);
         targetRotY[i] = mesh.rotation.y;
-        targetY[i] = mesh.position.y;
-        // アニメーションで追いつかせるため、いったん元の姿勢に戻す
+        // アニメーションで追いつかせるため、いったん元の角度に戻す
         mesh.rotation.y = prevRot;
-        mesh.position.y = prevY;
-
-        const prop = blockProps[i];
-        if (prop) prop.visible = tile.kind === 'block';
+        if (liftTo[i] !== tile.height) startLift(i, tile.height);
       }
     }
   }
@@ -152,9 +207,26 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
     if (!connected || cleared) return;
     cleared = true;
     const gp = goalPos ?? { x: 0, y: 0 };
-    const gt: Tile | undefined = tileAt(state.board, gp);
-    confetti.burst(new THREE.Vector3(gp.x, (gt?.height ?? 0) * STEP_HEIGHT + TILE_THICKNESS, gp.y));
+    confetti.burst(new THREE.Vector3(gp.x, topYOf(liftAt(gp)), gp.y));
     markCleared(level.id);
+  }
+
+  /** 破壊の演出(4.2 T3): 破片が飛び、土煙が上がり、跡は空地になる */
+  function playDestroy(cells: readonly Vec2[], before: GameState): void {
+    for (const c of cells) {
+      const was = tileAt(before.board, c);
+      const now = tileAt(state.board, c);
+      if (!was || !now || was.kind !== 'block' || now.kind === 'block') continue;
+      const at = new THREE.Vector3(c.x, topYOf(liftAt(c)), c.y);
+      debris.burst(at, rubbleColor(palette));
+      dust.burst(at);
+      const prop = blockProps[idx(c.x, c.y)];
+      if (prop) {
+        prop.visible = false;
+        blockProps[idx(c.x, c.y)] = undefined;
+        stage.root.remove(prop);
+      }
+    }
   }
 
   function tap(toolIndex: number): void {
@@ -164,19 +236,26 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
     hintReturnTimer = -1;
 
     const before = connected;
+    const beforeState = state;
     const result = applyTool(state, toolIndex);
     state = result.state;
     pressTarget[toolIndex] = 0;
 
     if (!result.changed) return; // 「ぷにっと沈んで戻る」だけ(4.2 T3)
 
+    const tool = state.tools[toolIndex];
     cleared = false;
     refreshVisuals();
     updatePath(before);
 
-    const tool = state.tools[toolIndex];
+    if (tool?.kind === 'destroy') playDestroy(tool.cells, beforeState);
+    if (tool?.kind === 'raise') {
+      // 持ち上げ時の土煙(4.2 T2)
+      for (const c of tool.cells) dust.burst(new THREE.Vector3(c.x, topYOf(liftAt(c)), c.y));
+    }
+
     if (tool?.used) {
-      // 使い切りのツールは点線枠ごと消える(4.2 T3)
+      // 使い切りのツールはオーバーレイ・点線枠・アイコンごと消える(4.2 T3)
       const ov = overlays[toolIndex];
       if (ov) ov.group.visible = false;
     }
@@ -201,20 +280,37 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
     for (let i = 0; i < tileMeshes.length; i++) {
       const mesh = tileMeshes[i]!;
       const tr = targetRotY[i]!;
-      const ty = targetY[i]!;
       // 0.25s ease-out 相当の指数的な追従
       const k = 1 - Math.pow(0.001, dt / 0.25);
       let diff = tr - mesh.rotation.y;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
       mesh.rotation.y += diff * k;
-      mesh.position.y += (ty - mesh.position.y) * (1 - Math.pow(0.001, dt / 0.3));
+
+      // 上下: 0.30s の ease-in-out + 着地の微バウンス
+      const et = liftT[i]!;
+      if (et >= 0) {
+        const nt = et + dt;
+        const p = Math.min(1, nt / LIFT_DURATION);
+        const from = liftFrom[i]!;
+        const to = liftTo[i]!;
+        lift[i] = from + (to - from) * liftEase(p);
+        liftT[i] = p >= 1 ? -1 : nt;
+        if (p >= 1) lift[i] = to;
+      }
+      setTileLift(mesh, lift[i]!);
+
       const prop = blockProps[i];
-      if (prop) prop.position.y = mesh.position.y + TILE_THICKNESS / 2 + 0.2;
+      if (prop) prop.position.y = topYOf(lift[i]!);
     }
 
+    // ツールのオーバーレイをタイルの高さに追従させる
+    for (const ov of overlays) ov.syncHeights(liftAt);
+
     // ゴールマーカーの上下(7.4: 2.0 秒周期、振幅 0.1)
-    flag.position.y = flagBaseY + Math.sin((t / 2) * Math.PI * 2) * 0.1;
+    if (goalPos) {
+      flag.position.y = topYOf(liftAt(goalPos)) + Math.sin((t / 2) * Math.PI * 2) * 0.1;
+    }
 
     // ツールの明滅と押し込み
     overlays.forEach((ov, i) => {
@@ -231,6 +327,8 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
     pathLine.tick(dt);
     vehicle.tick(dt, t);
     confetti.tick(dt);
+    dust.tick(dt);
+    debris.tick(dt);
 
     // 溜めてから発車(4.4)
     if (launchTimer > 0) {
@@ -270,14 +368,38 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
       overlays.forEach((ov, i) => {
         const tool = state.tools[i];
         if (!tool || tool.used) return;
-        for (const m of ov.overlayMats) m.opacity = 0.2 + glow * 0.3;
+        for (const m of ov.overlayMats) m.opacity = 0.12 + glow * 0.25;
       });
     }
   });
 
   stage.start();
 
+  const debug: PlayDebug = {
+    tools() {
+      return overlays.map((ov, i) => ({
+        index: i,
+        used: state.tools[i]?.used ?? false,
+        x: ov.center.x,
+        y: topYOf(liftAt({ x: Math.round(ov.center.x), y: Math.round(ov.center.z) })) + 0.05,
+        z: ov.center.z,
+      }));
+    },
+    project(x, y, z) {
+      const v = new THREE.Vector3(x, y, z).project(stage.camera);
+      const dom = stage.renderer.domElement;
+      const rect = dom.getBoundingClientRect();
+      return {
+        x: rect.left + ((v.x + 1) / 2) * rect.width,
+        y: rect.top + ((1 - v.y) / 2) * rect.height,
+      };
+    },
+    connected: () => connected,
+    cleared: () => cleared,
+  };
+
   return {
+    debug,
     dispose() {
       input.dispose();
       stage.dispose();
