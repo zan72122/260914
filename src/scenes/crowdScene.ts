@@ -18,6 +18,22 @@ import { buildRingTexture } from '../art/ring';
 import { Confetti } from './confetti';
 import { PAN_STEP } from '../core/director';
 
+/**
+ * Speed cap and steering force used while a crowd is leaving.
+ *
+ * A scene only calls `runOff` once every kid is already past `exitX`, which is
+ * a full half-screen to the right of the camera. The camera then pans PAN_STEP
+ * in PAN_SEC while the kids keep running, so for nobody to reappear (and then
+ * blink out when the old scene is retired) the slowest kid has to stay ahead
+ * of the camera's right edge for the whole pan. The slowest kid runs at
+ * RUN_OFF_SPEED * 0.75 (the lowest speedScale) * 1.8 (the run multiplier) =
+ * ~1050 units/s, which keeps a margin of over 100 units at the tightest point
+ * of the smoothstep. The force is what actually gets them there: with the
+ * crowd's damping of 2.4/s, terminal speed is force / 2.4.
+ */
+const RUN_OFF_SPEED = 780;
+const RUN_OFF_FORCE = 2600;
+
 interface Ripple {
   sprite: Sprite;
   age: number;
@@ -41,6 +57,12 @@ export abstract class CrowdScene extends Scene {
 
   /** Right-hand world x every crowd runs past on the way out. */
   protected exitX = 1400;
+  /**
+   * Multiplier laid over every kid sprite. White everywhere except the night
+   * scene, which dims the crowd into the dusk and brightens it again at dawn.
+   */
+  protected kidTint = 0xffffff;
+  private appliedTint = 0xffffff;
 
   protected setupCrowd(ctx: SceneContext, crowd: Crowd): void {
     this.crowd = crowd;
@@ -105,6 +127,11 @@ export abstract class CrowdScene extends Scene {
       s.zIndex = k.y;
       if (k.stepped) steps++;
     }
+    // One comparison per frame instead of one tint write per kid per frame.
+    if (this.kidTint !== this.appliedTint) {
+      this.appliedTint = this.kidTint;
+      for (let i = 0; i < this.sprites.length; i++) this.sprites[i].tint = this.kidTint;
+    }
     if (steps > 0) {
       this.ctx.audio.sfx.play('pote', {
         gain: Math.min(1, 0.25 + steps * 0.05),
@@ -131,22 +158,39 @@ export abstract class CrowdScene extends Scene {
   }
 
   /**
-   * Sends the whole crowd running off the right edge, laughing. The target is
-   * far past the edge on purpose: nobody must ever stop and stand around in
-   * view while the camera is still panning to the next scene.
+   * Sends the whole crowd running off the right edge, laughing.
+   *
+   * The speed is deliberately much higher than ordinary walking. The camera
+   * pans a whole PAN_STEP in PAN_SEC, so a crowd that merely jogged would be
+   * overtaken by the camera and then vanish mid-screen when the old scene is
+   * retired. At RUN_OFF_SPEED the slowest kid still outruns the camera, so the
+   * crowd leaves once, cleanly, and nobody ever pops out of existence in view.
    */
   protected runOff(): void {
     const kids = this.crowd.kids;
-    this.crowd.bounds.right = this.exitX + PAN_STEP * 2;
+    this.crowd.bounds.right = this.exitX + PAN_STEP * 3;
+    this.crowd.maxSpeed = RUN_OFF_SPEED;
+    this.crowd.followForce = RUN_OFF_FORCE;
     for (let i = 0; i < kids.length; i++) {
       const k = kids[i];
+      k.frozen = false;
       k.locked = false;
       k.hasTarget = true;
-      k.targetX = this.exitX + PAN_STEP + (i % 5) * 80;
+      k.targetX = this.exitX + PAN_STEP * 2 + (i % 5) * 80;
       k.targetY = k.y + ((i % 7) - 3) * 18;
       k.setState('run', true);
       k.locked = true;
     }
+  }
+
+  /**
+   * The same exit, but tumbling: used when a scene ends with the crowd rolling
+   * away in fits of laughter instead of running.
+   */
+  protected rollOff(): void {
+    this.runOff();
+    const kids = this.crowd.kids;
+    for (let i = 0; i < kids.length; i++) kids[i].setState('roll', true);
   }
 
   override debugKidCount(): number {

@@ -22,15 +22,21 @@ export const IDLE_HINT_MAX = 12;
 export const AUTO_ADVANCE_AFTER = 30;
 
 /**
- * World distance between consecutive scene origins. Wide enough that two
- * scenes' contents never overlap (the widest scene is under +-600 units), but
- * close enough that the incoming scene slides into view while the outgoing
- * crowd is still leaving on the other side: the camera never travels over an
- * empty screen.
+ * World distance between consecutive scene origins.
+ *
+ * Two constraints pull against each other. Scenes must not overlap: the widest
+ * visible world is an iPad in landscape, 1334 units across, so a scene may
+ * occupy +-667 and the next origin has to be at least ~1340 away. But the
+ * camera must never travel over an empty screen either, so the next scene has
+ * to be as close as that allows. 1350 is the tightest value that satisfies
+ * both: the incoming world's left edge is 683 units right of the outgoing
+ * world's right edge, i.e. it is already sliding into view a few frames after
+ * the pan starts. (Phase 1 used 1800, which left a visibly empty beat in the
+ * middle of the pan — see the transition screenshot in the e2e suite.)
  */
-export const PAN_STEP = 1800;
+export const PAN_STEP = 1350;
 /** Seconds the camera takes to travel that distance. */
-export const PAN_SEC = 1.3;
+export const PAN_SEC = 1.15;
 
 export interface Camera {
   x: number;
@@ -75,7 +81,7 @@ export class Director {
   outgoing: Scene | null = null;
 
   /** Fired when the active scene changes; wire this to the paper backdrop. */
-  onSceneTint: ((tint: number) => void) | null = null;
+  onSceneTint: ((tint: number, seconds?: number) => void) | null = null;
 
   private live: LiveScene | null = null;
   private old: LiveScene | null = null;
@@ -142,6 +148,11 @@ export class Director {
       audio: this.deps.audio,
       sheet: this.deps.sheet,
       props: this.deps.props,
+      setTint: (tint, seconds) => {
+        // Only the live scene may repaint the paper; an outgoing one must not
+        // fight the incoming scene's colour during a pan.
+        if (this.live?.scene === scene) this.onSceneTint?.(tint, seconds);
+      },
     };
     scene.enter(ctx);
     this.nextOriginX = originX + PAN_STEP;
@@ -250,6 +261,19 @@ export class Director {
   /** Debug hook: jump to the next scene immediately. */
   advanceScene(): void {
     this.next();
+  }
+
+  /**
+   * Debug/e2e hook: land on scene `index` at once, with no pan. Used by the
+   * screenshot suite so it does not have to sit through nine transitions to
+   * photograph the last scene. The game itself never calls this.
+   */
+  jumpTo(index: number): void {
+    const want = ((index % this.scenes.length) + this.scenes.length) % this.scenes.length;
+    for (let guard = 0; guard < this.scenes.length + 1 && this.index !== want; guard++) {
+      this.next();
+      this.finishPan();
+    }
   }
 
   update(dt: number): void {

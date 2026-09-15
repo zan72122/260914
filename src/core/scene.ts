@@ -14,6 +14,11 @@ export interface SceneContext {
   audio: Audio;
   sheet: KidSheet;
   props: PropTextures;
+  /**
+   * Asks the director to crossfade the paper to another colour. Scene 10 uses
+   * it to turn night into morning; every other scene just declares `tint`.
+   */
+  setTint: (tint: number, seconds?: number) => void;
 }
 
 export abstract class Scene {

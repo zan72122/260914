@@ -17,16 +17,28 @@ export interface BgmVoiceOptions {
   steps?: number;
   /** Deterministic seed so a scene always sounds like itself. */
   seed?: number;
+  /** Timbre of the little music box. */
+  wave?: OscillatorType;
+  /** Loop volume, 0..1. The night scene is deliberately the quietest. */
+  level?: number;
 }
 
 /**
- * Two distinct scene loops, in different keys and tempos so the crossfade at a
- * scene change is audible as "somewhere new" rather than as the same tune.
- *   - gather:  G major pentatonic, unhurried.
- *   - ballpit: D major pentatonic, noticeably bouncier.
+ * One short loop per scene, each in its own key, tempo and timbre, so that the
+ * crossfade at a scene change is heard as "somewhere new" rather than as the
+ * same tune going on. They are all major pentatonic — there is no sad or tense
+ * music anywhere in this game. The night loop is the slowest and the quietest.
  */
 export const BGM_GATHER: BgmVoiceOptions = { root: 67, tempo: 92, steps: 16, seed: 11 };
+export const BGM_MARCH: BgmVoiceOptions = { root: 65, tempo: 108, steps: 16, seed: 17, wave: 'square', level: 0.55 };
+export const BGM_TICKLE: BgmVoiceOptions = { root: 69, tempo: 124, steps: 16, seed: 23, wave: 'sine' };
 export const BGM_BALLPIT: BgmVoiceOptions = { root: 62, tempo: 132, steps: 16, seed: 29 };
+export const BGM_BUTTERFLY: BgmVoiceOptions = { root: 72, tempo: 84, steps: 16, seed: 37, wave: 'sine' };
+export const BGM_SLIDE: BgmVoiceOptions = { root: 64, tempo: 116, steps: 16, seed: 41 };
+export const BGM_HIDE: BgmVoiceOptions = { root: 60, tempo: 100, steps: 16, seed: 43, wave: 'square', level: 0.5 };
+export const BGM_BALLOON: BgmVoiceOptions = { root: 74, tempo: 76, steps: 16, seed: 47, wave: 'sine' };
+export const BGM_TOWER: BgmVoiceOptions = { root: 63, tempo: 128, steps: 16, seed: 53 };
+export const BGM_SLEEP: BgmVoiceOptions = { root: 55, tempo: 54, steps: 12, seed: 59, wave: 'sine', level: 0.45 };
 
 export function midiToHz(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12);
@@ -63,6 +75,8 @@ class BgmVoice {
   private notes: number[];
   private index = 0;
   private stepSec: number;
+  private wave: OscillatorType;
+  private level: number;
 
   constructor(
     private ctx: AudioContext,
@@ -74,6 +88,8 @@ class BgmVoice {
     this.gain.connect(dest);
     this.notes = buildLoop(opts);
     this.stepSec = 60 / opts.tempo / 2;
+    this.wave = opts.wave ?? 'triangle';
+    this.level = opts.level ?? 1;
   }
 
   start(): void {
@@ -97,11 +113,14 @@ class BgmVoice {
     this.index++;
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
-    osc.type = 'triangle';
+    osc.type = this.wave;
     osc.frequency.setValueAtTime(midiToHz(midi), t);
     const env = this.ctx.createGain();
     env.gain.setValueAtTime(0.0001, t);
-    env.gain.exponentialRampToValueAtTime(0.25, t + 0.01);
+    // A square wave at the same gain is far louder than a triangle, so it is
+    // scaled down: the BGM must always sit under the sound effects.
+    const peak = 0.25 * this.level * (this.wave === 'square' ? 0.45 : 1);
+    env.gain.exponentialRampToValueAtTime(peak, t + 0.01);
     env.gain.exponentialRampToValueAtTime(0.0001, t + this.stepSec * 1.8);
     osc.connect(env);
     env.connect(this.gain);

@@ -29,17 +29,40 @@ export function applyAttention(crowd: Crowd, hand: Hand): number {
 }
 
 /**
+ * Tuning for `applyDragForce`, sized for the 150-unit kids of this game.
+ *
+ * A 4-year-old swipes hard. The shove has to be unmistakable — a swiped kid
+ * should visibly shoot away from the finger — but it must never throw anybody
+ * off the screen, because a child who loses a kid has no way to get them back.
+ * So the push is capped twice: the acceleration saturates once the finger is
+ * moving faster than DRAG_FULL_SPEED, and the resulting speed is clamped to
+ * DRAG_MAX_SPEED. With the crowd's damping of 2.4/s a kid at that speed coasts
+ * about DRAG_MAX_SPEED / 2.4 = 270 units, i.e. under two body heights: a clear
+ * shove, a fifth of the safe zone, and never out of sight.
+ */
+export const DRAG_PUSH_SPEED = 240;
+export const DRAG_FULL_SPEED = 900;
+export const DRAG_PUSH_FORCE = 1500;
+export const DRAG_PULL_FORCE = 320;
+export const DRAG_MAX_SPEED = 650;
+
+/**
  * A moving finger nudges nearby kids: slow drags gently attract (kids follow
- * the finger), fast drags push them along the swipe. Never hurts anybody.
+ * the finger), fast drags push them along the swipe. Never hurts anybody, and
+ * never flings anybody out of the picture.
  */
 export function applyDragForce(crowd: Crowd, hand: Hand, dt: number): void {
   const speed = Math.sqrt(hand.vx * hand.vx + hand.vy * hand.vy);
-  const pushing = speed > 260;
+  const pushing = speed > DRAG_PUSH_SPEED;
+  // How hard the swipe reads, 0..1. Saturates, so a frantic swipe and a fast
+  // one feel the same rather than one of them launching kids into orbit.
+  const bite = pushing ? Math.min(1, speed / DRAG_FULL_SPEED) : 0;
   const r = hand.radius;
   const r2 = r * r;
   const kids = crowd.kids;
   for (let i = 0; i < kids.length; i++) {
     const k = kids[i];
+    if (k.frozen) continue;
     const dx = hand.x - k.x;
     const dy = hand.y - k.y;
     const d2 = dx * dx + dy * dy;
@@ -48,12 +71,18 @@ export function applyDragForce(crowd: Crowd, hand: Hand, dt: number): void {
     const falloff = 1 - d / r;
     if (pushing) {
       // Shove along the finger's direction of travel.
-      k.vx += (hand.vx / speed) * 520 * falloff * dt;
-      k.vy += (hand.vy / speed) * 520 * falloff * dt;
+      k.vx += (hand.vx / speed) * DRAG_PUSH_FORCE * bite * falloff * dt;
+      k.vy += (hand.vy / speed) * DRAG_PUSH_FORCE * bite * falloff * dt;
+      const sp = Math.sqrt(k.vx * k.vx + k.vy * k.vy);
+      if (sp > DRAG_MAX_SPEED) {
+        const s = DRAG_MAX_SPEED / sp;
+        k.vx *= s;
+        k.vy *= s;
+      }
     } else {
       // Gather towards the finger.
-      k.vx += (dx / d) * 300 * falloff * dt;
-      k.vy += (dy / d) * 300 * falloff * dt;
+      k.vx += (dx / d) * DRAG_PULL_FORCE * falloff * dt;
+      k.vy += (dy / d) * DRAG_PULL_FORCE * falloff * dt;
     }
   }
 }

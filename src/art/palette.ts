@@ -17,8 +17,57 @@ export const SKINS = [0xffe2c8, 0xf7d3ae, 0xe8bd96, 0xd7a377] as const;
 /** Hair colours (browns, still never black). */
 export const HAIRS = [0x5a4632, 0x7a5c3c, 0x8f6b45, 0x3f342a] as const;
 
-/** Per-scene paper tints from the plan (sky, grass, peach, lilac). */
-export const SCENE_TINTS = [0xdff0fb, 0xe4f5dc, 0xfde4e4, 0xece4f7] as const;
+/**
+ * Per-scene paper tints. One per scene in running order (§3: the paper colour
+ * changes with the place), pastel throughout and never dark — the only dim
+ * scene is the last one, which uses NIGHT below.
+ */
+export const SCENE_TINTS = [
+  0xdff0fb, // 1 gather    — sky
+  0xe8f3d8, // 2 march     — young grass
+  0xffe8ef, // 3 tickle    — blossom
+  0xfde4e4, // 4 ball pit  — peach
+  0xdcf2ee, // 5 butterfly — mint
+  0xfdeccd, // 6 slide     — apricot
+  0xdcefd9, // 7 hide      — leaf
+  0xe7ecfb, // 8 balloon   — high sky
+  0xfbe9d2, // 9 tower     — sand
+  0x6f68a8, // 10 sleep    — deep lavender night (see NIGHT)
+] as const;
+
+/**
+ * Night paper: a deep lavender-indigo. Deliberately NOT black — §9's review
+ * asks for no scary darkness anywhere, so the last scene dims to a colour a
+ * child would call "purple", not to an absence of light.
+ */
+export const NIGHT = 0x6f68a8;
+/** Morning paper the night brightens into before the loop starts again. */
+export const MORNING = 0xfff2dd;
+/** Multiplier laid over the kids at night so they sit inside the dusk. */
+export const NIGHT_KID_TINT = 0xc8c3e8;
+
+/** Scene 2: the crayon path the line of kids walks along. */
+export const PATH_FILL = 0xf6e3bd;
+export const PATH_EDGE = 0xd8b78a;
+
+/** Scene 5: the butterfly's wings and body. */
+export const BUTTERFLY_WING = 0xffc7e6;
+export const BUTTERFLY_WING2 = 0xfff0a8;
+
+/** Scene 6: the slide — apricot slope on a sky-blue frame. */
+export const SLIDE_SLOPE = 0xffcf9b;
+export const SLIDE_FRAME = 0x9fd7f0;
+
+/** Scene 7: the bushes kids hide in. */
+export const BUSH_FILL = 0xa8dd96;
+export const BUSH_DARK = 0x86c878;
+
+/** Scene 8: balloon colours (the pastel six, a touch more saturated). */
+export const BALLOONS = [0xff9fb0, 0x9fd4ff, 0xffe887, 0xaee89a, 0xc9b4f5, 0xffc08a] as const;
+
+/** Scene 10: the stars, and the pale glow around them. */
+export const STAR_FILL = 0xfff3b0;
+export const STAR_GLOW = 0xfff8d8;
 
 /** Six pastel ball colours for the ball pit (matched to the shirt palette). */
 export const BALLS = [0xffb3ba, 0xb3e1ff, 0xfff0a8, 0xc3eeb0, 0xd6c6f2, 0xffd3a8] as const;

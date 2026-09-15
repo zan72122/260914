@@ -14,7 +14,19 @@ import { HAIRS, LINE, SHADOW, SHADOW_ALPHA, SHIRTS, SKINS } from './palette';
 import { crayonArc, crayonBlob, crayonDot, crayonLine, seededRandom, softShadow } from './crayon';
 import type { Ctx2D } from './crayon';
 
-export type PoseName = 'idle' | 'walk' | 'run' | 'laugh' | 'jump' | 'clap' | 'sleep' | 'wave';
+export type PoseName =
+  | 'idle'
+  | 'walk'
+  | 'run'
+  | 'laugh'
+  | 'jump'
+  | 'clap'
+  | 'sleep'
+  | 'wave'
+  | 'sit'
+  | 'hold'
+  | 'climb'
+  | 'roll';
 
 /** Frame counts per pose, in atlas order. */
 export const POSE_FRAMES: Record<PoseName, number> = {
@@ -26,6 +38,10 @@ export const POSE_FRAMES: Record<PoseName, number> = {
   clap: 2,
   sleep: 1,
   wave: 2, // arm up / arm down — the one kid who invites the others over
+  sit: 2, // sitting at the top of the slide, and sliding down it
+  hold: 2, // one arm straight up, holding a balloon string
+  climb: 2, // both arms up — climbing a ladder, or onto a friend's shoulders
+  roll: 4, // tumbling: the same curled-up kid at four quarter turns
 };
 
 export const POSE_ORDER: PoseName[] = [
@@ -37,6 +53,10 @@ export const POSE_ORDER: PoseName[] = [
   'clap',
   'sleep',
   'wave',
+  'sit',
+  'hold',
+  'climb',
+  'roll',
 ];
 
 /** Total frames in one variant row. */
@@ -88,7 +108,7 @@ export function frameIndex(variant: number, pose: PoseName, frame: number): numb
 export const ATLAS_W = FRAME_W * FRAMES_PER_VARIANT;
 export const ATLAS_H = FRAME_H * VARIANTS;
 
-interface PoseParams {
+export interface PoseParams {
   /** Vertical body offset (jump). */
   lift: number;
   /** Leg swing in radians. */
@@ -109,6 +129,14 @@ interface PoseParams {
   smile: number;
   /** Raised-arm angle for the waving pose (0 = not waving). */
   wave: number;
+  /** Sitting: hips on the ground, both legs out in front. */
+  sitting: boolean;
+  /** One arm straight up, holding something (a balloon string). */
+  holding: boolean;
+  /** Both arms up, legs apart: climbing. */
+  climbing: boolean;
+  /** Quarter turns of a curled-up tumbling kid (-1 = not rolling). */
+  roll: number;
 }
 
 /** Deterministic pose parameters for a given pose/frame. */
@@ -124,6 +152,10 @@ export function poseParams(pose: PoseName, frame: number): PoseParams {
     lying: false,
     smile: 1,
     wave: 0,
+    sitting: false,
+    holding: false,
+    climbing: false,
+    roll: -1,
   };
   switch (pose) {
     case 'idle':
@@ -175,6 +207,33 @@ export function poseParams(pose: PoseName, frame: number): PoseParams {
       base.eyesClosed = true;
       base.smile = 0.6;
       break;
+    case 'sit':
+      // Perched: hips down, legs straight out ahead. Frame 1 leans back a
+      // little, which reads as "whee" once the kid is on the slope.
+      base.sitting = true;
+      base.lean = frame === 0 ? 0.04 : -0.1;
+      base.armSwing = frame === 0 ? 0.2 : -0.5;
+      base.smile = 1.3;
+      break;
+    case 'hold':
+      // One arm straight up on a balloon string; the body drifts with it.
+      base.holding = true;
+      base.lift = frame === 0 ? 0 : 2;
+      base.squash = frame === 0 ? 0.02 : -0.02;
+      base.smile = 1.2;
+      break;
+    case 'climb':
+      base.climbing = true;
+      base.legSwing = frame === 0 ? 0.5 : -0.4;
+      base.lift = frame === 0 ? 0 : 3;
+      break;
+    case 'roll':
+      // Curled into a ball, spun a quarter turn per frame. Eyes shut, biggest
+      // smile in the game: falling over is the joke, never the punishment.
+      base.roll = frame;
+      base.eyesClosed = true;
+      base.smile = 1.5;
+      break;
   }
   return base;
 }
@@ -202,6 +261,14 @@ export function drawKidFrame(
   const headR = 19;
   const groundY = -8;
 
+  // Tumbling is its own little drawing: a curled-up ball, spun.
+  if (p.roll >= 0) {
+    softShadow(ctx, 0, groundY + 2, 20, 6, SHADOW, SHADOW_ALPHA);
+    drawCurled(ctx, groundY - 20, headR, p.roll * (Math.PI / 2), shirt, skin, hair, p, rng);
+    ctx.restore();
+    return;
+  }
+
   if (p.lying) {
     // Sleeping: rotate the whole figure onto its side.
     softShadow(ctx, 0, groundY + 3, 34, 8, SHADOW, SHADOW_ALPHA);
@@ -210,6 +277,8 @@ export function drawKidFrame(
   } else {
     softShadow(ctx, 0, groundY + 2, 20 - p.lift * 0.5, 6, SHADOW, SHADOW_ALPHA);
   }
+  // Sitting drops the whole figure onto its bottom.
+  if (p.sitting) ctx.translate(-2, 11);
 
   ctx.translate(0, -p.lift);
   ctx.rotate(p.lean);
@@ -222,18 +291,27 @@ export function drawKidFrame(
 
   // Legs (behind the body).
   const legLen = 12;
-  for (const side of [-1, 1] as const) {
-    const a = p.legSwing * side;
-    const hx = side * 6;
-    const hy = bodyBottom - 1;
-    crayonLine(
-      ctx,
-      hx,
-      hy,
-      hx + Math.sin(a) * legLen,
-      hy + Math.cos(a) * legLen,
-      { rng, width: 5, wobble: 0.9 },
-    );
+  if (p.sitting) {
+    // Both legs straight out in front (the sprite's own +x is "forwards").
+    for (const side of [-1, 1] as const) {
+      const hy = bodyBottom - 1 + side * 3;
+      crayonLine(ctx, 2, hy, 2 + legLen * 1.25, hy + 4, { rng, width: 5, wobble: 0.9 });
+      crayonDot(ctx, 2 + legLen * 1.25, hy + 4, 3.2, skin);
+    }
+  } else {
+    for (const side of [-1, 1] as const) {
+      const a = p.legSwing * side;
+      const hx = side * 6;
+      const hy = bodyBottom - 1;
+      crayonLine(
+        ctx,
+        hx,
+        hy,
+        hx + Math.sin(a) * legLen,
+        hy + Math.cos(a) * legLen,
+        { rng, width: 5, wobble: 0.9 },
+      );
+    }
   }
 
   // Arms.
@@ -243,8 +321,10 @@ export function drawKidFrame(
     const sy = bodyCY - 3;
     let ex: number;
     let ey: number;
-    // The raised waving arm is drawn last, over the head — see below.
-    if (p.wave > 0 && side === 1) continue;
+    // The raised waving/holding arm is drawn last, over the head — see below.
+    if ((p.wave > 0 || p.holding) && side === 1) continue;
+    // Climbing reaches with both arms, so both are drawn over the head.
+    if (p.climbing) continue;
     if (p.clapAmount > 0) {
       const inward = p.clapAmount;
       ex = sx + side * armLen * (1 - inward) + -side * armLen * inward * 0.75;
@@ -302,6 +382,75 @@ export function drawKidFrame(
     crayonArc(ctx, ex, ey, 5.5, Math.PI * 1.05, Math.PI * 1.95, { rng, width: 2.4, wobble: 0.6 });
   }
 
+  // Holding a balloon string: one arm straight up, hand closed round nothing
+  // in particular. The balloon itself is a prop sprite the scene parents to it.
+  if (p.holding) {
+    const sx = bodyRX - 3;
+    const sy = bodyCY - 4;
+    const ex = sx + 3;
+    const ey = sy - armLen * 1.9;
+    crayonLine(ctx, sx, sy, ex, ey, { rng, width: 5, wobble: 0.9 });
+    crayonDot(ctx, ex, ey, 4, skin);
+  }
+
+  // Climbing: both arms reaching up over the head.
+  if (p.climbing) {
+    for (const side of [-1, 1] as const) {
+      const sx = side * (bodyRX - 2);
+      const sy = bodyCY - 4;
+      const ex = sx + side * 4;
+      const ey = sy - armLen * (side === 1 ? 1.9 : 1.5);
+      crayonLine(ctx, sx, sy, ex, ey, { rng, width: 5, wobble: 0.9 });
+      crayonDot(ctx, ex, ey, 3.6, skin);
+    }
+  }
+
+  ctx.restore();
+}
+
+/**
+ * A kid curled into a tumbling ball, rotated by `angle`. Used for the roll
+ * pose: arms and legs tucked in, eyes shut, the widest smile in the atlas.
+ */
+function drawCurled(
+  ctx: Ctx2D,
+  cy: number,
+  headR: number,
+  angle: number,
+  shirt: number,
+  skin: number,
+  hair: number,
+  p: PoseParams,
+  rng: () => number,
+): void {
+  ctx.save();
+  ctx.translate(0, cy);
+  ctx.rotate(angle);
+
+  // Tucked limbs first, so the body and head sit on top of them.
+  for (const side of [-1, 1] as const) {
+    crayonLine(ctx, side * 8, 4, side * 16, 12, { rng, width: 5, wobble: 0.9 });
+    crayonDot(ctx, side * 16, 12, 3.2, skin);
+    crayonLine(ctx, side * 9, -4, side * 17, -11, { rng, width: 4.5, wobble: 0.9 });
+    crayonDot(ctx, side * 17, -11, 3, skin);
+  }
+
+  crayonBlob(ctx, 0, 6, 15, 13, shirt, { rng, wobble: 1.4 });
+  const hy = -8;
+  crayonBlob(ctx, 0, hy, headR * 0.92, headR * 0.88, skin, { rng, wobble: 1.5 });
+  crayonArc(ctx, 0, hy - 1, headR - 3, Math.PI * 1.08, Math.PI * 1.92, {
+    rng,
+    color: hair,
+    width: 7,
+    wobble: 1,
+  });
+  crayonArc(ctx, -6, hy + 2, 3.2, Math.PI * 1.1, Math.PI * 1.9, { rng, width: 2.6 });
+  crayonArc(ctx, 6, hy + 2, 3.2, Math.PI * 1.1, Math.PI * 1.9, { rng, width: 2.6 });
+  crayonArc(ctx, 0, hy + 4, 5.5 * p.smile, Math.PI * 0.15, Math.PI * 0.85, {
+    rng,
+    width: 2.8,
+    wobble: 0.5,
+  });
   ctx.restore();
 }
 
