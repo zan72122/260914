@@ -53,8 +53,11 @@ const WIRE = [
 ];
 const WIRE_BRANCH = [{ x: 56, y: -106 }, { x: 53, y: -124 }, { x: 48, y: -136 }];
 const IDLE_LIFT = 150;         // the pellet floats this far above the slot (~0.25*S)
-const SECOND_ROVER_AHEAD = 1560; // how far ahead the next stopped rover waits (never interactive)
+const SECOND_ROVER_AHEAD = 2750; // how far ahead the next stopped rover waits (never interactive)
 const DRIVE_SPEED = 240;       // world units / s
+const DRIVE_BASE = 9.5;        // §G: the drive lasts long enough to stay a game, not a cutscene
+const DRIVE_PER_SURGE = 1.5;   //     every extra touch keeps the rover out a little longer
+const DRIVE_MAX = 18;          //     ...but never past this
 const RS = 1.28;               // rover scale (rover-local units -> world units)
 
 const SAND = '#c79a68';
@@ -113,11 +116,19 @@ export default {
     let motor = null;
     let dustT = 0;
     let flash = 0;            // the moment the lights come on
+    let driveLimit = DRIVE_BASE;
+    let surge = 0;            // 0..1 extra speed from a tap while driving
+    let surges = 0;
+    let hop = 0;              // 0..1 arc over a pebble
+    let hopRock = null;       // the pebble being jumped, in world space
     let bounce = 0;           // suspension kick on the first turn of the wheels
     let dragHandle = null;
     let camIntro = { x: 352, y: 300 };
     let hillBands = [];
+    let fgSpan = 200;
+    let fgBottom = GROUND_Y + 200;
     let secondX = ROVER_X0 + SECOND_ROVER_AHEAD;
+    let secondVisible = false;
 
     const fadeIn = () => Math.max(handoff ? clamp(handoff.progress) : 1, clamp(t / 1.2));
 
@@ -153,7 +164,7 @@ export default {
       // in portrait and in landscape (§5.3).
       const zone = engine.thumbZone();
       const wantSlotY = clamp(
-        zone.y + zone.h * 0.62,
+        zone.y + zone.h * 0.44,
         zone.y + IDLE_LIFT * cam.baseScale + engine.insets.top * 0 + S * 0.04,
         zone.y + zone.h - S * 0.04
       );
@@ -179,6 +190,11 @@ export default {
         { y: topY + span * 0.88, amp: span * 0.062, f: 0.0063, ph: 4.4, tone: 0.22, col: '#6e3630' },
         { y: topY + span * 0.99, amp: span * 0.040, f: 0.0098, ph: 1.2, tone: 0.28, col: SAND_DARK }
       ];
+
+      // ...and the same treatment for the near side: foreground dune ridges, wheel ruts and
+      // boulders fill the sand in front of the rover (portrait used to be 40% empty).
+      fgBottom = camIntro.y + (h / 2) / (cam.baseScale || 1);
+      fgSpan = Math.max(70, fgBottom - GROUND_Y);
       syncSnap();
     }
 
@@ -207,6 +223,37 @@ export default {
         color: [DEF.flameColor, DEF.glowColor], drag: 0.88
       });
       void fromTap;
+    }
+
+    /** §G: while the rover is out, a touch anywhere gives it a shove — more speed, a
+     *  bigger dust plume, a headlight flare and a hop over a pebble — and buys it more
+     *  time before the pull-back. The name is NOT spoken again; this is play, not a climax. */
+    function boost() {
+      if (phase !== 'complete') return;
+      surges++;
+      driveLimit = Math.min(DRIVE_MAX, driveLimit + DRIVE_PER_SURGE);
+      surge = 1;
+      flash = Math.max(flash, 0.55);
+      bounce = 1;
+      hop = 1;
+      hopRock = { x: rover.x + 108 * RS, r: 15 + hash(surges * 3) * 12 };
+      // keep the sleeping rover over the next ridge — but only ever move it out of sight
+      if (!secondVisible) secondX = Math.max(secondX, rover.x + SECOND_ROVER_AHEAD * 0.8);
+      rover.speed = Math.max(rover.speed, DRIVE_SPEED * 1.5);
+      engine.audio.play('whoosh');
+      engine.audio.play('power_on');
+      if (motor && motor.setLevel) motor.setLevel(1);
+      const back = cam.worldToScreen(rover.x - 80 * RS, GROUND_Y - 8);
+      engine.particles.burst(back.x, back.y, 26, {
+        speed: [90, 330], life: [0.45, 1.1], r: [2, 6],
+        color: ['#d9b184', '#f0cfa6', DEF.glowColor], drag: 0.9, gravity: 150,
+        angle: Math.PI, spread: Math.PI * 0.9, glow: false
+      });
+      const nose = cam.worldToScreen(rover.x + 95 * RS, GROUND_Y - 95 * RS);
+      engine.particles.burst(nose.x, nose.y, 14, {
+        speed: [60, 220], life: [0.3, 0.7], r: [1.5, 4],
+        color: ['#ffe6b8', DEF.glowColor], drag: 0.9
+      });
     }
 
     /** the climax: lights on + the wheels' first turn, name spoken once */
@@ -299,6 +346,10 @@ export default {
           },
           { maxMoveRatio: 0.06, maxDurationMs: 700 }
         );
+
+        // §G: once the rover is running, ANY tap shoves it along (tapping the rover itself
+        // is the obvious one, but a 4-year-old's finger lands anywhere, so anywhere works).
+        rec.onTap(() => phase === 'complete', () => boost(), { maxMoveRatio: 0.09, maxDurationMs: 800 });
       },
 
       update(dt) {
@@ -353,24 +404,30 @@ export default {
 
         if (flash > 0) flash = Math.max(0, flash - dt / 0.75);
         if (bounce > 0) bounce = Math.max(0, bounce - dt / 0.9);
+        if (surge > 0) surge = Math.max(0, surge - dt / 1.6);
+        if (hop > 0) {
+          hop = Math.max(0, hop - dt / 0.85);
+          if (hop <= 0) hopRock = null;
+        }
 
         if (phase === 'complete' || phase === 'leaving') {
           lampsOn = Math.min(1, lampsOn + dt * 6);
           rover.tilt = lerp(rover.tilt, 0, damp(0.90, dt));
-          rover.speed = lerp(rover.speed, phase === 'leaving' ? 85 : DRIVE_SPEED, damp(0.94, dt));
+          const want = phase === 'leaving' ? 85 : DRIVE_SPEED * (1 + surge * 0.85);
+          rover.speed = lerp(rover.speed, want, damp(0.94, dt));
           rover.x += rover.speed * dt;
           rover.wheel += (rover.speed / (WHEEL_R * RS)) * dt;
-          if (motor && motor.setLevel) motor.setLevel(0.25 + 0.55 * (rover.speed / DRIVE_SPEED));
+          if (motor && motor.setLevel) motor.setLevel(clamp(0.25 + 0.5 * (rover.speed / DRIVE_SPEED)));
 
           // dust + kicked pebbles (screen-space particles, drawn by the engine)
           dustT += dt;
-          if (dustT > 0.045) {
+          if (dustT > (surge > 0.1 ? 0.018 : 0.045)) {
             dustT = 0;
             const back = cam.worldToScreen(rover.x - 78 * RS, GROUND_Y - 6);
             engine.particles.emit({
               x: back.x, y: back.y,
               vx: -(130 + hash(engine.frameCount) * 140), vy: -(20 + hash(engine.frameCount + 3) * 110),
-              r: (2 + hash(engine.frameCount + 5) * 4) * clamp(cam.scale, 0.4, 2),
+              r: (2 + hash(engine.frameCount + 5) * 4) * (1 + surge * 0.7) * clamp(cam.scale, 0.4, 2),
               life: 0.5 + hash(engine.frameCount + 7) * 0.7,
               color: hash(engine.frameCount + 9) > 0.75 ? DEF.glowColor : '#d9b184',
               drag: 0.93, gravity: 120, glow: false
@@ -380,7 +437,7 @@ export default {
 
         if (phase === 'complete') {
           doneT += dt;
-          if (doneT >= 4.6) {
+          if (doneT >= driveLimit) {
             // §2.1 return: keep pulling back until the whole hill is small
             phase = 'leaving';
             leaveT = 0;
@@ -467,6 +524,8 @@ export default {
           t: Math.round(t * 100) / 100,
           inserted,
           driving: phase === 'complete' || phase === 'leaving',
+          surges,
+          driveLimit: Math.round(driveLimit * 10) / 10,
           spoken,
           lampsOn: Math.round(lampsOn * 100) / 100,
           wirePower: Math.round(wirePower * 100) / 100,
@@ -480,10 +539,14 @@ export default {
       hitPoints() {
         const ss = slotScreen();
         const fs = inserted ? ss : fragScreen();
-        return [
+        const rs = cam.worldToScreen(rover.x, GROUND_Y - 90 * RS);
+        const out = [
           { id: 'fragment', x: fs.x, y: fs.y, r: inserted ? S * 0.10 : fragHitR() },
           { id: 'slot', x: ss.x, y: ss.y, r: S * 0.14 }
         ];
+        // §G: while it is running, the rover itself is touchable (a tap shoves it along)
+        if (phase === 'complete') out.push({ id: 'rover', x: rs.x, y: rs.y, r: S * 0.18 });
+        return out;
       },
 
       complete() {
@@ -559,29 +622,76 @@ export default {
       g.fillStyle = withAlpha('#ffcf9a', 0.30);
       g.fillRect(x0, GROUND_Y - 4, x1 - x0, 7);
 
-      // pebbles: big, soft, rounded — never thin detail
-      const i0 = Math.floor(x0 / 76), i1 = Math.ceil(x1 / 76);
-      for (let i = i0; i <= i1; i++) {
-        const px = i * 76 + hash(i) * 56;
-        const py = GROUND_Y + 22 + hash(i + 7) * 190;
-        const r = 5 + hash(i + 3) * 9;
-        g.fillStyle = withAlpha(shade(SAND_DARK, 0.85), 0.75);
+      // wheel ruts already ploughed through the sand (texture, never a sign or an arrow)
+      const rutY = GROUND_Y + fgSpan * 0.20;
+      const wavy = (x, f, ph, amp) => Math.sin(x * f + ph) * amp + Math.sin(x * f * 2.6 + ph) * amp * 0.3;
+      for (let k = 0; k < 2; k++) {
+        const ry = rutY + k * fgSpan * 0.085;
+        const th = fgSpan * 0.026 + 3;
+        g.fillStyle = withAlpha(shade(SAND_DARK, 0.88), 0.30 - k * 0.08);
         g.beginPath();
-        g.ellipse(px, py + r * 0.28, r, r * 0.62, 0, 0, Math.PI * 2);
+        for (let x = x0; x <= x1; x += 26) g.lineTo(x, ry + wavy(x, 0.0037, k * 2.2, th * 0.8) - th);
+        for (let x = x1; x >= x0; x -= 26) g.lineTo(x, ry + wavy(x, 0.0037, k * 2.2, th * 0.8) + th);
+        g.closePath();
         g.fill();
-        g.fillStyle = withAlpha(shade(SAND, 1.05), 0.8);
+      }
+
+      // two near dune ridges rolling across the foreground
+      const ridges = [
+        { y: GROUND_Y + fgSpan * 0.44, amp: fgSpan * 0.060, f: 0.0040, ph: 1.7, col: shade(SAND, 0.93) },
+        { y: GROUND_Y + fgSpan * 0.82, amp: fgSpan * 0.048, f: 0.0066, ph: 4.9, col: shade(SAND_DARK, 1.16) }
+      ];
+      const rstep = Math.max(10, (x1 - x0) / 56);
+      for (const R of ridges) {
         g.beginPath();
-        g.ellipse(px, py, r * 0.92, r * 0.58, 0, 0, Math.PI * 2);
+        g.moveTo(x0, bottom);
+        for (let x = x0; x <= x1; x += rstep) g.lineTo(x, R.y - wavy(x, R.f, R.ph, R.amp));
+        g.lineTo(x1, bottom);
+        g.closePath();
+        g.fillStyle = R.col;
+        g.fill();
+        g.fillStyle = withAlpha('#ffd7a4', 0.15);
+        g.beginPath();
+        g.moveTo(x0, R.y + fgSpan * 0.028);
+        for (let x = x0; x <= x1; x += rstep) g.lineTo(x, R.y - wavy(x, R.f, R.ph, R.amp));
+        g.lineTo(x1, R.y + fgSpan * 0.028);
+        g.closePath();
+        g.fill();
+      }
+
+      // pebbles near the rover, a few bigger stones in the very front — soft and rounded,
+      // sparse enough that the sand still reads as sand
+      const rockK = clamp(fgSpan / 260, 0.7, 1.2);
+      const i0 = Math.floor(x0 / 64), i1 = Math.ceil(x1 / 64);
+      for (let i = i0; i <= i1; i++) {
+        const near = (i & 1) === 0;
+        if (near && hash(i + 47) > 0.80) continue;                // leave a few gaps
+        const px = i * 64 + hash(i + (near ? 31 : 0)) * 54;
+        const py = GROUND_Y + fgSpan * (near ? 0.58 + hash(i + 17) * 0.40 : 0.04 + hash(i + 7) * 0.30);
+        const r = (near ? (17 + hash(i + 23) * 21) * rockK : 5 + hash(i + 3) * 8);
+        g.fillStyle = withAlpha(shade(SAND_DARK, near ? 0.72 : 0.85), near ? 0.55 : 0.7);
+        g.beginPath();
+        g.ellipse(px, py + r * 0.32, r * 1.04, r * 0.46, 0, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = near ? shade(SAND_DARK, 1.2) : withAlpha(shade(SAND, 1.05), 0.8);
+        g.beginPath();
+        g.ellipse(px, py, r * 0.9, r * 0.6, 0, 0, Math.PI * 2);
+        g.fill();
+        g.fillStyle = withAlpha('#ffe0b4', near ? 0.3 : 0.2);
+        g.beginPath();
+        g.ellipse(px - r * 0.22, py - r * 0.24, r * 0.48, r * 0.24, 0, 0, Math.PI * 2);
         g.fill();
       }
     }
 
     /* ---------------------------------------------------------------- the next rover ahead */
     function drawSecondRover(g, vr) {
-      if (secondX < rover.x + 120) return;
-      if (secondX < vr.x - 260 || secondX > vr.x + vr.w + 260) return;
+      secondVisible = !(secondX < vr.x - 120 || secondX > vr.x + vr.w + 120);
+      const near = clamp((secondX - rover.x - 130) / 320);
+      if (near <= 0.01 || !secondVisible) return;
       const k = 0.5 * RS;                              // smaller + higher = further away
       g.save();
+      g.globalAlpha = near;
       g.translate(secondX, GROUND_Y - 44);
       g.scale(k, k);
       g.rotate(0.14);
@@ -596,28 +706,40 @@ export default {
       fillRoundRect(g, MAST.x - 20, MAST.y1 - 28, 46, 30, 12, withAlpha('#2a1a24', 0.9));
       g.restore();
       // it is dark and asleep: one faint red heartbeat on its flank (a promise, not a task)
-      const hb = 0.20 + 0.16 * Math.sin(t * 1.7);
+      const hb = (0.20 + 0.16 * Math.sin(t * 1.7)) * near;
       glowCircle(g, secondX - 46 * k, GROUND_Y - 44 - 91 * k, 24, DEF.flameColor, hb);
     }
 
     /* ---------------------------------------------------------------- the rover */
     function drawRover(g) {
+      // the pebble the rover is jumping right now
+      if (hopRock) {
+        const r = hopRock.r;
+        g.fillStyle = withAlpha(shade(SAND_DARK, 0.7), 0.6);
+        g.beginPath(); g.ellipse(hopRock.x, GROUND_Y + r * 0.3, r * 1.1, r * 0.5, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = shade(SAND_DARK, 1.25);
+        g.beginPath(); g.ellipse(hopRock.x, GROUND_Y - r * 0.2, r, r * 0.72, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = withAlpha('#ffe0b4', 0.34);
+        g.beginPath(); g.ellipse(hopRock.x - r * 0.2, GROUND_Y - r * 0.45, r * 0.5, r * 0.26, 0, 0, Math.PI * 2); g.fill();
+      }
       g.save();
       g.translate(rover.x, GROUND_Y);
 
       g.scale(RS, RS);
       const kick = bounce > 0 ? Math.sin(bounce * Math.PI * 3) * bounce * 9 : 0;
+      const air = hop > 0 ? Math.sin((1 - hop) * Math.PI) * 34 : 0;
 
-      // contact shadow stays on the ground (outside the tilt)
-      g.fillStyle = withAlpha('#3a2216', 0.45);
+      // contact shadow stays on the ground and shrinks while the rover is in the air
+      g.fillStyle = withAlpha('#3a2216', 0.45 - air * 0.0075);
       g.beginPath();
-      g.ellipse(0, 4, 122, 18, 0, 0, Math.PI * 2);
+      g.ellipse(0, 4, 122 - air * 0.55, 18 - air * 0.1, 0, 0, Math.PI * 2);
       g.fill();
 
       // headlight beams sweep the sand ahead
       if (lampsOn > 0.02) drawBeams(g);
 
-      g.rotate(rover.tilt);
+      g.translate(0, -air);
+      g.rotate(rover.tilt - air * 0.0022);
 
       drawWheels(g);
       g.translate(0, -kick);
