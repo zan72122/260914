@@ -54,7 +54,10 @@ const MOUTH = {
 const SEED_HOME = { x: MOUTH.x + 2, y: MOUTH.y - 62 };
 const MOON = { x: 452, y: 424 };
 
-const SHOTS_MAX = 3;
+const SHOTS_MAX = 3;          // a 3rd shot is allowed if the child is quick
+const SHOTS_ENOUGH = 2;      // ...but after the 2nd flower's embers the world goes home
+const QUIET_AFTER_SHOT = 7;  // or this long after the last shot, if the child stops
+const HARD_CAP = 30;         // and never longer than this in the world
 const HUSH = 0.25;         // §2.4 the held breath before the flower opens
 const MIN_MS = 300;
 const MAX_MS = 2000;
@@ -127,6 +130,7 @@ export default {
     let puff = 0;                       // the tiny "shh" dud puff
     let lastPressMs = 0;                // QA: how long the last press really lasted
     let tremble = 0;                    // tube tremble amplitude 0..1
+    let demo = 0;                       // one wordless demonstration of the charge (0..1 clock)
 
     let shots = 0;
     let spoken = false;
@@ -134,6 +138,7 @@ export default {
     const bursts = [];                  // open flowers
     let flash = 0;                      // white flash, capped at 0.15 exposure
     let firstShotAt = -1;
+    let lastShotAt = -1;
     let lastBurstAt = -1;
     let leaveT = 0;
     let sent = false;
@@ -216,6 +221,7 @@ export default {
       if (instant) { seed.x = MOUTH.x; seed.y = MOUTH.y; }
       idleT = 0;
       engine.audio.play('snap');
+      demo = 0.001;                       // show the light rising once: "this is what pressing does"
       dragH.enabled = false;
       tapH.enabled = false;
       pressH.enabled = true;
@@ -268,6 +274,7 @@ export default {
       });
       shots++;
       if (firstShotAt < 0) firstShotAt = t;
+      lastShotAt = t;
       fill = 0;
       phase = phase === 'complete' ? 'complete' : 'change';
       engine.audio.play('launch');
@@ -444,11 +451,19 @@ export default {
         tremble = lerp(tremble, wantPress ? 0.55 + 0.45 * clamp(idleT / 3) : (charging ? 0.35 + fill * 0.9 : 0), damp(0.9, dt));
         loadGlow = lerp(loadGlow, loaded ? 1 : 0, damp(0.9, dt));
 
+        // ---- one silent demonstration right after loading: the light rises to ~30% and sinks
+        if (demo > 0 && !charging) {
+          demo += dt / 0.6;
+          if (demo >= 1) { demo = 0; fill = 0; }
+          else fill = 0.3 * Math.sin(clamp(demo) * Math.PI);
+        }
+
         // ---- charging: the light rises like a water level
         if (charging) {
           idleT = 0;
           const held = performance.now() - chargeStart;
           fill = clamp(held / MAX_MS);
+          demo = 0;
           if (chargeHandle) chargeHandle.setLevel(0.1 + fill * 0.9);
           // the screen itself starts to tremble, faintly
           const a = S * 0.0022 * fill * fill;
@@ -506,19 +521,22 @@ export default {
         // ---- after the flower has hung in the sky for a moment, look back down at the tube
         if (camBackAt > 0 && t >= camBackAt) {
           camBackAt = -1;
-          if (!leaving) frameTo(shots >= SHOTS_MAX ? FRAME.wide : FRAME.mid, 1.2);
+          if (!leaving) frameTo(shots >= SHOTS_ENOUGH ? FRAME.wide : FRAME.mid, 1.2);
         }
 
         // ---- when to go home (§1.7)
         // never take the world away while the child is still touching it (idleT guard)
         if (phase === 'complete' && !leaving && idleT > 2.5) {
-          const doneShots = shots >= SHOTS_MAX && lastBurstAt > 0 && t - lastBurstAt > 2.8;
-          const tired = shots > 0 && t - firstShotAt > 12 && bursts.length === 0 && !charging;
-          if (doneShots || tired) {
+          const doneShots = shots >= SHOTS_ENOUGH && lastBurstAt > 0 && t - lastBurstAt > 2.6
+            && bursts.length === 0;
+          const tired = shots > 0 && t - lastShotAt > QUIET_AFTER_SHOT && !charging;
+          const capped = shots > 0 && t > HARD_CAP && !charging;
+          if (doneShots || tired || capped) {
             leaving = true;
             leaveT = 0;
             pressH.enabled = false;
             stopCharge();
+            cam.stopTweens();
             frameTo(FRAME.out, 1.5);
           }
         }
@@ -557,15 +575,15 @@ export default {
       // ---------------------------------------------------------- draw
       draw(g) {
         const w = engine.width, h = engine.height;
-        // fade in across the 1.2s handoff overlap; a direct jump (no overlap) is fully opaque
-        const p = handoff && engine.scenes.busy ? clamp(handoff.progress) : 1;
+        // fade in across the 1.2s handoff overlap (scene.js sets progress=1 for a direct jump)
+        const p = handoff ? clamp(handoff.progress) : 1;
         const amb = lerpColor(handoff ? handoff.flameColor : DEF.ambient, DEF.ambient, clamp(t / 1.5));
 
         g.save();
         g.globalAlpha = p;
 
         // the night itself
-        g.fillStyle = '#04040a';
+        g.fillStyle = '#080b1c';
         g.fillRect(0, 0, w, h);
 
         const vr = cam.viewRect;
@@ -600,7 +618,7 @@ export default {
           g.globalAlpha = p;
         }
 
-        vignette(g, w, h, 0.28, '#000006');
+        vignette(g, w, h, 0.20, '#01030c');
         g.restore();
       },
 
@@ -639,6 +657,7 @@ export default {
         if (!loaded) loadSeed(true);
         if (shots === 0) launch(0.9);
         firstShotAt = t - 60;                      // go home as soon as the flower has opened
+        lastShotAt = t - 60;
       },
 
       onPointerDown(p) { idleT = 0; rec.down(p); },
@@ -650,11 +669,14 @@ export default {
 
     function drawSky(g) {
       // pitch black, and completely empty: the emptiness is the invitation
-      const grad = cachedLinear(g, 'sr-sky', 0, -260, 0, HORIZON, [
-        [0, '#000004'], [0.45, '#060818'], [0.82, '#0d1330'], [1, '#18204a']
+      const grad = cachedLinear(g, 'sr-sky', 0, -300, 0, HORIZON, [
+        [0, '#01020a'], [0.55, '#070c22'], [0.86, '#141b40'], [1, '#2a3566']
       ]);
       g.fillStyle = grad;
       g.fillRect(X0, -2200, X1 - X0, HORIZON + 2200);
+      // moonlight haze sitting on the horizon — the sky above it stays empty
+      glowCircle(g, MOON.x, HORIZON + 8, 400, '#9fb6ee', 0.16);
+      glowCircle(g, MOON.x, HORIZON + 3, 170, '#cfdcff', 0.13);
     }
 
     function drawFarBank(g) {
@@ -668,18 +690,18 @@ export default {
       }
       g.lineTo(X1, WT);
       g.closePath();
-      g.fillStyle = '#080c1e';
+      g.fillStyle = '#141b3c';
       g.fill();
       // a moon-rim on the far shore so the little people read as shapes
-      g.strokeStyle = withAlpha('#9db4e0', 0.30);
-      g.lineWidth = 2.2;
+      g.strokeStyle = withAlpha('#c3d3f6', 0.55);
+      g.lineWidth = 2.6;
       g.stroke();
       g.restore();
     }
 
     function drawRiver(g) {
       const grad = cachedLinear(g, 'sr-river', 0, WT, 0, WB + 30, [
-        [0, '#26305c'], [0.35, '#18204a'], [0.8, '#101740'], [1, '#0b1030']
+        [0, '#43538f'], [0.35, '#2f3d72'], [0.8, '#222c56'], [1, '#182043']
       ]);
       g.fillStyle = grad;
       g.fillRect(X0, WT, X1 - X0, 2200);
@@ -687,10 +709,10 @@ export default {
       // slow sheen lines, so the water reads as water
       g.save();
       g.globalCompositeOperation = 'lighter';
-      g.lineWidth = 2.4;
+      g.lineWidth = 2.8;
       for (let i = 0; i < 5; i++) {
         const yy0 = WT + 12 + i * 21;
-        g.strokeStyle = withAlpha('#7f93cc', 0.11 - i * 0.014);
+        g.strokeStyle = withAlpha('#b3c4f2', 0.20 - i * 0.025);
         g.beginPath();
         for (let x = X0; x <= X1; x += 26) {
           const yy = yy0 + Math.sin(x * 0.02 + t * (0.5 + i * 0.16) + i) * (2 + i);
@@ -707,8 +729,8 @@ export default {
         const k = i / 6;
         const y = MOON.y + k * 52;
         const wob = Math.sin(t * 1.1 + i * 1.7) * (5 + k * 12);
-        const a = (1 - k * 0.72) * 0.55;
-        g.fillStyle = withAlpha('#dfe9ff', a);
+        const a = (1 - k * 0.72) * 0.75;
+        g.fillStyle = withAlpha('#eef3ff', a);
         g.beginPath();
         g.ellipse(MOON.x + wob, y, 19 - k * 5 + Math.sin(t * 0.8 + i) * 2, 2.6 - k * 0.8, 0, 0, Math.PI * 2);
         g.fill();
@@ -739,14 +761,14 @@ export default {
       }
       g.lineTo(X1, 2200);
       g.closePath();
-      g.fillStyle = '#17121f';
+      g.fillStyle = '#2d2338';
       g.fill();
-      g.strokeStyle = withAlpha(DEF.glowColor, 0.13 + loadGlow * 0.12);
+      g.strokeStyle = withAlpha(DEF.glowColor, 0.20 + loadGlow * 0.16);
       g.lineWidth = 3;
       g.stroke();
       g.restore();
       // the tube's own light pooling on the ground
-      const pool = 0.16 + loadGlow * 0.22 + fill * 0.5;
+      const pool = 0.22 + loadGlow * 0.26 + fill * 0.5;
       glowCircle(g, TUBE.bx, TUBE.by + 8, 150 + fill * 80, DEF.flameColor, pool * 0.6);
 
       // reeds in the near foreground, rimmed by the tube's red light
@@ -765,10 +787,10 @@ export default {
           g.moveTo(bx, r.y);
           g.quadraticCurveTo(bx + (tipX - bx) * 0.25, r.y - h * 0.62, tipX, tipY);
           g.lineWidth = 8;
-          g.strokeStyle = '#0b0813';
+          g.strokeStyle = '#1a1329';
           g.stroke();
           g.lineWidth = 2.2;
-          g.strokeStyle = withAlpha(DEF.glowColor, 0.09 + fill * 0.12);
+          g.strokeStyle = withAlpha(DEF.glowColor, 0.16 + fill * 0.14);
           g.stroke();
         }
       }
@@ -785,7 +807,7 @@ export default {
 
       g.save();
       // body: a soft rounded silhouette
-      g.fillStyle = '#04060f';
+      g.fillStyle = '#0a0f22';
       g.beginPath();
       g.moveTo(x - hh * 0.22, y);
       g.quadraticCurveTo(x - hh * 0.26, y - hh * 0.56, x, y - hh * 0.6);
@@ -800,7 +822,7 @@ export default {
       g.arc(hx, hy, hh * 0.19, 0, Math.PI * 2);
       g.fill();
       // arms: down while waiting, straight up when the flower opens
-      g.strokeStyle = '#04060f';
+      g.strokeStyle = '#0a0f22';
       g.lineWidth = hh * 0.11;
       g.lineCap = 'round';
       for (const s of [-1, 1]) {
@@ -822,14 +844,19 @@ export default {
         }
       }
       // a soft reflection of each figure in the water
-      g.globalAlpha = 0.16;
-      g.fillStyle = '#0d1424';
+      g.globalAlpha = 0.22;
+      g.fillStyle = '#16204a';
       g.beginPath();
       g.ellipse(x, WT + hh * 0.34, hh * 0.2, hh * 0.32, 0, 0, Math.PI * 2);
       g.fill();
       g.restore();
     }
 
+    /**
+     * A firework MORTAR, not a battery (review round 1, problem T): a paper/bamboo tube,
+     * warm red-brown, visibly tapered (wide at the foot, narrower at the mouth), half sunk
+     * into the bank with a wooden wedge, wrapped with twine instead of metal bands.
+     */
     function drawTube(g) {
       const ax = tubeAxis();
       const flex = fill * 0.05;
@@ -837,23 +864,37 @@ export default {
       g.translate(ax.bx, ax.by);
       g.rotate(ax.tilt);
 
-      const rBase = TUBE.rad * (1 + flex * 0.5);
-      const rTop = TUBE.rad * 0.92;
+      const rBase = TUBE.rad * 1.13 * (1 + flex * 0.5);   // wide foot
+      const rTop = TUBE.rad * 0.88;                       // narrower mouth
       const len = ax.len;
 
-      // stand: a little mound holding the tube up
-      g.fillStyle = '#241c33';
+      // the earth it is planted in, plus a wooden wedge on the low side
+      g.fillStyle = '#2b2030';
       g.beginPath();
-      g.ellipse(0, 4, rBase * 2.1, rBase * 0.8, 0, 0, Math.PI * 2);
+      g.ellipse(0, 6, rBase * 2.3, rBase * 0.86, 0, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#4a3222';
+      g.beginPath();
+      g.moveTo(-rBase * 1.9, 4);
+      g.lineTo(-rBase * 0.75, -len * 0.30);
+      g.lineTo(-rBase * 0.3, -len * 0.26);
+      g.lineTo(-rBase * 1.15, 6);
+      g.closePath();
       g.fill();
 
-      // body (rounded, thick, preschool-friendly)
+      // ---- body: a tapered paper tube
       const body = () => {
         g.beginPath();
-        roundRect(g, -rBase, -len, rBase * 2, len + 10, rTop * 0.72);
+        g.moveTo(-rBase, 12);
+        g.lineTo(-rTop, -len + rTop * 0.5);
+        g.quadraticCurveTo(-rTop, -len, 0, -len);
+        g.quadraticCurveTo(rTop, -len, rTop, -len + rTop * 0.5);
+        g.lineTo(rBase, 12);
+        g.quadraticCurveTo(0, 20, -rBase, 12);
+        g.closePath();
       };
       body();
-      g.fillStyle = '#463a63';
+      g.fillStyle = '#8a4a2e';
       g.fill();
 
       // the red light filling it from the bottom, like a rising water level (no marks)
@@ -869,35 +910,51 @@ export default {
         ]);
         g.globalAlpha = (0.30 + fill * 0.70) * Math.min(1, 0.25 + fill * 3);
         g.fillStyle = gr;
-        g.fillRect(-rBase, level, rBase * 2, 10 - level);
+        g.fillRect(-rBase, level, rBase * 2, 20 - level);
         if (fill > 0.02) {
           // the meniscus — the top of the rising light (no marks, no gauge)
           g.globalAlpha = 0.9;
           g.fillStyle = withAlpha('#ffe9ec', 0.9);
           g.beginPath();
-          g.ellipse(0, level, rBase * 0.96, rBase * 0.3, 0, 0, Math.PI * 2);
+          g.ellipse(0, level, rBase * 0.9, rBase * 0.28, 0, 0, Math.PI * 2);
           g.fill();
         }
         g.restore();
-        glowCircle(g, 0, level, rBase * (2.2 + fill * 2.6), DEF.flameColor, 0.35 + fill * 0.5);
+        glowCircle(g, 0, level, rBase * (2.0 + fill * 2.4), DEF.flameColor, 0.35 + fill * 0.5);
       }
 
-      // rim highlight so the cylinder reads as round
+      // paper grain + rounding, clipped to the body
       g.save();
       body();
       g.clip();
-      g.fillStyle = withAlpha('#a493d8', 0.42);
-      g.fillRect(-rBase, -len, rBase * 0.40, len + 10);
-      g.fillStyle = withAlpha('#0a0614', 0.45);
-      g.fillRect(rBase * 0.5, -len, rBase * 0.5, len + 10);
+      g.fillStyle = withAlpha('#d98a5c', 0.34);           // moonlit side
+      g.fillRect(-rBase, -len - 4, rBase * 0.44, len + 30);
+      g.fillStyle = withAlpha('#2a0f08', 0.40);           // shadow side
+      g.fillRect(rTop * 0.55, -len - 4, rBase, len + 30);
+      g.strokeStyle = withAlpha('#5c2a15', 0.45);         // rolled-paper seams
+      g.lineWidth = 2;
+      for (let i = -2; i <= 2; i++) {
+        const x0 = i * rBase * 0.36;
+        g.beginPath();
+        g.moveTo(x0 * 1.12, 16);
+        g.lineTo(x0 * 0.82, -len);
+        g.stroke();
+      }
       g.restore();
 
-      // two soft bands (a friendly "made object", not machinery)
-      g.fillStyle = withAlpha('#6b5a93', 0.95);
-      for (const yy of [-len * 0.30, -len * 0.62]) {
+      // twine wrapped twice around it (a made, tied object — not machinery)
+      for (const [yy, wob] of [[-len * 0.26, 1], [-len * 0.60, -1]]) {
+        const rr = lerp(rBase, rTop, clamp(-yy / len));
+        g.strokeStyle = '#c9a26a';
+        g.lineWidth = 6;
+        g.lineCap = 'round';
         g.beginPath();
-        roundRect(g, -rBase * 1.08, yy, rBase * 2.16, 9, 4.5);
-        g.fill();
+        g.moveTo(-rr * 1.06, yy);
+        g.quadraticCurveTo(0, yy + 5 * wob, rr * 1.06, yy - 2);
+        g.stroke();
+        g.strokeStyle = withAlpha('#6b4a22', 0.55);
+        g.lineWidth = 2;
+        g.stroke();
       }
 
       // ---- the mouth: an EMPTY star-shaped hole with a pulsing red rim
@@ -905,7 +962,11 @@ export default {
       g.save();
       g.translate(0, -len);
       g.scale(1, 0.52);                       // looking at it from below -> an ellipse
-      g.fillStyle = '#1a1226';
+      g.fillStyle = '#e0a074';                // the cut paper rim of the mouth
+      g.beginPath();
+      g.arc(0, 0, mouthR * 1.1, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#3a1b12';
       g.beginPath();
       g.arc(0, 0, mouthR, 0, Math.PI * 2);
       g.fill();
@@ -914,18 +975,18 @@ export default {
       const rot = -Math.PI / 2 + (loaded ? 0 : t * 0.5);
       if (!loaded) {
         // the hole itself, exactly the shape of the seed
-        g.fillStyle = '#04030a';
-        star(g, 0, 0, mouthR * 0.82, mouthR * 0.36, 5, rot);
+        g.fillStyle = '#0a0406';
+        star(g, 0, 0, mouthR * 0.84, mouthR * 0.37, 5, rot);
         g.fill();
         g.lineJoin = 'round';
         g.lineWidth = mouthR * 0.17;
-        g.strokeStyle = withAlpha(DEF.flameColor, 0.55 + pulse * 0.45 + nudge * 0.3);
-        star(g, 0, 0, mouthR * 0.82, mouthR * 0.36, 5, rot);
+        g.strokeStyle = withAlpha(DEF.flameColor, 0.6 + pulse * 0.4 + nudge * 0.3);
+        star(g, 0, 0, mouthR * 0.84, mouthR * 0.37, 5, rot);
         g.stroke();
       } else {
         // the seed is inside: the star now glows
         g.fillStyle = withAlpha(lerpColor(DEF.flameColor, '#fff0f0', 0.25 + fill * 0.6), 0.95);
-        star(g, 0, 0, mouthR * (0.82 + fill * 0.12), mouthR * 0.36, 5, rot);
+        star(g, 0, 0, mouthR * (0.84 + fill * 0.12), mouthR * 0.37, 5, rot);
         g.fill();
       }
       g.restore();
@@ -1006,7 +1067,8 @@ export default {
     function drawBurst(g, b, mirror) {
       const bt = b.t;
       const open = clamp(bt / 0.32);
-      const fade = clamp(1 - (bt - 1.5) / 2.0);
+      // while the world shrinks into the shelf the flowers bow out fast (only embers remain)
+      const fade = clamp(1 - (bt - 1.5) / 2.0) * (leaving ? clamp(1 - leaveT / 0.35) : 1);
       if (fade <= 0) return;
 
       g.save();
@@ -1041,23 +1103,27 @@ export default {
           }
         }
       };
-      // two batched passes: a wide soft one, then a bright core
+      // Two batched passes: a wide soft one, then a bright core.
+      // The widths are SCREEN-space (divided by the camera scale) so that a pulled-back or
+      // pushed-in camera never turns the thin sparks into fat bars (review round 1, problem M).
+      const px = 1 / Math.max(0.0001, cam.scale);
       g.lineCap = 'round';
       g.lineJoin = 'round';
       path();
-      g.lineWidth = b.R * 0.05;
+      g.lineWidth = clamp(b.R * 0.05 * (cam.scale || 1), 2, 16) * px;
       g.strokeStyle = withAlpha(DEF.flameColor, 0.17 * fade);
       g.stroke();
-      g.lineWidth = b.R * 0.016;
+      g.lineWidth = clamp(b.R * 0.016 * (cam.scale || 1), 1, 5) * px;
       g.strokeStyle = withAlpha('#ff8fa2', 0.5 * fade);
       g.stroke();
 
-      // burning tips
+      // burning tips (also screen-space sized)
+      const tipR = clamp(3.2 * (cam.scale || 1), 1.2, 6) * px;
       g.beginPath();
       for (const ray of b.rays) {
         const head = headOf(ray, bt);
-        g.moveTo(head.x + 3.2, head.y);
-        g.arc(head.x, head.y, 3.2 * ray.w, 0, Math.PI * 2);
+        g.moveTo(head.x + tipR, head.y);
+        g.arc(head.x, head.y, tipR * ray.w, 0, Math.PI * 2);
       }
       g.fillStyle = withAlpha('#fff0f2', 0.85 * fade * clamp(1.4 - bt * 0.5));
       g.fill();
