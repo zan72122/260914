@@ -1,5 +1,11 @@
 import { IntroScene } from './intro.js';
 import { KitchenScene } from './kitchen.js';
+import { PaperScene } from './paper.js';
+import { SandScene } from './sand.js';
+import { ToyScene } from './toy.js';
+import { SofaScene } from './sofa.js';
+import { ThreadScene } from './thread.js';
+import { CarpetScene } from './carpet.js';
 
 /**
  * Ordered scene registry. Later agents append one line per scene here and add
@@ -8,6 +14,12 @@ import { KitchenScene } from './kitchen.js';
 export const SCENES = [
   { id: 'intro', make: (rng) => new IntroScene(rng) },
   { id: 'kitchen', make: (rng) => new KitchenScene(rng) },
+  { id: 'paper', make: (rng) => new PaperScene(rng) },
+  { id: 'sand', make: (rng) => new SandScene(rng) },
+  { id: 'toy', make: (rng) => new ToyScene(rng) },
+  { id: 'sofa', make: (rng) => new SofaScene(rng) },
+  { id: 'thread', make: (rng) => new ThreadScene(rng) },
+  { id: 'carpet', make: (rng) => new CarpetScene(rng) },
 ];
 
 export function sceneIds() { return SCENES.map((s) => s.id); }
