@@ -7,6 +7,13 @@ import { rand } from './rng.js';
 export const STATES = ['FIND', 'WALK', 'BELL', 'OPEN', 'REVEAL', 'BUCKET', 'CANDY', 'NEXT', 'ENDING'];
 
 const IDLE_ATTRACT = 8.0;
+const UP = new THREE.Vector3(0, 1, 0);
+
+/** the camera sits behind a heading, swung a little to one side */
+function behindHeading(heading, swing) {
+  return new THREE.Vector3(-Math.sin(heading), 0, -Math.cos(heading))
+    .applyAxisAngle(UP, swing);
+}
 
 export class Chain {
   constructor(ctx) {
@@ -18,6 +25,17 @@ export class Chain {
     this.busy = false;
     this.endingT = 0;
     this.seatedT = 0;
+    this.endingPhase = null;
+    this.poseToCamera = null;    // yaw offset from "straight at the camera"
+    this.attractor = { active: false, level: 0 };
+    // the closing composition: girl in the foreground, her own porch beside
+    // her, the street and the moon beyond, fireworks over the road
+    this.endShot = {
+      sitX: 2.2, sitZ: 4.8,        // where she sits, local to her own house
+      camT: 0, camBack: 5, camLat: 8.6, camY: 3.6,
+      lookT: 0.18, lookLat: 8.2, lookY: 5.4,
+      fwT0: 0.11, fwT1: 0.22, fwLat: 14, fwPower: 0.85
+    };
     this.restartReady = false;
     this.ready = false;
     this.frame = 0;
@@ -69,6 +87,14 @@ export class Chain {
     this.busy = false;
     this.restartReady = false;
     this.endingT = 0;
+    this.endingPhase = null;
+    this.poseToCamera = null;
+    this.attractor.active = false;
+    this.attractor.level = 0;
+    this.ctx.cam.dirOverride = null;
+    this.ctx.cam.lookLift = 0.25;
+    this.ctx.cam.lerpRate = 2.0;
+    this.ctx.cam.setShot(null);
     this.clearTimers();
     world.setLitHouse(1);
     cam.snapNext = true;
@@ -80,6 +106,9 @@ export class Chain {
   onEnter(s) {
     const { world, girl, cam, fireflies } = this.ctx;
     const h = this.house;
+    this.poseToCamera = null;
+    // the invited object gets a fat, forgiving hit sphere while it is invited
+    this.sizeProxies(s);
     switch (s) {
       case 'FIND': {
         this.busy = false;
@@ -88,6 +117,11 @@ export class Chain {
         girl.lookAt = h.doorWorld.clone();
         girl.bucketHaloTarget = 0;
         girl.offerTarget = 0;
+        girl.presentTarget = 0;
+        cam.dirOverride = null;
+        cam.lookLift = 0.25;
+        cam.lerpRate = 2.0;
+        cam.setShot(null);
         cam.setFocus(h.doorWorld, 0.26);
         cam.zoom = 1;
         cam.orbit = 0;
@@ -108,13 +142,16 @@ export class Chain {
         this.busy = false;
         h.bellTarget = 1;
         h.bellShake = 1;
-        girl.lookAt = h.doorbell.getWorldPosition(new THREE.Vector3());
-        cam.setFocus(h.doorbell.getWorldPosition(new THREE.Vector3()), 0.6);
-        cam.zoom = 0.95;
+        const bp = h.doorbell.getWorldPosition(new THREE.Vector3());
+        girl.lookAt = bp.clone();
+        // step in closer, so door and bell fill the frame
+        cam.setFocus(bp, 0.78);
+        cam.zoom = 0.76;
         cam.orbit = 0.62;
-        cam.eyeScale = 0.62;
-        fireflies.flowTo(h.doorbell.getWorldPosition(new THREE.Vector3()));
-        this.ctx.sparkles.burst(h.doorbell.getWorldPosition(new THREE.Vector3()), 10, 0xffd27a, 0.5, 0.2);
+        cam.eyeScale = 0.55;
+        fireflies.flowTo(bp, 1.3);
+        this.ctx.sparkles.ring(bp, 18, 0.5, 0xffd27a);
+        this.ctx.sparkles.burst(bp, 10, 0xffd27a, 0.5, 0.2);
         break;
       }
       case 'OPEN': {
@@ -150,17 +187,26 @@ export class Chain {
       case 'BUCKET': {
         this.busy = false;
         girl.bucketHaloTarget = 1;
+        // she turns three-quarters toward us and lifts the bucket to her chest,
+        // so the thing to tap is the biggest thing on screen
+        girl.presentTarget = 1;
+        this.poseToCamera = 0.55;
         if (h.resident) h.resident.userData.candy.visible = true;
-        cam.setFocus(h.doorWorld, 0.6);
-        cam.zoom = 0.88;
+        cam.setFocus(h.doorWorld, 0.45);
+        cam.zoom = 0.8;
         cam.orbit = 0.5;
-        cam.eyeScale = 0.58;
-        this.ctx.fireflies.flowTo(girlWorldPoint(this.ctx.girl, 'bucket'));
+        cam.eyeScale = 0.6;
+        const bkt = girlWorldPoint(girl, 'bucket');
+        this.ctx.fireflies.flowTo(bkt, 1.3);
+        this.ctx.sparkles.ring(bkt, 20, 0.45, 0xffd27a);
+        this.bucketSpark = 0.9;
         break;
       }
       case 'CANDY': {
         this.busy = true;
         girl.offerTarget = 1;
+        girl.presentTarget = 1;
+        this.poseToCamera = 0.55;
         girl.bucketHaloTarget = 0;
         const from = h.resident
           ? h.resident.userData.candy.getWorldPosition(new THREE.Vector3())
@@ -183,6 +229,7 @@ export class Chain {
           h.residentTarget = 0;
           h.doorTarget = 0;
           girl.offerTarget = 0;
+          girl.presentTarget = 0;
           A.sfxDoorClose();
           // step back down to the pavement so the next shot is not inside the porch
           setPath(girl, [h.walkSpot.clone()]);
@@ -217,21 +264,50 @@ export class Chain {
         this.busy = true;
         this.endingT = 0;
         this.seatedT = 0;
+        this.endingPhase = null;
+        this.fw = undefined;
         this.restartReady = false;
         world.lightAll();
         world.moonSmile.opacity = 0;
         A.sfxSparkle();
         const home = world.houses[0];
-        const spot = world.offsetPoint(0.075, home.side * 6.4);
-        setPath(girl, this.routeTo(new THREE.Vector3(spot.x, 0, spot.z)));
+        girl.presentTarget = 0;
+        girl.offerTarget = 0;
+        // Cut to the last stretch of the street: the way home is a short happy
+        // skip past the lit houses, not a hike down an empty road.
+        const startP = world.offsetPoint(0.26, home.side * 5.2);
+        girl.pos.set(startP.x, 0, startP.z);
+        girl.path = null;
+        girl.anim = null;
+        girl.rig.position.set(0, 0, 0);
+        const E0 = this.endShot;
+        const spot = new THREE.Vector3(E0.sitX, 0, E0.sitZ)
+          .applyEuler(new THREE.Euler(0, home.facing, 0)).add(home.position);
+        const route = this.routeTo(new THREE.Vector3(spot.x, 0, spot.z));
+        route.push(new THREE.Vector3(spot.x, 0, spot.z));
+        setPath(girl, route);
+        girl.heading = Math.atan2(route[0].x - girl.pos.x, route[0].z - girl.pos.z);
         girl.lookAt = null;
-        girl.speedScale = 2.4;   // a happy skip home past every lit house
+        // pick the skip speed so the walk home lands at about five seconds
+        let len = 0;
+        let prev = girl.pos;
+        for (const q of route) { len += prev.distanceTo(q); prev = q; }
+        girl.speedScale = Math.max(1.4, Math.min(3.6, len / (3.0 * 4.5)));
+        cam.setShot(null);
         cam.setFocus(null);
+        cam.pan = null;          // drop any establishing pan still in flight
+        // She walks back up the street, against the direction the follow rig
+        // assumes, so the camera is told explicitly which side to sit on.
+        cam.dirOverride = behindHeading(girl.heading, 0.35);
+        cam.lookLift = 0.25;
         cam.zoom = 1.15;
-        cam.orbit = 0.5;
-        cam.eyeScale = 0.85;
+        cam.orbit = 0;
+        cam.eyeScale = 0.8;
+        cam.lerpRate = 6.0;      // she is skipping; the frame stays with her
+        cam.snapNext = true;
         this.ctx.bats.flock(world.moonDir.clone().multiplyScalar(40).setY(22), new THREE.Vector3(0.2, -0.1, 1), 14);
         A.sfxBats();
+        this.setEndingPhase('walkHome');
         break;
       }
     }
@@ -286,11 +362,18 @@ export class Chain {
       A.sfxSparkle();
       this.ctx.sparkles.ring(girl.pos.clone().setY(0.8), 36, 1.1, 0xffe08a);
       const h = this.house;
+      // the spin lands facing us: a short pose beat, then she turns back
+      this.poseToCamera = 0;
       this.after(0.9, () => {
         if (h.resident) { h.resident.userData.hop = 1; h.resident.userData.waving = 0.9; }
         A.sfxLaugh();
       });
-      this.after(1.7, () => this.setState('BUCKET'));
+      this.after(1.5, () => {
+        this.ctx.sparkles.ring(girlWorldPoint(girl, 'head').setY(girl.pos.y + 1.1), 24, 0.85, 0xfff0b0);
+        girl.ringGlow = Math.max(girl.ringGlow, 0.9);
+      });
+      this.after(2.3, () => { this.poseToCamera = null; girl.lookAt = h.doorWorld.clone(); });
+      this.after(2.75, () => this.setState('BUCKET'));
       return true;
     }
     // spin for fun any other time
@@ -344,7 +427,8 @@ export class Chain {
     bats.flock(dirPoint.clone(), new THREE.Vector3(0.3, 0.2, -1), 9);
     A.sfxBats();
     if (this.state === 'ENDING') {
-      this.ctx.fireworks.launch(dirPoint.x * 0.3, dirPoint.z * 0.3);
+      // a firework goes up where the child pointed
+      this.ctx.fireworks.launch(dirPoint.x, dirPoint.z);
       A.sfxFirework();
     }
     return true;
@@ -402,7 +486,7 @@ export class Chain {
         if (this.house.resident) this.house.residentTarget = 1;
         this.setState('REVEAL'); break;
       case 'REVEAL': this.clearTimers(); this.busy = false; this.tapGirl();
-        this.clearTimers(); this.setState('BUCKET'); break;
+        this.clearTimers(); this.poseToCamera = null; this.setState('BUCKET'); break;
       case 'BUCKET': this.setState('CANDY'); break;
       case 'CANDY': this.clearTimers();
         this.house.residentTarget = 0; this.house.doorTarget = 0;
@@ -426,8 +510,12 @@ export class Chain {
   restart() {
     const { world } = this.ctx;
     this.ctx.girl.speedScale = 1;
+    this.ctx.girl.presentTarget = 0;
+    this.ctx.girl.present = 0;
     this.ctx.cam.orbit = 0;
     this.ctx.cam.eyeScale = 1;
+    this.ctx.cam.dirOverride = null;
+    this.ctx.cam.lookLift = 0.25;
     world.moonSmile.opacity = 0;
     this.ctx.girl.anim = null;
     this.ctx.girl.rig.position.y = 0;
@@ -465,49 +553,92 @@ export class Chain {
       girl.lookAt = this.house.doorWorld.clone();
     }
 
-    // keep the framed focus current for moving targets
+    // --------------------------------------------- posing toward the camera
+    // The camera almost always sits behind her, so a pose the child can read
+    // means turning her, not moving the camera.
+    if (this.poseToCamera !== null && !girl.path && girl.anim !== 'sit') {
+      const c = cam.pos;
+      const a = Math.atan2(c.x - girl.pos.x, c.z - girl.pos.z) + this.poseToCamera;
+      girl.lookAt = girl.pos.clone()
+        .add(new THREE.Vector3(Math.sin(a), 0, Math.cos(a)).multiplyScalar(4));
+      girl.lookAt.y = 1.2;
+    }
 
     // ------------------------------------------------------------ ending
     if (this.state === 'ENDING') {
       this.endingT += dt;
-      world.moonSmile.opacity = Math.min(0.75, this.endingT * 0.25);
+      world.moonSmile.opacity = Math.min(0.75, this.endingT * 0.4);
       const home = world.houses[0];
-      if (girl.path && this.endingT > 34) girl.path = null;   // never strand her
-      if (!girl.path && girl.anim !== 'sit' && this.endingT > 1) {
-        girl.speedScale = 1;
-        girl.heading = Math.atan2(cam.pos.x - girl.pos.x, cam.pos.z - girl.pos.z);
-        playAnim(girl, 'sit', 1.0);
-        girl.bucketHaloTarget = 0.6;
-        girl.candyCount = 90; girl.candyMesh.count = 90;
-        girl.candyMesh.instanceMatrix.needsUpdate = true;
-        cam.setFocus(home.doorWorld, 0.35);
-        cam.zoom = 0.85;
-        cam.eyeScale = 0.75;
-        // a beat looking up at the big smiling moon
-        this.after(0.7, () => cam.panTo(world.moon.position.clone(), 2.3, true));
-        this.ctx.sparkles.ring(girl.pos.clone().setY(0.6), 30, 1.2, 0xffd88a);
+      if (girl.path && this.endingT > 8) girl.path = null;   // never strand her
+
+      if (girl.path && this.endingPhase === 'walkHome' && cam.dirOverride) {
+        cam.dirOverride.lerp(behindHeading(girl.heading, 0.35), Math.min(1, dt * 2.5)).normalize();
       }
+
+      if (!girl.path && this.endingPhase === 'walkHome') {
+        girl.speedScale = 1;
+        girl.lookAt = null;
+        girl.heading = Math.atan2(cam.pos.x - girl.pos.x, cam.pos.z - girl.pos.z);
+        cam.dirOverride = behindHeading(girl.heading + Math.PI, 0);
+        cam.setFocus(home.doorWorld, 0.4);
+        cam.zoom = 1.0;
+        cam.eyeScale = 0.95;
+        cam.orbit = 0.2;
+        cam.lookLift = 2.2;
+        cam.panTo(world.moon.position.clone(), 1.6, true);
+        this.setEndingPhase('moon');
+
+        this.after(1.5, () => {
+          playAnim(girl, 'sit', 1.0);
+          girl.bucketHaloTarget = 0.6;
+          girl.candyCount = 90; girl.candyMesh.count = 90;
+          girl.candyMesh.instanceMatrix.needsUpdate = true;
+          this.ctx.sparkles.ring(girl.pos.clone().setY(0.6), 30, 1.2, 0xffd88a);
+          // one deliberate shot, not the follow rig: her porch beside her, the
+          // street and the moon beyond, and room overhead for the fireworks
+          const E = this.endShot;
+          // landscape has a shorter vertical field, so it steps back and tilts up
+          const wide = cam.portrait ? 0 : 1;
+          const camP = world.offsetPoint(E.camT, home.side * E.camLat)
+            .addScaledVector(world.tangentAt(E.camT), -(E.camBack + wide * 3.5));
+          camP.y = E.camY + wide * 0.5;
+          const lookP = world.offsetPoint(E.lookT, home.side * E.lookLat);
+          lookP.y = E.lookY + wide * 1.6;
+          cam.setShot(camP, lookP);
+          cam.lerpRate = 2.6;
+          girl.heading = Math.atan2(camP.x - girl.pos.x, camP.z - girl.pos.z);
+          this.setEndingPhase('sit');
+          this.after(0.8, () => { this.fw = 0; this.setEndingPhase('fireworks'); });
+        });
+      }
+
       if (girl.anim === 'sit') this.seatedT += dt;
-      if (this.endingT > 1.2 && this.fw === undefined) this.fw = 0;
       if (this.fw !== undefined) {
         this.fw -= dt;
         if (this.fw <= 0) {
-          this.fw = 1.6 + rand() * 1.6;
-          const p = world.offsetPoint(rand() * 0.22, (rand() - 0.5) * 26);
-          this.ctx.fireworks.launch(p.x, p.z);
+          this.fw = 0.35 + rand() * 0.35;
+          // down the street in front of her, where the camera is already looking
+          const E = this.endShot;
+          const p = world.offsetPoint(E.fwT0 + rand() * (E.fwT1 - E.fwT0),
+            (rand() - 0.5) * E.fwLat);
+          this.ctx.fireworks.launch(p.x, p.z, undefined, E.fwPower);
           A.sfxFirework();
         }
       }
-      if (this.seatedT > 4 && !this.restartReady) {
+      if (this.seatedT > 5.0 && !this.restartReady) {
         this.restartReady = true;
         this.busy = false;
         // frame the blinking lantern that invites another go
         this.restartPoint = home.lanterns[0].getWorldPosition(new THREE.Vector3());
+        cam.setShot(null);
+        cam.lerpRate = 2.0;
+        cam.dirOverride = null;
+        cam.lookLift = 0.35;
         cam.setFocus(this.restartPoint, 0.75);
         cam.zoom = 0.95;
         cam.orbit = 0.25;
         cam.eyeScale = 0.8;
-        if (this.ctx.debug) console.log('[state] restart-ready');
+        this.setEndingPhase('restartReady');
       }
       if (this.restartReady) {
         home.pulseBoost = 1;
@@ -517,40 +648,91 @@ export class Chain {
       return;
     }
 
-    // ---------------------------------------------------------- attractor
+    // --------------------------------------------- the invited thing sparkles
     if (this.state === 'BELL') {
       this.bellSpark = (this.bellSpark || 0) - dt;
       if (this.bellSpark <= 0) {
-        this.bellSpark = 1.1;
+        this.bellSpark = 1.0;
         const p = this.house.doorbell.getWorldPosition(new THREE.Vector3());
-        this.ctx.sparkles.burst(p, 6, 0xffd88a, 0.35, 0.15);
+        this.ctx.sparkles.ring(p, 14, 0.42 + 0.1 * this.attractor.level, 0xffd88a);
+      }
+    }
+    if (this.state === 'BUCKET') {
+      this.bucketSpark = (this.bucketSpark || 0) - dt;
+      if (this.bucketSpark <= 0) {
+        this.bucketSpark = 1.0;
+        this.ctx.sparkles.ring(girlWorldPoint(girl, 'bucket'), 14, 0.4, 0xffd88a);
       }
     }
 
+    // ---------------------------------------------------------- attractor
     this.idle += dt;
+    if (this.attractor.active) {
+      this.attractor.level = Math.max(0.5, this.attractor.level - dt * 0.12);
+    } else {
+      this.attractor.level = Math.min(0.99, this.idle / IDLE_ATTRACT);
+    }
     if (this.idle > IDLE_ATTRACT) {
       this.idle = IDLE_ATTRACT - 3.2;
       this.attract();
     }
   }
 
+  /** the ending is one state but several beats; each beat is logged */
+  setEndingPhase(name) {
+    if (this.endingPhase === name) return;
+    const prev = this.endingPhase;
+    this.endingPhase = name;
+    this.note('state', {
+      from: prev || 'ENDING', to: name, ending: true,
+      at: Math.round(this.endingT * 100) / 100
+    });
+    if (this.ctx.debug) console.log('[state] ending', prev, '->', name);
+  }
+
+  /** fat hit spheres for whatever the world is inviting right now */
+  sizeProxies(state) {
+    const { world, proxies } = this.ctx;
+    if (!proxies) return;
+    if (proxies.bucket) {
+      proxies.bucket.scale.setScalar(state === 'BUCKET' || state === 'CANDY' ? 1 : 0.38);
+    }
+    if (proxies.girl) proxies.girl.scale.setScalar(state === 'REVEAL' ? 1 : 0.65);
+    for (const h of world.houses) {
+      if (!h.bellProxy) continue;
+      h.bellProxy.scale.setScalar(
+        state === 'BELL' && h.index === this.houseIndex ? 1 : 0.33);
+    }
+  }
+
   attract() {
-    const { girl, world } = this.ctx;
+    const { girl } = this.ctx;
     const h = this.house;
     let p = h.doorWorld.clone();
     if (this.state === 'BELL') p = h.doorbell.getWorldPosition(new THREE.Vector3());
-    else if (this.state === 'REVEAL') p = girl.pos.clone().setY(1.2);
+    else if (this.state === 'REVEAL') p = girlWorldPoint(girl, 'head');
     else if (this.state === 'BUCKET') p = girlWorldPoint(girl, 'bucket');
-    h.pulseBoost = 1;
+    h.pulseBoost = 1.8;
     h.lanterns.forEach(l => { l.userData.flicker += 1.5; });
-    this.ctx.fireflies.flowTo(p);
-    this.ctx.sparkles.burst(p, 12, 0xffd88a, 0.6, 0.2);
+    // a stream of fireflies runs from her to the thing to touch
+    this.ctx.fireflies.flowTo(p, 1.8);
+    this.ctx.sparkles.ring(p, 20, 0.7, 0xffd88a);
+    this.ctx.sparkles.burst(p, 14, 0xffd88a, 0.7, 0.2);
+    // and a tiny sparkle on the point of her hat, so she is part of the hint
+    this.ctx.sparkles.burst(girlWorldPoint(girl, 'hat'), 6, 0xfff0c0, 0.4, 0.15);
     if (!girl.path) girl.lookAt = p.clone();
     A.sfxChimeSoft();
+    this.attractor.active = true;
+    this.attractor.level = 1;
+    this.note('attract', { target: this.state, house: this.houseIndex, level: 1 });
     if (this.ctx.debug) console.log('[attract]', this.state);
   }
 
-  noteInput() { this.idle = 0; }
+  noteInput() {
+    this.idle = 0;
+    this.attractor.active = false;
+    this.attractor.level = 0;
+  }
 
   /** why the chain is not accepting the next chain input right now */
   waitReason() {
@@ -563,6 +745,20 @@ export class Chain {
     if (this.busy) return 'animating:' + this.state.toLowerCase();
     if (this.timers.length) return 'timers:' + this.timers.length;
     return null;
+  }
+
+  /** the hit radius, in world units, of whatever is invited right now */
+  invitedHitRadius() {
+    const h = this.house;
+    switch (this.state) {
+      case 'FIND': case 'WALK': return h ? h.hitRadius : 0;
+      case 'BELL': return h ? h.doorbell.userData.hitRadius : 0;
+      case 'REVEAL': return 0.95;
+      case 'BUCKET': return this.ctx.girl.bucket.userData.hitRadius || 0;
+      case 'ENDING':
+        return this.restartReady ? this.ctx.world.houses[0].hitRadius : 0;
+      default: return 0;
+    }
   }
 
   /** the thing the world is currently inviting, as a world-space point */
@@ -599,6 +795,12 @@ export class Chain {
     this.ready = false;
     this.clearTimers();
     this.fw = undefined;
+    this.endingPhase = null;
+    this.poseToCamera = null;
+    this.bellSpark = 0;
+    this.bucketSpark = 0;
+    this.attractor.active = false;
+    this.attractor.level = 0;
     resetGirl(this.ctx.girl);
     world.resetHouses();
     this.ctx.fireflies.reset();
@@ -611,6 +813,10 @@ export class Chain {
     this.ctx.cam.eyeScale = 1;
     this.ctx.cam.zoom = 1;
     this.ctx.cam.pan = null;
+    this.ctx.cam.dirOverride = null;
+    this.ctx.cam.lookLift = 0.25;
+    this.ctx.cam.lerpRate = 2.0;
+    this.ctx.cam.setShot(null);
     this.events.length = 0;
     this.eventSeq = 0;
     this.lastRejection = null;
@@ -631,6 +837,8 @@ export class Chain {
       g.ringGlow = 0;
       if (st !== 'WALK') g.path = null;
     }
+    // the run-up can leave an establishing pan mid-flight; a scenario is quiet
+    this.ctx.cam.pan = null;
     this.idle = 0;
     this.ready = true;
     this.note('ready', { stage: this.state, house: this.houseIndex });
