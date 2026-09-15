@@ -9,6 +9,33 @@ export class Audio {
     this.enabled = true;
     this._power = 1;
     this._load = 0;
+    this._clog = 0;
+    /** Room acoustics: 0 = open room, 1 = head buried under the furniture. */
+    this.muffle = 0;
+    this.pitchBias = 0;
+    this._stream = 0;
+  }
+
+  /**
+   * iOS Safari only lets a context start inside a user gesture, and suspends it
+   * again whenever the page goes to the background. Call this from BOTH
+   * pointerdown and touchend (Safari has historically honoured one and not the
+   * other) and from visibilitychange; it is idempotent and never throws.
+   */
+  unlock() {
+    if (!this.enabled) return;
+    if (!this.ctx) { this.start(); return; }
+    this.resume();
+  }
+
+  resume() {
+    if (!this.ctx) return;
+    try { if (this.ctx.state === 'suspended') this.ctx.resume(); } catch (_) {}
+  }
+
+  suspend() {
+    if (!this.ctx) return;
+    try { if (this.ctx.state === 'running') this.ctx.suspend(); } catch (_) {}
   }
 
   start() {
@@ -46,26 +73,77 @@ export class Audio {
       const ag = ctx.createGain(); ag.gain.value = 0.0;
       air.connect(bp); bp.connect(ag); ag.connect(master); air.start();
 
+      // --- stream: the wide filtered noise bed of a MASS draining in ("zazaa")
+      const st = ctx.createBufferSource(); st.buffer = nb; st.loop = true;
+      const sbp = ctx.createBiquadFilter(); sbp.type = 'bandpass';
+      sbp.frequency.value = 900; sbp.Q.value = 0.35;
+      const slp = ctx.createBiquadFilter(); slp.type = 'lowpass'; slp.frequency.value = 5200;
+      const sg = ctx.createGain(); sg.gain.value = 0;
+      st.connect(sbp); sbp.connect(slp); slp.connect(sg); sg.connect(master); st.start();
+
       this.o1 = o1; this.o2 = o2; this.motorGain = motor; this.airGain = ag; this.airBP = bp;
+      this.motorLP = lp;
+      this.streamGain = sg; this.streamBP = sbp; this.streamLP = slp;
       this.ready = true;
       if (ctx.state === 'suspended') ctx.resume();
     } catch (_) { this.enabled = false; }
   }
 
-  /** power: 1..2.2 suction power. load: 0..1 (debris in the flow). */
-  setMotor(power, load) {
-    this._power = power; this._load = load;
+  /**
+   * Where the vacuum is: `muffle` 0..1 closes the room down (under a sofa, in a
+   * cupboard) and `pitchBias` in semitone-ish units nudges the motor note.
+   * Scenes call this instead of reaching into the audio graph.
+   */
+  setSpace(opts) {
+    if (!opts) { this.muffle = 0; this.pitchBias = 0; return; }
+    if (opts.muffle !== undefined) this.muffle = clamp01(opts.muffle);
+    if (opts.pitchBias !== undefined) this.pitchBias = opts.pitchBias;
+    if (!this.ready) return;
+    try {
+      const t = this.ctx.currentTime;
+      this.motorLP.frequency.setTargetAtTime(900 - 520 * this.muffle, t, 0.12);
+    } catch (_) {}
+  }
+
+  /**
+   * The "zazaa": a wide filtered noise bed for a MASS draining into the nozzle
+   * (sand collapsing, a spill skating in, pile being combed out). 0 = silent.
+   */
+  setStream(intensity) {
+    this._stream = clamp01(intensity);
+    if (!this.ready) return;
+    try {
+      const t = this.ctx.currentTime;
+      const i = this._stream;
+      this.streamGain.gain.setTargetAtTime(0.30 * i * i * (1 - 0.45 * this.muffle), t, 0.09);
+      this.streamBP.frequency.setTargetAtTime(700 + 1500 * i, t, 0.12);
+      this.streamLP.frequency.setTargetAtTime(2200 + 5000 * i * (1 - 0.6 * this.muffle), t, 0.12);
+    } catch (_) {}
+  }
+
+  /**
+   * power: 1..2.2 suction power. load: 0..1 (debris in the flow).
+   * clog: 0..1 blockage at the intake — the motor bogs down and goes boomy.
+   */
+  setMotor(power, load, clog = 0) {
+    this._power = power; this._load = load; this._clog = clog;
     if (!this.ready) return;
     const t = this.ctx.currentTime;
     const p = (power - 1) / 1.2;                    // 0..1
-    const f = 62 + p * 52 - load * 9;               // load drags the motor down
-    const g = 0.16 + p * 0.2;
+    const m = this.muffle;
+    // load drags the motor down; a clog drags it much further; the room colours it
+    let f = 62 + p * 52 - load * 9;
+    f *= (1 - 0.10 * m - 0.34 * clog);
+    f *= Math.pow(2, this.pitchBias / 12);
+    const g = (0.16 + p * 0.2) * (1 - 0.28 * m) * (1 + 0.45 * clog);
     try {
       this.o1.frequency.setTargetAtTime(f, t, 0.08);
       this.o2.frequency.setTargetAtTime(f * 1.503, t, 0.08);
       this.motorGain.gain.setTargetAtTime(g, t, 0.1);
-      this.airGain.gain.setTargetAtTime(0.02 + p * 0.05 + load * 0.05, t, 0.08);
-      this.airBP.frequency.setTargetAtTime(1100 + p * 900 + load * 500, t, 0.1);
+      this.airGain.gain.setTargetAtTime(
+        Math.max(0, (0.02 + p * 0.05 + load * 0.05) * (1 - 0.78 * m - 0.6 * clog)), t, 0.08);
+      this.airBP.frequency.setTargetAtTime(
+        (1100 + p * 900 + load * 500) * (1 - 0.55 * m - 0.2 * clog), t, 0.1);
     } catch (_) {}
   }
 
@@ -110,3 +188,5 @@ export class Audio {
     }
   }
 }
+
+const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
