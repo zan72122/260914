@@ -1,0 +1,19 @@
+{
+  "name": "flametest-game",
+  "version": "1.0.0",
+  "private": true,
+  "description": "炎色反応ゲーム (4歳児向け) — static HTML/CSS/JS. npm deps are dev-only (QA harness).",
+  "type": "module",
+  "scripts": {
+    "start": "http-server . -p 8080 -c-1",
+    "test": "playwright test --config=tests/playwright.config.mjs",
+    "test:smoke": "playwright test --config=tests/playwright.config.mjs harness-selftest.spec.mjs smoke.spec.mjs no-text.spec.mjs",
+    "test:play": "playwright test --config=tests/playwright.config.mjs playthrough.spec.mjs spectroscope.spec.mjs",
+    "test:shots": "playwright test --config=tests/playwright.config.mjs screenshots.spec.mjs",
+    "test:self": "playwright test --config=tests/playwright.config.mjs harness-selftest.spec.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "http-server": "^14.1.1"
+  }
+}

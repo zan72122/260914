@@ -1,0 +1,86 @@
+<!doctype html>
+<!--
+  Harness self-test fixture. NOT part of the game.
+  A minimal, deliberately dumb implementation of the window.__game contract
+  (DESIGN.md §5.10) plus pointer logging, so tests/harness-selftest.spec.mjs can
+  prove the gesture helpers really deliver touch/pointer input, before (and
+  independently of) the real index.html.
+-->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<style>
+  html,body{margin:0;padding:0;width:100%;height:100dvh;overflow:hidden;background:#07060a;touch-action:none}
+  canvas{display:block;width:100%;height:100%}
+</style>
+<canvas id="game"></canvas>
+<script>
+(() => {
+  const c = document.getElementById('game');
+  const g = c.getContext('2d');
+  let frames = 0, angleAcc = 0, lastAngle = null, downAt = 0;
+  const log = { down: 0, move: 0, up: 0, points: [], holdMs: 0, turns: 0, drawText: 0 };
+  window.__log = log;
+
+  function layout() {
+    const dpr = Math.min(devicePixelRatio, 3);
+    c.width = innerWidth * dpr; c.height = innerHeight * dpr;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  addEventListener('resize', layout); layout();
+
+  const center = () => ({ x: innerWidth / 2, y: innerHeight / 2 });
+  const pts = () => {
+    const w = innerWidth, h = innerHeight, S = Math.min(w, h);
+    const ids = ['dish:lithium','dish:copper','dish:sodium','dish:strontium','dish:barium'];
+    const out = ids.map((id, i) => ({ id, x: w * (0.2 + 0.15 * i), y: h * 0.8, r: S * 0.08 }));
+    out.push({ id: 'flame', x: w / 2, y: h * 0.3, r: S * 0.18 });
+    out.push({ id: 'circle:center', x: w / 2, y: h / 2, r: S * 0.1 });
+    return out;
+  };
+
+  const onDown = e => { log.down++; downAt = performance.now(); lastAngle = null; angleAcc = 0; log.points.push([e.clientX|0, e.clientY|0]); };
+  const onMove = e => {
+    log.move++;
+    log.points.push([e.clientX|0, e.clientY|0]);
+    const cc = center();
+    const a = Math.atan2(e.clientY - cc.y, e.clientX - cc.x);
+    if (lastAngle !== null) {
+      let d = a - lastAngle;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      angleAcc += Math.abs(d);
+      log.turns = angleAcc / (Math.PI * 2);
+    }
+    lastAngle = a;
+  };
+  const onUp = e => { log.up++; log.holdMs = performance.now() - downAt; };
+  c.addEventListener('pointerdown', onDown);
+  c.addEventListener('pointermove', onMove);
+  c.addEventListener('pointerup', onUp);
+  c.addEventListener('pointercancel', onUp);
+
+  function frame() {
+    frames++;
+    g.clearRect(0, 0, innerWidth, innerHeight);
+    g.fillStyle = '#221'; g.fillRect(0, 0, innerWidth, innerHeight);
+    for (const p of pts()) { g.beginPath(); g.arc(p.x, p.y, 10, 0, 7); g.fillStyle = '#f80'; g.fill(); }
+    if (location.hash === '#text') { log.drawText++; g.fillText('X', 20, 20); }
+    window.__game.frameCount = frames;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  window.__game = {
+    version: 'stub',
+    get sceneId() { return 'hearth'; },
+    get state() { return { phase: 'idle', tracePath: [{x: 40, y: 40}, {x: innerWidth - 40, y: innerHeight - 40}] }; },
+    get progress() { return { plays: {}, spectroscopeUnlocked: false, spectraSeen: {}, muted: false, version: 1 }; },
+    get ready() { return frames > 0; },
+    get busy() { return false; },
+    goto() {}, setProgress() {}, resetProgress() {}, complete() {}, setMuted() {},
+    hitPoints: pts,
+    lastVoice: null,
+    frameCount: 0,
+    seed() {}
+  };
+})();
+</script>
