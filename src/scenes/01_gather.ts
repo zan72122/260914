@@ -85,7 +85,23 @@ export class GatherScene extends CrowdScene {
     if (!this.laidOut) {
       this.laidOut = true;
       this.crowd.scatter(halfW * 0.88, halfH * 0.88);
-      const w = this.crowd.kids[this.waverIndex];
+      // Clear the middle: the scene must open with exactly one kid in the
+      // centre, waving, and everybody else scattered around him. Anyone who
+      // landed inside the cluster is pushed out past its edge.
+      const kids = this.crowd.kids;
+      const keepOut = CLUSTER_RADIUS * 1.2;
+      for (let i = 0; i < kids.length; i++) {
+        if (i === this.waverIndex) continue;
+        const k = kids[i];
+        const d = Math.hypot(k.x, k.y);
+        if (d >= keepOut) continue;
+        const a = d > 1e-3 ? Math.atan2(k.y, k.x) : (i / kids.length) * Math.PI * 2;
+        const rx = Math.min(halfW * 0.92, keepOut + (i % 5) * 60);
+        const ry = Math.min(halfH * 0.92, keepOut + (i % 5) * 60);
+        k.x = Math.cos(a) * rx;
+        k.y = Math.sin(a) * ry;
+      }
+      const w = kids[this.waverIndex];
       w.x = 0;
       w.y = 0;
     }
@@ -140,7 +156,12 @@ export class GatherScene extends CrowdScene {
         if (!k.hasTarget) continue;
         const dx = k.targetX - k.x;
         const dy = k.targetY - k.y;
-        if (dx * dx + dy * dy < 40 * 40) k.hasTarget = false;
+        if (dx * dx + dy * dy >= 40 * 40) continue;
+        // Kids who reached a slot near the waver keep it, so a group that has
+        // formed stays formed; anyone else lets go and drifts again.
+        const wx = k.x - this.waver.x;
+        const wy = k.y - this.waver.y;
+        if (wx * wx + wy * wy >= CLUSTER_RADIUS * CLUSTER_RADIUS) k.hasTarget = false;
       }
       if (allGathered(kids, this.waver.x, this.waver.y, CLUSTER_RADIUS)) this.beginClap();
     } else if (this.phase === 'clapping') {
@@ -173,10 +194,27 @@ export class GatherScene extends CrowdScene {
       const dx = w.x - k.x;
       const dy = w.y - k.y;
       if (dx * dx + dy * dy > reach * reach) continue;
-      k.targetX = w.x;
-      k.targetY = w.y;
+      k.targetX = this.slotX(i);
+      k.targetY = this.slotY(i);
       k.hasTarget = true;
     }
+  }
+
+  /**
+   * A stable, roomy spot around the waver for kid `i`. Golden-angle slots at
+   * roughly one separation radius apart: the group reads as "a circle of
+   * friends", never as the oppressive crush §3 warns against.
+   */
+  private slotX(i: number): number {
+    return this.waver.x + Math.cos(i * 2.399963) * this.slotRadius(i);
+  }
+
+  private slotY(i: number): number {
+    return this.waver.y + Math.sin(i * 2.399963) * this.slotRadius(i) * 0.9;
+  }
+
+  private slotRadius(i: number): number {
+    return Math.min(CLUSTER_RADIUS * 0.85, 80 + 30 * Math.sqrt(i));
   }
 
   private beginClap(): void {
@@ -218,8 +256,8 @@ export class GatherScene extends CrowdScene {
       const dx = this.waver.x - k.x;
       const dy = this.waver.y - k.y;
       if (dx * dx + dy * dy < CLUSTER_RADIUS * CLUSTER_RADIUS) continue;
-      k.targetX = this.waver.x + (Math.random() - 0.5) * 120;
-      k.targetY = this.waver.y + (Math.random() - 0.5) * 120;
+      k.targetX = this.slotX(i);
+      k.targetY = this.slotY(i);
       k.hasTarget = true;
       sent++;
     }
@@ -232,8 +270,8 @@ export class GatherScene extends CrowdScene {
     for (let i = 0; i < kids.length; i++) {
       if (i === this.waverIndex) continue;
       const k = kids[i];
-      k.targetX = this.waver.x + (Math.random() - 0.5) * CLUSTER_RADIUS;
-      k.targetY = this.waver.y + (Math.random() - 0.5) * CLUSTER_RADIUS;
+      k.targetX = this.slotX(i);
+      k.targetY = this.slotY(i);
       k.hasTarget = true;
     }
   }

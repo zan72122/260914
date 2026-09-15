@@ -163,7 +163,9 @@ export function poseParams(pose: PoseName, frame: number): PoseParams {
       break;
     case 'wave':
       // One arm swings overhead between two angles; the body bobs with it.
-      base.wave = frame === 0 ? 1.15 : 1.75;
+      // Measured from +x: a low, clearly sideways wave so the arm never
+      // disappears behind the head at phone size.
+      base.wave = frame === 0 ? 0.52 : 0.95;
       base.squash = frame === 0 ? 0.02 : -0.02;
       base.lift = frame === 0 ? 0 : 1.5;
       base.smile = 1.2;
@@ -241,11 +243,9 @@ export function drawKidFrame(
     const sy = bodyCY - 3;
     let ex: number;
     let ey: number;
-    if (p.wave > 0 && side === 1) {
-      // The waving arm reaches up and out; the other arm behaves normally.
-      ex = sx + Math.cos(-p.wave) * armLen * 1.15;
-      ey = sy + Math.sin(-p.wave) * armLen * 1.15;
-    } else if (p.clapAmount > 0) {
+    // The raised waving arm is drawn last, over the head — see below.
+    if (p.wave > 0 && side === 1) continue;
+    if (p.clapAmount > 0) {
       const inward = p.clapAmount;
       ex = sx + side * armLen * (1 - inward) + -side * armLen * inward * 0.75;
       ey = sy + 6 - inward * 8;
@@ -288,6 +288,19 @@ export function drawKidFrame(
     width: 2.8,
     wobble: 0.5,
   });
+
+  // The waving arm goes on top of the head, so it is unmistakable even when a
+  // kid is only ~58 px tall on a phone. This is the whole signifier of scene 1.
+  if (p.wave > 0) {
+    const sx = bodyRX - 1;
+    const sy = bodyCY - 4;
+    const len = armLen * 1.85;
+    const ex = sx + Math.cos(-p.wave) * len;
+    const ey = sy + Math.sin(-p.wave) * len;
+    crayonLine(ctx, sx, sy, ex, ey, { rng, width: 5, wobble: 1 });
+    crayonDot(ctx, ex, ey, 4, skin);
+    crayonArc(ctx, ex, ey, 5.5, Math.PI * 1.05, Math.PI * 1.95, { rng, width: 2.4, wobble: 0.6 });
+  }
 
   ctx.restore();
 }

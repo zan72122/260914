@@ -36,9 +36,17 @@ import type { PitShape } from './balls';
 import { allExited } from './gatherLogic';
 
 const KID_COUNT = 26;
-const BALL_COUNT = 46;
-/** Pit mouth half-width in world units. */
-const PIT_RX = 380;
+const BALL_COUNT = 60;
+const BALL_R = 28;
+/**
+ * Pit mouth half-width in world units. In portrait the visible world is always
+ * exactly SAFE wide (the scale is driven by the short axis), so half the world
+ * is 500 units: a 310-unit pit plus its ring of kids at 1.32x fits inside that
+ * with room to spare, and landscape only ever has more room. One fixed size
+ * therefore works in both orientations and survives a rotation mid-scene
+ * without ever having to resize a pit that is full of simulated balls.
+ */
+const PIT_RX = 310;
 /** The pit texture's own ellipse proportions (see drawPit). */
 const PIT_TEX_RX = 0.46 * PIT_SIZE;
 const PIT_TEX_RY = 0.33 * PIT_SIZE;
@@ -96,7 +104,7 @@ export class BallpitScene extends CrowdScene {
     this.pitSprite.position.set(this.pit.cx, this.pit.cy);
     this.propLayer.addChild(this.pitSprite);
 
-    this.pool = new BallPool(this.pit, BALL_COUNT, 22, 5);
+    this.pool = new BallPool(this.pit, BALL_COUNT, BALL_R, 5);
     for (let i = 0; i < this.pool.balls.length; i++) {
       const b = this.pool.balls[i];
       const s = new Sprite(ctx.props.balls[b.color]);
@@ -212,10 +220,13 @@ export class BallpitScene extends CrowdScene {
     this.flightT[i] = 0;
     this.flightFromX[i] = k.x;
     this.flightFromY[i] = k.y;
-    const a = Math.random() * Math.PI * 2;
-    const r = Math.sqrt(Math.random()) * 0.72;
-    this.flightToX[i] = this.pit.cx + Math.cos(a) * this.pit.rx * r;
-    this.flightToY[i] = this.pit.cy + Math.sin(a) * this.pit.ry * r;
+    // Land in the lower half of the pit, where the balls actually are, so a
+    // kid is always bobbing *among* them and never floating over empty water.
+    const u = (Math.random() * 2 - 1) * 0.72;
+    const maxV = Math.sqrt(Math.max(0, 1 - u * u)) * 0.72;
+    const v = 0.05 + Math.random() * Math.max(0.05, maxV - 0.05);
+    this.flightToX[i] = this.pit.cx + u * this.pit.rx;
+    this.flightToY[i] = this.pit.cy + v * this.pit.ry;
     k.facing = this.flightToX[i] > k.x ? 1 : -1;
     this.ctx.audio.sfx.play('whee', { gain: 0.5, detune: (Math.random() - 0.5) * 400 });
   }
