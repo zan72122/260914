@@ -79,6 +79,8 @@ function AUTOPILOT(cfg) {
   let stall = 0;
   let holdUntil = 0;
   let avoid = {};                        // id -> time it may be tried again
+  let visited = {};                      // id -> when it was last worked on
+  let forgiveAt = 0;                     // when the avoid list is wiped
   let rasterI = 0;
   let inFlow = false;
   let last = now();
@@ -100,7 +102,8 @@ function AUTOPILOT(cfg) {
     };
     R.scenes.push(cur);
     R.scene = cur.id;
-    targetId = null; sinceTarget = 0; bestErr = 1e9; stall = 0; avoid = {}; rasterI = 0;
+    targetId = null; sinceTarget = 0; bestErr = 1e9; stall = 0; rasterI = 0;
+    avoid = {}; visited = {}; forgiveAt = now() + 30000;
     F = { x: g.scene.startPointer.x, y: g.scene.startPointer.y };
   }
 
@@ -111,23 +114,40 @@ function AUTOPILOT(cfg) {
     return out;
   }
 
-  /** Pick what to hunt: the nearest live piece the scene can actually act on. */
+  /**
+   * Pick what to hunt.
+   *
+   * Nearest first — but never the same thing over and over. A child works
+   * round a room; an autopilot that always takes the nearest target can stand
+   * in one corner forever while four other pieces sit untouched on the far
+   * side. So anything visited in the last 15s is passed over while there is
+   * anything else at all, and the whole "given up on" list is forgiven every
+   * 30s so nothing is abandoned permanently.
+   */
   function pickTarget(g, mx, my) {
     const sc = g.scene;
-    let best = null, bd = 1e9;
+    const t = now();
+    if (t > forgiveAt) { avoid = {}; forgiveAt = t + 30000; }
+    let best = null, bd = 1e9, fresh = null, fd = 1e9;
     for (let i = 0; i < sc.debris.length; i++) {
       const d = sc.debris[i];
       if (d.decor || d.state === 'in-cup') continue;
-      if (avoid[d.id] && avoid[d.id] > now()) continue;
+      if (avoid[d.id] && avoid[d.id] > t) continue;
       // a dormant piece is under something: its position is still where we must
       // drive the head, because that is what shoves the thing off it
       d.aim(AIMP);
       g.camera.toScreen(AIMP.x, AIMP.y, P);
       const nx = P.x / g.w, ny = P.y / g.h;
       const dd = (nx - mx) * (nx - mx) + (ny - my) * (ny - my) * 1.15;
-      if (dd < bd) { bd = dd; best = { d, nx, ny }; }
+      const wd = Math.hypot(AIMP.x - g.vacuum.mouthX, AIMP.y - g.vacuum.mouthY);
+      if (dd < bd) { bd = dd; best = { d, nx, ny, wd }; }
+      if (!visited[d.id] || t - visited[d.id] > 15000) {
+        if (dd < fd) { fd = dd; fresh = { d, nx, ny, wd }; }
+      }
     }
-    return best;
+    const pick = fresh || best;
+    if (pick) visited[pick.d.id] = t;
+    return pick;
   }
 
   function tick() {
@@ -171,12 +191,13 @@ function AUTOPILOT(cfg) {
     const sc = g.scene;
     mouthN(g, P);
     const mx = P.x, my = P.y;
-    let tx, ty, rub = 0;
+    let tx, ty, rub = 0, wdist = -1;
 
     const pick = pickTarget(g, mx, my);
     if (pick) {
       if (pick.d.id !== targetId) { targetId = pick.d.id; sinceTarget = 0; bestErr = 1e9; stall = 0; }
       tx = pick.nx; ty = pick.ny;
+      wdist = pick.wd;
       // is the flow actually reaching it? That decides whether standing still is
       // patience (the mother bunny takes a long, long hold) or futility
       inFlow = pick.d.strength > 0.08;
@@ -192,12 +213,14 @@ function AUTOPILOT(cfg) {
       const wy = r.y0 + ((row + 0.5) / rows) * (r.y1 - r.y0);
       g.camera.toScreen(wx, wy, P);
       tx = P.x / g.w; ty = P.y / g.h;
+      wdist = Math.hypot(wx - g.vacuum.mouthX, wy - g.vacuum.mouthY);
       if (targetId !== 'raster' + k) { targetId = 'raster' + k; bestErr = 1e9; stall = 0; }
       if (Math.hypot(tx - mx, ty - my) < 0.07) rasterI += dt * 1.6;
     } else {
       // nothing left to hunt: go back to where the scene parks the vacuum.
       // Under the sofa that is also how you get out from under the furniture.
       tx = sc.startPointer.x; ty = sc.startPointer.y - 0.10;
+      wdist = -1;
       targetId = null;
     }
 
@@ -210,7 +233,12 @@ function AUTOPILOT(cfg) {
     let ex = tx - mx, ey = ty - my;
     const err = Math.hypot(ex, ey);
     sinceTarget += dt;
-    if (err < bestErr - 0.004) { bestErr = err; stall = 0; } else stall += dt;
+    // Progress is measured in the WORLD, not on the screen. A scene whose
+    // camera follows the nozzle (under the sofa) moves the target on screen as
+    // fast as the head closes on it, so a screen-space stall detector decides
+    // it is stuck while it is in fact walking straight towards the thing.
+    const prog = wdist >= 0 ? wdist : err * 1000;
+    if (prog < bestErr - 2) { bestErr = prog; stall = 0; } else stall += dt;
 
     // Nothing is getting closer: stop dead and let the airflow work. That is
     // the press-and-hold the whole game is built on, and it is also the only
