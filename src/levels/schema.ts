@@ -103,9 +103,10 @@ export const PALETTES: Readonly<Record<ThemeId, Palette>> = {
     props: ['duck', 'rock', 'wheat', 'flower', 'reed'],
   },
   'water-dusk': {
-    ground: '#78C86A', road: '#8C8378', accent: '#F2D857', sky: '#E8A47A',
-    water: '#57A8C8', glow: '#FFE7B0', flag: '#2A2320', night: false,
-    sideDarken: 0.26, hemi: 1.0, sun: 1.35, sunColor: '#FFE3BE',
+    // 夕。地面は 7.1 の表どおり «水辺» のままだが、夕日の色を乗せて昼と見分ける
+    ground: '#8FBE5E', road: '#8C8378', accent: '#F2D857', sky: '#E8A47A',
+    water: '#4E84B8', glow: '#FFE7B0', flag: '#2A2320', night: false,
+    sideDarken: 0.28, hemi: 0.95, sun: 1.5, sunColor: '#FFD2A0',
     caustics: true, bridge: false,
     props: ['duck', 'rock', 'wheat', 'flower', 'reed'],
   },

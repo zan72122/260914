@@ -126,6 +126,14 @@ interface Unit {
   readonly lag: number;
 }
 
+/**
+ * 乗り物の «見た目» だけを組み立てる(地図画面で島を周回する乗り物に使う)。
+ * 列車は先頭 + 客車 2 両を返す。
+ */
+export function createVehicleBodies(kind: 'car' | 'train'): THREE.Group[] {
+  return kind === 'train' ? [buildLocomotive(), buildCarriage(), buildCarriage()] : [buildCar()];
+}
+
 export function createVehicle(kind: 'car' | 'train'): Vehicle {
   const group = new THREE.Group();
   const units: Unit[] = [];
