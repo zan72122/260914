@@ -2,6 +2,7 @@ import { Scene } from './scene.js';
 import { DustBunny } from '../debris/dustBunny.js';
 import { State } from '../debris/base.js';
 import { makeWoodFloor } from '../floors/wood.js';
+import { Prop, resolveProps } from '../props/prop.js';
 import { TAU, clamp } from '../core/math.js';
 
 /**
@@ -37,14 +38,14 @@ export class IntroScene extends Scene {
       this.floor = makeWoodFloor({ x0: -w * 0.95, y0: -h * 1.25, x1: w * 0.95, y1: h * 0.85 }, rng, { plankW: 84 });
       this.leg = this._p(0.17, 0.235);
       this._spawn([
-        [0.50, 0.46, 24, false],
-        [0.27, 0.355, 20, false],
-        [0.72, 0.285, 22, false],
-        [0.45, 0.165, 18, false],
+        [0.50, 0.435, 33, false],
+        [0.26, 0.345, 28, false],
+        [0.73, 0.275, 31, false],
+        [0.45, 0.155, 25, false],
       ]);
-      this.rollIn = this._makeBunny(0.71, 0.45, 21);
+      this.rollIn = this._makeBunny(0.73, 0.455, 29);
       this.rollIn.entryFrom = this._p(1.35, 0.52);
-      this.peeker = this._makeBunny(0.225, 0.245, 17);
+      this.peeker = this._makeBunny(0.235, 0.245, 24);
       this.peeker.peekFrom = this._p(0.155, 0.235);
       this.exitCam = { x: 0, y: -h * 0.60, zoom: this.scale * 1.04, tilt: 0.32 };
     } else {
@@ -54,18 +55,24 @@ export class IntroScene extends Scene {
       this.floor = makeWoodFloor({ x0: -w * 0.9, y0: -h * 1.1, x1: w * 1.35, y1: h * 1.1 }, rng, { plankW: 78, horizontal: true });
       this.leg = this._p(0.615, 0.135);
       this._spawn([
-        [0.250, 0.330, 23, false],
-        [0.405, 0.330, 20, false],
-        [0.560, 0.560, 21, false],
-        [0.705, 0.375, 18, false],
+        [0.250, 0.290, 32, false],
+        [0.410, 0.320, 27, false],
+        [0.565, 0.565, 30, false],
+        [0.710, 0.370, 25, false],
       ]);
-      this.rollIn = this._makeBunny(0.49, 0.80, 21);
+      this.rollIn = this._makeBunny(0.49, 0.80, 29);
       this.rollIn.entryFrom = this._p(-0.35, 0.86);
-      this.peeker = this._makeBunny(0.665, 0.175, 17);
+      this.peeker = this._makeBunny(0.670, 0.175, 24);
       this.peeker.peekFrom = this._p(0.60, 0.14);
       this.exitCam = { x: w * 0.55, y: -h * 0.05, zoom: this.scale * 1.04, tilt: 0.24 };
     }
     // the late arrivals wait off-stage until the player has understood the game
+    this.props.length = 0;
+    this.props.push(new Prop({
+      x: this.leg.x, y: this.leg.y, shape: 'circle', r: 15, pushable: false,
+      shadow: false, draw: () => {},
+    }));
+    this.clearStartZone(140);
     this.rollIn.dormant = true;
     this.peeker.dormant = true;
     this.debris.push(this.rollIn, this.peeker);
@@ -106,6 +113,7 @@ export class IntroScene extends Scene {
   }
 
   update(dt, ctx) {
+    resolveProps(ctx.vacuum, this.props, dt);
     const list = this.debris;
     for (let i = 0; i < list.length; i++) {
       const d = list[i];

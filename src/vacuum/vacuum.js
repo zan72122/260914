@@ -2,12 +2,15 @@ import { clamp, lerp, smoothstep, spring2, splineAt, splinePath, TAU } from '../
 
 const TMP = { x: 0, y: 0 };
 const TMP2 = { x: 0, y: 0 };
+const TMP3 = { x: 0, y: 0 };
 
 /** Lead offsets in SCREEN px (so the finger never covers the mouth). */
 const LEAD = {
-  portrait: { up: 70, ahead: 0, bodyBack: 96 },
-  landscape: { up: 60, ahead: 30, bodyBack: 86 },
+  portrait: { up: 92, ahead: 0, bodyBack: 124 },
+  landscape: { up: 78, ahead: 36, bodyBack: 108 },
 };
+
+const TUBE_SAMPLES = 34;
 
 export class Vacuum {
   constructor(rng) {
@@ -19,13 +22,24 @@ export class Vacuum {
     this.dirX = 0; this.dirY = -1;
     this.aheadX = 0; this.aheadY = -1;   // smoothed drag direction
 
-    this.power = 1;            // 1 = idle airflow, up to MAXP while held
+    this.power = 1;            // 1 = idle airflow, up to MAXP while held still
     this.powerN = 0;           // 0..1 normalised
     this.load = 0;             // 0..1, debris currently in the flow
     this.time = 0;
+    this.gulp = 0;             // mouth squash when something goes in
+
+    // gesture mirrors, so debris/scenes never need the Input object
+    this.rub = 0; this.circle = 0; this.scrub = 0;
+    this._lastHeadDirX = 0; this._lastHeadDirY = 0; this._scrubE = 0;
+
+    // optional cone light, used by dark scenes (see src/core/light.js)
+    this.headlight = { on: false, r: 260, intensity: 1, cone: 0.5 };
 
     this.hosePts = [ {x:0,y:0}, {x:0,y:0,vx:0,vy:0}, {x:0,y:0,vx:0,vy:0}, {x:0,y:0} ];
     this._tube = [ {x:0,y:0}, this.hosePts[0], this.hosePts[1], this.hosePts[2], this.hosePts[3], {x:0,y:0} ];
+    this._ts = [];
+    for (let i = 0; i < TUBE_SAMPLES; i++) this._ts.push({ x: 0, y: 0, d: 0 });
+    this.tubeLen = 1;
 
     this.transits = [];
     this.cup = [];             // {x,y,r,kind,color,seed,rot}
@@ -39,15 +53,20 @@ export class Vacuum {
 
     this.audio = null;
     this._fieldOut = { fx: 0, fy: 0, strength: 0, inCapture: false, dist: 0 };
+    this._mouth = { x: 0, y: 0, dirX: 0, dirY: -1 };
   }
 
   get MAXP() { return 2.2; }
+  /** Radius of the physical head, for prop collision. */
+  get headRadius() { return 34; }
 
   setPose(pose) { this.pose = pose; }
+  /** How far ahead of the finger the head is drawn, in screen px. */
+  get leadUp() { return (LEAD[this.pose] || LEAD.portrait).up; }
 
   reset(x, y) {
     this.nozzle.x = x; this.nozzle.y = y; this.nozzle.vx = 0; this.nozzle.vy = 0;
-    this.body.x = x; this.body.y = y + 90; this.body.vx = 0; this.body.vy = 0;
+    this.body.x = x; this.body.y = y + 120; this.body.vx = 0; this.body.vy = 0;
     for (let i = 0; i < this.hosePts.length; i++) {
       const t = i / (this.hosePts.length - 1);
       this.hosePts[i].x = lerp(x, this.body.x, t);
@@ -55,7 +74,7 @@ export class Vacuum {
       this.hosePts[i].vx = 0; this.hosePts[i].vy = 0;
     }
     this.transits.length = 0;
-    this.power = 1; this.powerN = 0;
+    this.power = 1; this.powerN = 0; this.gulp = 0;
   }
 
   clearCup() { this.cup.length = 0; this.cupCols.fill(0); }
@@ -64,6 +83,7 @@ export class Vacuum {
 
   update(dt, input, cam) {
     this.time += dt;
+    this.rub = input.rub; this.circle = input.circle;
 
     // --- suction power ---
     // On a touch screen the finger is either on the glass or not, so "press and
@@ -74,6 +94,7 @@ export class Vacuum {
     const tau = target > this.power ? 0.3 : 0.45;
     this.power += (target - this.power) * (1 - Math.exp(-dt / (tau / 3)));
     this.powerN = clamp((this.power - 1) / (this.MAXP - 1), 0, 1);
+    this.gulp *= Math.exp(-dt / 0.045);
 
     // --- follow the finger with a lead offset ---
     const L = LEAD[this.pose] || LEAD.portrait;
@@ -89,7 +110,7 @@ export class Vacuum {
 
     // the head leads the finger, but must never leave the screen (landscape is
     // only ~390px tall: a finger near the top edge would push it out of view)
-    const m = 30;
+    const m = 34;
     const sx = clamp(input.x + axn * L.ahead * drag, m, cam.w - m);
     const sy = clamp(input.y - L.up + ayn * L.ahead * drag * 0.5, m, cam.h - m);
     cam.toWorld(sx, sy, TMP);
@@ -97,8 +118,21 @@ export class Vacuum {
     cam.toWorld(input.x, input.y + L.bodyBack * 0.42, TMP2);
     const btx = TMP2.x, bty = TMP2.y;
 
+    const pnx = this.nozzle.x, pny = this.nozzle.y;
     spring2(this.nozzle, ntx, nty, 24, dt);
     spring2(this.body, btx, bty, 12, dt);
+
+    // --- scrub: back-and-forth reversals of the HEAD itself (brush-roll input)
+    const hdx = this.nozzle.x - pnx, hdy = this.nozzle.y - pny;
+    const hl = Math.hypot(hdx, hdy);
+    if (hl > 0.6) {
+      const ux = hdx / hl, uy = hdy / hl;
+      const dot = ux * this._lastHeadDirX + uy * this._lastHeadDirY;
+      if (dot < -0.2) this._scrubE += 0.5;
+      this._lastHeadDirX = ux; this._lastHeadDirY = uy;
+    }
+    this._scrubE = Math.max(0, this._scrubE - dt * 0.9);
+    this.scrub = clamp(this._scrubE, 0, 1);
 
     // --- facing: away from the body, blended with the drag direction ---
     let dx = this.nozzle.x - this.body.x, dy = this.nozzle.y - this.body.y;
@@ -122,21 +156,22 @@ export class Vacuum {
     this.bodyAngle = Math.atan2(this.nozzle.y - this.body.y, this.nozzle.x - this.body.x);
 
     // --- hose: nozzle back -> two sagging spring points -> body top ---
-    const backX = this.nozzle.x - this.dirX * 13, backY = this.nozzle.y - this.dirY * 13;
-    const topX = this.body.x + Math.cos(this.bodyAngle) * 20, topY = this.body.y + Math.sin(this.bodyAngle) * 20;
+    const backX = this.nozzle.x - this.dirX * 17, backY = this.nozzle.y - this.dirY * 17;
+    const topX = this.body.x + Math.cos(this.bodyAngle) * 26, topY = this.body.y + Math.sin(this.bodyAngle) * 26;
     this.hosePts[0].x = backX; this.hosePts[0].y = backY;
     this.hosePts[3].x = topX; this.hosePts[3].y = topY;
-    const sag = 10 + this.powerN * 3;
+    const sag = 12 + this.powerN * 4;
     spring2(this.hosePts[1], lerp(backX, topX, 0.35), lerp(backY, topY, 0.35) + sag, 11, dt);
     spring2(this.hosePts[2], lerp(backX, topX, 0.7), lerp(backY, topY, 0.7) + sag * 0.7, 9.5, dt);
 
     // cup position in world (body local offset, rotated)
     const ca = Math.cos(this.bodyAngle + Math.PI / 2), sa = Math.sin(this.bodyAngle + Math.PI / 2);
-    const clx = 0, cly = 6;
+    const clx = 0, cly = 8;
     this.cupCenter.x = this.body.x + clx * ca - cly * sa;
     this.cupCenter.y = this.body.y + clx * sa + cly * ca;
     this._tube[0].x = this.mouthX; this._tube[0].y = this.mouthY;
     this._tube[5].x = this.cupCenter.x; this._tube[5].y = this.cupCenter.y;
+    this._resampleTube();
 
     // --- transits ---
     let load = 0;
@@ -148,27 +183,28 @@ export class Vacuum {
     }
     this.load = clamp(load / 3, 0, 1);
 
-    // --- cup jiggle phase ---
     this.cupPhase = this.time * (7 + this.powerN * 7);
-
-    // --- dust motes drawn into the mouth (world reacting, not an overlay) ---
     this._updateMotes(dt, cam);
 
     if (this.audio) this.audio.setMotor(this.power, this.load);
   }
 
-  get mouthX() { return this.nozzle.x + this.dirX * 17; }
-  get mouthY() { return this.nozzle.y + this.dirY * 17; }
-  get radius() { return 105 * (0.8 + 0.3 * this.powerN); }
+  get mouthX() { return this.nozzle.x + this.dirX * 22; }
+  get mouthY() { return this.nozzle.y + this.dirY * 22; }
+  get radius() { return 138 * (0.8 + 0.3 * this.powerN); }
+
+  /** Current mouth position and facing, for debris that feeds itself in. */
+  mouth() {
+    this._mouth.x = this.mouthX; this._mouth.y = this.mouthY;
+    this._mouth.dirX = this.dirX; this._mouth.dirY = this.dirY;
+    return this._mouth;
+  }
 
   // ---------------------------------------------------------------- field
 
   /**
    * Airflow at a world point. This is THE contract debris reads; nothing else
    * should decide "am I close enough".
-   *   fx, fy    : unit-ish pull vector scaled by strength (world units/s^2 factor)
-   *   strength  : 0 .. ~2.5
-   *   inCapture : point is inside the mouth ellipse
    */
   field(x, y, out) {
     out = out || this._fieldOut;
@@ -177,7 +213,6 @@ export class Vacuum {
     let d = Math.hypot(dx, dy);
     if (d < 1e-4) d = 1e-4;
     const ux = dx / d, uy = dy / d;
-    // alignment: 1 when the point sits straight in front of the mouth
     const align = -(ux * this.dirX + uy * this.dirY);
     const cone = 0.1 + 0.9 * smoothstep(-0.35, 0.8, align);
     const r = this.radius;
@@ -191,45 +226,98 @@ export class Vacuum {
     out.fx = ux * s;
     out.fy = uy * s;
     out.dist = d;
-    // capture: ellipse at the mouth, long axis along the facing direction
-    const lx = -(dx * this.dirX + dy * this.dirY);   // along facing, + = in front
-    const ly = -(dx * -this.dirY + dy * this.dirX);  // across
-    const a = 15, b = 21;
+    const lx = -(dx * this.dirX + dy * this.dirY);
+    const ly = -(dx * -this.dirY + dy * this.dirX);
+    const a = 22, b = 30;
     out.inCapture = (lx * lx) / (a * a) + (ly * ly) / (b * b) <= 1;
     return out;
   }
 
   // ---------------------------------------------------------------- transit
 
-  /**
-   * Send a captured item through the tube into the cup.
-   * item: {kind, color, size, detail?}
-   */
-  transit(item) {
-    const dur = 0.26 + Math.min(item.size, 14) * 0.008;
-    this.transits.push({
-      kind: item.kind, color: item.color, size: item.size, detail: item.detail || null,
-      t: 0, dur, seed: this.rng ? this.rng.next() * 100 : Math.random() * 100,
-      x: this.mouthX, y: this.mouthY, px: this.mouthX, py: this.mouthY,
-    });
-    if (this.audio) this.audio.pop(item.kind === 'crumb' ? 'tick' : 'pop', item.kind === 'crumb' ? 0.6 : 1);
+  _resampleTube() {
+    const ts = this._ts;
+    let acc = 0;
+    splineAt(this._tube, 0, TMP3);
+    ts[0].x = TMP3.x; ts[0].y = TMP3.y; ts[0].d = 0;
+    for (let i = 1; i < TUBE_SAMPLES; i++) {
+      splineAt(this._tube, i / (TUBE_SAMPLES - 1), TMP3);
+      acc += Math.hypot(TMP3.x - ts[i - 1].x, TMP3.y - ts[i - 1].y);
+      ts[i].x = TMP3.x; ts[i].y = TMP3.y; ts[i].d = acc;
+    }
+    this.tubeLen = Math.max(1, acc);
   }
 
+  /** Point at `dist` along the tube from the mouth. Clamped at both ends. */
+  tubePointAt(dist, out) {
+    const ts = this._ts;
+    if (dist <= 0) { out.x = ts[0].x; out.y = ts[0].y; return out; }
+    const last = ts[TUBE_SAMPLES - 1];
+    if (dist >= last.d) { out.x = last.x; out.y = last.y; return out; }
+    let lo = 0;
+    for (let i = 1; i < TUBE_SAMPLES; i++) { if (ts[i].d >= dist) { lo = i - 1; break; } }
+    const a = ts[lo], b = ts[lo + 1];
+    const t = (dist - a.d) / Math.max(1e-4, b.d - a.d);
+    out.x = a.x + (b.x - a.x) * t;
+    out.y = a.y + (b.y - a.y) * t;
+    return out;
+  }
+
+  /**
+   * Send a captured item through the tube into the cup.
+   *   {kind:'fluff'|'crumb'|'wisp', color, size}
+   *   {kind:'strand', color, width, points:[{x,y}...]}  points[0] enters first;
+   *     the tail stays outside the mouth until its turn, so you see the whole
+   *     thing run in head-first.
+   */
+  transit(item) {
+    this.gulp = 1;
+    let it;
+    if (item.kind === 'strand' && item.points && item.points.length > 1) {
+      const pts = item.points.map((p) => ({ x: p.x, y: p.y, s: 0 }));
+      let len = 0;
+      for (let i = 1; i < pts.length; i++) {
+        len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+        pts[i].s = len;
+      }
+      it = {
+        kind: 'strand', color: item.color || '#e7e2d8', width: item.width || 2.4,
+        pts, strandLen: len, size: item.size || 10,
+        t: 0, dur: (this.tubeLen + len) / 1000, seed: this._seed(),
+      };
+      if (it.dur < 0.28) it.dur = 0.28;
+    } else {
+      it = {
+        kind: item.kind, color: item.color, size: item.size, detail: item.detail || null,
+        t: 0, dur: 0.22 + Math.min(item.size, 20) * 0.006, seed: this._seed(),
+        x: this.mouthX, y: this.mouthY,
+      };
+    }
+    this.transits.push(it);
+    if (this.audio) {
+      const k = item.kind === 'crumb' ? 'tick' : item.kind === 'wisp' ? 'tick' : 'pop';
+      this.audio.pop(k, item.kind === 'wisp' ? 0.35 : item.kind === 'crumb' ? 0.6 : 1);
+    }
+  }
+
+  _seed() { return (this.rng ? this.rng.next() : Math.random()) * 100; }
+
   _land(it) {
-    // pack into the cup using a tiny column height map
     const cols = this.cupCols;
     let best = 0;
     for (let i = 1; i < cols.length; i++) if (cols[i] < cols[best]) best = i;
     const jitter = (this.rng ? this.rng.next() : Math.random()) - 0.5;
-    const r = clamp(it.size * 0.42, 1.6, 7);
-    const x = (best - (cols.length - 1) / 2) * 3.4 + jitter * 2;
-    const y = 14 - cols[best] - r;
+    const r = clamp((it.kind === 'strand' ? it.size : it.size) * 0.42, 1.4, 9);
+    const x = (best - (cols.length - 1) / 2) * 4.2 + jitter * 2;
+    const y = 18 - cols[best] - r;
     cols[best] += r * 1.45;
-    // spread the load a bit to neighbours so piles look natural
     if (best > 0) cols[best - 1] += r * 0.35;
     if (best < cols.length - 1) cols[best + 1] += r * 0.35;
-    this.cup.push({ x, y, r, kind: it.kind, color: it.color, seed: it.seed, rot: (this.rng ? this.rng.next() : Math.random()) * TAU });
-    if (this.cup.length > 160) this.cup.shift();
+    this.cup.push({
+      x, y, r, kind: it.kind === 'strand' ? 'coil' : it.kind, color: it.color, seed: it.seed,
+      rot: (this.rng ? this.rng.next() : Math.random()) * TAU,
+    });
+    if (this.cup.length > 200) this.cup.shift();
   }
 
   // ---------------------------------------------------------------- motes
@@ -243,10 +331,10 @@ export class Vacuum {
         const m = this.motes[i];
         if (m.life <= 0) {
           const a = (this.rng ? this.rng.next() : Math.random()) * TAU;
-          const rad = 40 + (this.rng ? this.rng.next() : Math.random()) * this.radius * 0.7;
+          const rad = 50 + (this.rng ? this.rng.next() : Math.random()) * this.radius * 0.7;
           m.x = this.mouthX + Math.cos(a) * rad;
           m.y = this.mouthY + Math.sin(a) * rad * 0.8;
-          m.vx = 0; m.vy = 0; m.life = 1; m.r = 0.6 + Math.random() * 0.8;
+          m.vx = 0; m.vy = 0; m.life = 1; m.r = 0.7 + Math.random() * 1;
           break;
         }
       }
@@ -256,8 +344,8 @@ export class Vacuum {
       const m = this.motes[i];
       if (m.life <= 0) continue;
       this.field(m.x, m.y, f);
-      m.vx += f.fx * 620 * dt;
-      m.vy += f.fy * 620 * dt;
+      m.vx += f.fx * 760 * dt;
+      m.vy += f.fy * 760 * dt;
       m.vx *= 0.94; m.vy *= 0.94;
       m.x += m.vx * dt; m.y += m.vy * dt;
       m.life -= dt * 0.7;
@@ -270,13 +358,11 @@ export class Vacuum {
   draw(ctx, cam) {
     ctx.save();
     cam.apply(ctx);
-
     this._drawMotes(ctx);
     this._drawShadow(ctx);
     this._drawHose(ctx);
     this._drawBody(ctx);
     this._drawHead(ctx);
-
     ctx.restore();
   }
 
@@ -294,11 +380,11 @@ export class Vacuum {
   _drawShadow(ctx) {
     ctx.fillStyle = 'rgba(30,20,10,0.16)';
     ctx.beginPath();
-    ctx.ellipse(this.body.x + 4, this.body.y + 30, 34, 12, 0, 0, TAU);
+    ctx.ellipse(this.body.x + 5, this.body.y + 38, 42, 15, 0, 0, TAU);
     ctx.fill();
-    ctx.globalAlpha = 0.6;
+    ctx.globalAlpha = 0.45;
     ctx.beginPath();
-    ctx.ellipse(this.nozzle.x + 3, this.nozzle.y + 13, 19, 6, 0, 0, TAU);
+    ctx.ellipse(this.nozzle.x + 4, this.nozzle.y + 20, 22, 7, 0, 0, TAU);
     ctx.fill();
     ctx.globalAlpha = 1;
   }
@@ -307,21 +393,19 @@ export class Vacuum {
     const pts = this.hosePts;
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.beginPath(); splinePath(ctx, pts, 26);
-    ctx.strokeStyle = '#3f4a63'; ctx.lineWidth = 15; ctx.stroke();
+    ctx.strokeStyle = '#3f4a63'; ctx.lineWidth = 20; ctx.stroke();
     ctx.beginPath(); splinePath(ctx, pts, 26);
-    ctx.strokeStyle = '#5d6b8c'; ctx.lineWidth = 11; ctx.stroke();
-    // ribs
-    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 2;
+    ctx.strokeStyle = '#5d6b8c'; ctx.lineWidth = 15; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)'; ctx.lineWidth = 2.4;
     const p = TMP;
     for (let i = 1; i < 14; i++) {
       splineAt(pts, i / 14, p);
       splineAt(pts, i / 14 + 0.012, TMP2);
       const ax = TMP2.x - p.x, ay = TMP2.y - p.y;
       const l = Math.hypot(ax, ay) || 1;
-      const nx2 = -ay / l * 5, ny2 = ax / l * 5;
+      const nx2 = -ay / l * 6.5, ny2 = ax / l * 6.5;
       ctx.beginPath(); ctx.moveTo(p.x - nx2, p.y - ny2); ctx.lineTo(p.x + nx2, p.y + ny2); ctx.stroke();
     }
-    // items riding the tube (visible through the hose)
     this._drawTransits(ctx);
   }
 
@@ -330,25 +414,48 @@ export class Vacuum {
     for (let i = 0; i < this.transits.length; i++) {
       const it = this.transits[i];
       const u = clamp(it.t, 0, 1);
+      if (it.kind === 'strand') { this._drawStrandTransit(ctx, it, u); continue; }
       const e = u * u * (3 - 2 * u);
-      splineAt(this._tube, e, p);
-      splineAt(this._tube, clamp(e + 0.03, 0, 1), q);
-      it.px = it.x; it.py = it.y;
+      const d = e * this.tubeLen;
+      this.tubePointAt(d, p);
+      this.tubePointAt(Math.min(this.tubeLen, d + 12), q);
       it.x = p.x; it.y = p.y;
-      const ax = q.x - p.x, ay = q.y - p.y;
-      const ang = Math.atan2(ay, ax);
-      const stretch = 1.9;
+      const ang = Math.atan2(q.y - p.y, q.x - p.x);
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.rotate(ang);
+      const w = it.size * 0.62 * 1.9, h = it.size * 0.42;
       ctx.fillStyle = it.color;
-      ctx.globalAlpha = 0.95;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, it.size * 0.55 * stretch, it.size * 0.5 / stretch * 1.5, 0, 0, TAU);
-      ctx.fill();
-      ctx.globalAlpha = 1;
+      ctx.beginPath(); ctx.ellipse(0, 0, w, h, 0, 0, TAU); ctx.fill();
+      // bright core: the thing racing through the tube must pop
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.beginPath(); ctx.ellipse(-w * 0.15, -h * 0.2, w * 0.45, h * 0.4, 0, 0, TAU); ctx.fill();
       ctx.restore();
     }
+  }
+
+  _drawStrandTransit(ctx, it, u) {
+    const head = u * (this.tubeLen + it.strandLen);
+    const p = TMP;
+    ctx.save();
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = it.color;
+    ctx.lineWidth = it.width;
+    ctx.beginPath();
+    let started = false;
+    for (let i = 0; i < it.pts.length; i++) {
+      const v = it.pts[i];
+      const d = head - v.s;
+      let x, y;
+      if (d <= 0) { x = v.x; y = v.y; }        // still outside the mouth
+      else { this.tubePointAt(Math.min(d, this.tubeLen), p); x = p.x; y = p.y; }
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.lineWidth = it.width * 0.4;
+    ctx.stroke();
+    ctx.restore();
   }
 
   _drawBody(ctx) {
@@ -357,34 +464,39 @@ export class Vacuum {
     ctx.translate(this.body.x, this.body.y);
     ctx.rotate(a);
 
-    // shell
     ctx.fillStyle = '#e8547c';
-    roundRect(ctx, -27, -26, 54, 58, 14); ctx.fill();
+    roundRect(ctx, -34, -33, 68, 73, 18); ctx.fill();
     ctx.fillStyle = 'rgba(255,255,255,0.22)';
-    roundRect(ctx, -22, -22, 18, 46, 9); ctx.fill();
-    ctx.strokeStyle = 'rgba(90,20,40,0.35)'; ctx.lineWidth = 2;
-    roundRect(ctx, -27, -26, 54, 58, 14); ctx.stroke();
+    roundRect(ctx, -28, -28, 22, 58, 11); ctx.fill();
+    ctx.strokeStyle = 'rgba(90,20,40,0.35)'; ctx.lineWidth = 2.5;
+    roundRect(ctx, -34, -33, 68, 73, 18); ctx.stroke();
 
     // transparent panel + dust cup
     ctx.save();
-    roundRect(ctx, -21, -12, 42, 38, 10);
+    roundRect(ctx, -27, -15, 54, 48, 13);
     ctx.clip();
     ctx.fillStyle = 'rgba(220,240,255,0.30)';
-    ctx.fillRect(-21, -12, 42, 38);
-    // contents
-    const jig = Math.sin(this.cupPhase) * (0.5 + this.powerN * 1.1);
+    ctx.fillRect(-27, -15, 54, 48);
+    const jig = Math.sin(this.cupPhase) * (0.5 + this.powerN * 1.2);
     for (let i = 0; i < this.cup.length; i++) {
       const c = this.cup[i];
-      const wob = Math.sin(this.cupPhase * 0.8 + c.seed) * (0.4 + this.powerN * 0.9);
+      const wob = Math.sin(this.cupPhase * 0.8 + c.seed) * (0.4 + this.powerN * 1.0);
       ctx.save();
       ctx.translate(c.x + wob * 0.6, c.y + jig * 0.5);
       ctx.rotate(c.rot);
       ctx.fillStyle = c.color;
       if (c.kind === 'crumb') {
         ctx.fillRect(-c.r, -c.r * 0.7, c.r * 2, c.r * 1.4);
+      } else if (c.kind === 'coil') {
+        ctx.strokeStyle = c.color; ctx.lineWidth = 1.4;
+        for (let k = 0; k < 3; k++) {
+          ctx.beginPath();
+          ctx.ellipse(0, 0, c.r * (0.5 + k * 0.28), c.r * (0.34 + k * 0.2), k * 1.1, 0, TAU);
+          ctx.stroke();
+        }
       } else {
         ctx.beginPath(); ctx.ellipse(0, 0, c.r * 1.15, c.r, 0, 0, TAU); ctx.fill();
-        ctx.strokeStyle = c.color; ctx.lineWidth = 0.7; ctx.globalAlpha = 0.7;
+        ctx.strokeStyle = c.color; ctx.lineWidth = 0.8; ctx.globalAlpha = 0.7;
         for (let k = 0; k < 4; k++) {
           const ang = c.seed + k * 1.57;
           ctx.beginPath(); ctx.moveTo(0, 0);
@@ -395,49 +507,50 @@ export class Vacuum {
       ctx.restore();
     }
     ctx.restore();
-    // glass edge
-    ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 2;
-    roundRect(ctx, -21, -12, 42, 38, 10); ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(-15, -6); ctx.lineTo(-15, 18); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 2.5;
+    roundRect(ctx, -27, -15, 54, 48, 13); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(-19, -8); ctx.lineTo(-19, 22); ctx.stroke();
 
     ctx.restore();
   }
 
   _drawHead(ctx) {
     const ang = Math.atan2(this.dirY, this.dirX);
+    const g = this.gulp;
     ctx.save();
     ctx.translate(this.nozzle.x, this.nozzle.y);
     ctx.rotate(ang);
+    ctx.scale(1 + 0.12 * g, 1 - 0.1 * g);      // the mouth gulps when it swallows
     // neck
     ctx.fillStyle = '#5d6b8c';
-    roundRect(ctx, -20, -8, 24, 16, 6); ctx.fill();
+    roundRect(ctx, -26, -11, 32, 22, 8); ctx.fill();
     ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    roundRect(ctx, -18, -6, 20, 5, 2.5); ctx.fill();
+    roundRect(ctx, -23, -8, 26, 6, 3); ctx.fill();
     // flat floor head, seen from above
     ctx.fillStyle = '#4d5878';
     ctx.beginPath();
-    ctx.moveTo(-2, -16);
-    ctx.quadraticCurveTo(8, -27, 20, -25);
-    ctx.quadraticCurveTo(25, -13, 25, 0);
-    ctx.quadraticCurveTo(25, 13, 20, 25);
-    ctx.quadraticCurveTo(8, 27, -2, 16);
+    ctx.moveTo(-3, -22);
+    ctx.quadraticCurveTo(11, -37, 27, -34);
+    ctx.quadraticCurveTo(34, -18, 34, 0);
+    ctx.quadraticCurveTo(34, 18, 27, 34);
+    ctx.quadraticCurveTo(11, 37, -3, 22);
     ctx.closePath();
     ctx.fill();
     ctx.fillStyle = 'rgba(255,255,255,0.13)';
     ctx.beginPath();
-    ctx.moveTo(-1, -14); ctx.quadraticCurveTo(7, -23, 17, -21);
-    ctx.lineTo(17, -13); ctx.quadraticCurveTo(7, -15, -1, -8);
+    ctx.moveTo(-1, -19); ctx.quadraticCurveTo(10, -31, 23, -29);
+    ctx.lineTo(23, -18); ctx.quadraticCurveTo(10, -20, -1, -11);
     ctx.closePath(); ctx.fill();
     // the intake slot: a dark mouth, never a radius or an arrow
     ctx.fillStyle = '#12141d';
-    roundRect(ctx, 11, -20, 11, 40, 5); ctx.fill();
+    roundRect(ctx, 15, -27, 15, 54, 7); ctx.fill();
     ctx.fillStyle = '#242838';
-    roundRect(ctx, 12.5, -18, 4, 36, 2); ctx.fill();
+    roundRect(ctx, 17, -24, 5, 48, 2.5); ctx.fill();
     // bristle strip
-    ctx.strokeStyle = 'rgba(230,220,200,0.5)'; ctx.lineWidth = 1.2;
+    ctx.strokeStyle = 'rgba(230,220,200,0.5)'; ctx.lineWidth = 1.6;
     ctx.beginPath();
-    for (let i = -17; i <= 17; i += 3.4) { ctx.moveTo(22, i); ctx.lineTo(25.5, i); }
+    for (let i = -23; i <= 23; i += 4.2) { ctx.moveTo(30, i); ctx.lineTo(34.5, i); }
     ctx.stroke();
     ctx.restore();
   }
@@ -449,6 +562,7 @@ export class Vacuum {
       body: { x: Math.round(this.body.x), y: Math.round(this.body.y) },
       dir: { x: +this.dirX.toFixed(3), y: +this.dirY.toFixed(3) },
       power: +this.power.toFixed(3), radius: Math.round(this.radius),
+      rub: +this.rub.toFixed(2), circle: +this.circle.toFixed(2), scrub: +this.scrub.toFixed(2),
       transits: this.transits.length, cup: this.cup.length,
     };
   }

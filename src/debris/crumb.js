@@ -19,12 +19,16 @@ export class Crumb extends Debris {
     super(x, y);
     this.rng = rng;
     this.kind2 = kind || (rng.next() < 0.45 ? 'rice' : 'crumb');
-    this.r = this.kind2 === 'rice' ? rng.range(3.4, 4.3) : rng.range(2.8, 5.4);
+    this.r = this.kind2 === 'rice' ? rng.range(4.2, 5.2) : rng.range(3.8, 7.0);
     this.rot = rng.range(0, TAU);
     this.spin = 0;
     this.seed = rng.range(0, 100);
     this.sliding = false;
     this.shiver = 0;
+    this.hop = 0;                      // 1-frame kick when stiction lets go
+    this.trail = new Float32Array(12); // skid streak on the glossy tile
+    this.trailN = 0;
+    this._trailT = 0;
     this.color = this.kind2 === 'rice' ? '#f6f0e2' : rng.pick(['#e0ab63', '#d19a4f', '#eec07f', '#c98c45']);
     // pre-baked unit outline (no per-frame allocation)
     const nv = this.kind2 === 'rice' ? 8 : 6;
@@ -55,9 +59,12 @@ export class Crumb extends Debris {
       if (s > STATIC_THRESHOLD) {
         this.sliding = true;
         this.state = State.PULLED;
-        // the break-away kick makes the moment readable
-        this.vx = f.fx * 26; this.vy = f.fy * 26;
-        this.spin = (this.rng.next() - 0.5) * 9;
+        // the break-away kick makes the moment readable: a visible hop free
+        this.vx = f.fx * 34; this.vy = f.fy * 34;
+        this.spin = (this.rng.next() - 0.5) * 11;
+        this.hop = 1;
+        this.trailN = 0;
+        this._trailT = 0;
       }
     } else {
       this.vx += f.fx * ACC * dt;
@@ -69,8 +76,20 @@ export class Crumb extends Debris {
       this.spin += (sp * 0.016 - this.spin) * (1 - Math.exp(-4 * dt));
       this.rot += this.spin * dt;
       this.state = State.PULLED;
-      if (s < RESTICK && sp < 14) { this.sliding = false; this.vx = 0; this.vy = 0; this.hx = this.x; this.hy = this.y; }
+      // record a short skid streak while it is actually moving
+      this._trailT -= dt;
+      if (sp > 60 && this._trailT <= 0) {
+        this._trailT = 0.035;
+        for (let i = 10; i >= 0; i -= 2) { this.trail[i + 2] = this.trail[i]; this.trail[i + 3] = this.trail[i + 1]; }
+        this.trail[0] = this.x; this.trail[1] = this.y;
+        if (this.trailN < 6) this.trailN++;
+      } else if (sp < 40 && this.trailN > 0 && this._trailT <= 0) {
+        this._trailT = 0.05; this.trailN--;
+      }
+      if (s < RESTICK && sp < 14) { this.sliding = false; this.vx = 0; this.vy = 0; this.hx = this.x; this.hy = this.y; this.trailN = 0; }
     }
+
+    this.hop = Math.max(0, this.hop - dt / 0.14);
 
     if (f.inCapture) {
       this._handOff(vac, { kind: 'crumb', color: this.color, size: this.r * 2.1 });
@@ -80,12 +99,35 @@ export class Crumb extends Debris {
 
   draw(ctx, cam) {
     if (this.state === State.DONE) return;
-    const jx = this.shiver * noise1(this.t * 34 + this.seed) * 0.9;
-    const jy = this.shiver * noise1(this.t * 34 + this.seed + 11) * 0.9;
+    // skid streak: the glossy floor remembers where it slid, briefly
+    if (this.trailN > 1) {
+      ctx.save();
+      ctx.lineCap = 'round';
+      for (let i = 0; i < this.trailN - 1; i++) {
+        const a = 0.30 * (1 - i / this.trailN);
+        ctx.strokeStyle = 'rgba(255,255,255,' + a.toFixed(3) + ')';
+        ctx.lineWidth = this.r * (1.1 - i * 0.12);
+        ctx.beginPath();
+        ctx.moveTo(this.trail[i * 2], this.trail[i * 2 + 1]);
+        ctx.lineTo(this.trail[i * 2 + 2], this.trail[i * 2 + 3]);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    const jx = this.shiver * noise1(this.t * 34 + this.seed) * 1.3;
+    const jy = this.shiver * noise1(this.t * 34 + this.seed + 11) * 1.3;
+    const hop = this.hop * this.hop;
+    // its own little shadow drops away as it hops free
+    if (hop > 0.02 || this.sliding) {
+      ctx.fillStyle = 'rgba(40,40,48,' + (0.22 * (1 - hop * 0.4)).toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.ellipse(this.x + 1 + hop * 2, this.y + 1.5 + hop * 3, this.r * 1.0, this.r * 0.6, 0, 0, TAU);
+      ctx.fill();
+    }
     ctx.save();
-    ctx.translate(this.x + jx, this.y + jy);
+    ctx.translate(this.x + jx, this.y + jy - hop * 4);
     ctx.rotate(this.rot);
-    ctx.scale(this.r, this.r);
+    ctx.scale(this.r * (1 + hop * 0.35), this.r * (1 + hop * 0.35));
     ctx.beginPath();
     const p = this.poly;
     ctx.moveTo(p[0], p[1]);
@@ -99,7 +141,7 @@ export class Crumb extends Debris {
     // skate smear
     const sp = Math.hypot(this.vx, this.vy);
     if (sp > 120) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
       ctx.lineWidth = this.r * 0.8;
       ctx.lineCap = 'round';
       ctx.beginPath();

@@ -82,39 +82,39 @@ export function paintMotif(floor, cx, cy, r, rng) {
   g.restore();
 }
 
-/** Paint the grime/stain layer that hides the motif. */
-export function paintStain(floor, cx, cy, r, rng) {
+/**
+ * Paint the pale dusting that hides the motif: fine dry crumbs ground into the
+ * tile, NOT a puddle. Dense at the source, thinning along the fan direction.
+ */
+export function paintDust(floor, cx, cy, r, rng, dirX = 0, dirY = 1) {
   const g = floor.gctx || floor.enableGrime();
   const x = cx - floor.rect.x0, y = cy - floor.rect.y0;
   g.save();
   g.translate(x, y);
-  const grad = g.createRadialGradient(0, 0, r * 0.15, 0, 0, r);
-  grad.addColorStop(0, 'rgba(132,112,88,0.98)');
-  grad.addColorStop(0.62, 'rgba(140,120,96,0.95)');
-  grad.addColorStop(0.86, 'rgba(150,132,108,0.72)');
-  grad.addColorStop(1, 'rgba(158,142,118,0.0)');
+  const grad = g.createRadialGradient(0, 0, r * 0.1, 0, 0, r);
+  grad.addColorStop(0, 'rgba(231,222,205,0.94)');
+  grad.addColorStop(0.55, 'rgba(226,216,197,0.86)');
+  grad.addColorStop(0.82, 'rgba(222,213,196,0.55)');
+  grad.addColorStop(1, 'rgba(220,212,196,0.0)');
   g.fillStyle = grad;
   const N = 64;
-  const rad = new Float64Array(N);
-  for (let i = 0; i < N; i++) {
-    const a = (i / N) * TAU;
-    rad[i] = r * (0.80 + 0.13 * Math.sin(a * 2.0 + 1.1) + 0.07 * Math.sin(a * 3.7 + 2.3) + 0.05 * Math.sin(a * 6.1));
-  }
   g.beginPath();
   for (let i = 0; i <= N; i++) {
-    const a0 = ((i - 1 + N) % N), a1 = (i % N);
-    const ang0 = ((i - 1) / N) * TAU, ang1 = (i / N) * TAU;
-    const x0 = Math.cos(ang0) * rad[a0], y0 = Math.sin(ang0) * rad[a0] * 0.86;
-    const x1 = Math.cos(ang1) * rad[a1], y1 = Math.sin(ang1) * rad[a1] * 0.86;
-    if (i === 0) g.moveTo(x1, y1);
-    else g.quadraticCurveTo((x0 + x1) * 0.5, (y0 + y1) * 0.5, x1, y1);
+    const a = (i / N) * TAU;
+    // stretched along the fan direction, ragged at the far edge
+    const along = Math.cos(a) * dirX + Math.sin(a) * dirY;
+    const rr = r * (0.74 + 0.22 * along + 0.10 * Math.sin(a * 3.3 + 1.7) + 0.06 * Math.sin(a * 6.1));
+    const px = Math.cos(a) * rr, py = Math.sin(a) * rr * 0.88;
+    if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
   }
   g.closePath(); g.fill();
-  // speckles
-  g.fillStyle = 'rgba(96,76,52,0.45)';
-  for (let i = 0; i < 90; i++) {
-    const a = rng.range(0, TAU), rr = Math.sqrt(rng.next()) * r * 0.95;
-    g.beginPath(); g.arc(Math.cos(a) * rr, Math.sin(a) * rr * 0.86, rng.range(0.8, 2.6), 0, TAU); g.fill();
+  // dry speckles, denser near the source
+  for (let i = 0; i < 220; i++) {
+    const a = rng.range(0, TAU);
+    const rr = Math.pow(rng.next(), 0.6) * r * 0.98;
+    const px = Math.cos(a) * rr, py = Math.sin(a) * rr * 0.88;
+    g.fillStyle = rng.next() < 0.5 ? 'rgba(206,192,166,0.75)' : 'rgba(180,164,136,0.5)';
+    g.beginPath(); g.arc(px, py, rng.range(0.6, 2.0), 0, TAU); g.fill();
   }
   g.restore();
 }
