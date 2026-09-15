@@ -59,7 +59,41 @@ export class Camera {
     out.y0 = cy - hh - margin; out.y1 = cy + hh + margin;
     return out;
   }
+  /**
+   * Bounded-gain follow toward a pose, used when the camera has to keep the
+   * nozzle in frame without ever running away from the set it is framing.
+   *
+   *   cam.followTo(dt, {x, y, zoom, tilt}, vac.nozzle, {x: 90, y: 60}, 0.45);
+   *
+   * The anchor pose is the composition the scene wants; the offset toward the
+   * subject is `gain * (subject - anchor)` CLAMPED to `limit`, so it always
+   * settles. `rate` is the exponential approach speed. `snap` skips the easing
+   * (use it on the first frame, when the camera has nowhere sensible to come
+   * from).
+   */
+  followTo(dt, anchor, subject, limit, gain = 0.45, rate = 2.8, snap = false) {
+    let tx = anchor.x, ty = anchor.y;
+    if (subject) {
+      const lx = limit && limit.x !== undefined ? limit.x : 1e9;
+      const ly = limit && limit.y !== undefined ? limit.y : 1e9;
+      const gx = typeof gain === 'number' ? gain : gain.x;
+      const gy = typeof gain === 'number' ? gain : gain.y;
+      tx += clampAbs((subject.x - anchor.x) * gx, lx);
+      ty += clampAbs((subject.y - anchor.y) * gy, ly);
+    }
+    const tz = anchor.zoom === undefined ? this.zoom : anchor.zoom;
+    const tt = anchor.tilt === undefined ? this.tilt : anchor.tilt;
+    if (snap) { this.set(tx, ty, tz, tt); return; }
+    const k = 1 - Math.exp(-rate * dt);
+    this.x += (tx - this.x) * k;
+    this.y += (ty - this.y) * k;
+    this.zoom += (tz - this.zoom) * k;
+    this.tilt += (tt - this.tilt) * k;
+  }
+
   snapshot() {
     return { x: Math.round(this.x), y: Math.round(this.y), zoom: +this.zoom.toFixed(3), tilt: +this.tilt.toFixed(3) };
   }
 }
+
+function clampAbs(v, m) { return v > m ? m : v < -m ? -m : v; }

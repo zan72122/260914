@@ -64,12 +64,15 @@ export class HeightField {
 
   total() { let s = 0; for (let i = 0; i < this.h.length; i++) s += this.h[i]; return s; }
 
-  /** Slide mass downhill wherever the slope is steeper than the angle of repose. */
-  relax(dt, repose = 0.6) {
+  /**
+   * Slide mass downhill wherever the slope is steeper than the angle of repose.
+   * `rate` is how fast it flows (9 = the default collapse; lower is treacly).
+   */
+  relax(dt, repose = 0.6, rateK = 9) {
     const h = this.h, d = this._d, C = this.cols, R = this.rows;
     d.fill(0);
     const maxDiff = repose * Math.min(this.cw, this.ch);
-    const rate = clamp(dt * 9, 0, 0.5);
+    const rate = clamp(dt * rateK, 0, 0.5);
     for (let y = 0; y < R; y++) {
       for (let x = 0; x < C; x++) {
         const i = y * C + x;
@@ -89,6 +92,30 @@ export class HeightField {
       }
     }
     for (let i = 0; i < h.length; i++) h[i] = Math.max(0, h[i] + d[i]);
+  }
+
+  /**
+   * Blur the field toward its neighbours — how you turn a pile of stacked
+   * blobs into one soft heap. `amount` 0..1 per pass, mass conserving.
+   */
+  smooth(iters = 1, amount = 0.5) {
+    const h = this.h, d = this._d, C = this.cols, R = this.rows;
+    const k = clamp(amount, 0, 1);
+    for (let it = 0; it < iters; it++) {
+      d.set(h);
+      for (let y = 0; y < R; y++) {
+        for (let x = 0; x < C; x++) {
+          const i = y * C + x;
+          let sum = 0, n = 0;
+          if (x > 0) { sum += d[i - 1]; n++; }
+          if (x < C - 1) { sum += d[i + 1]; n++; }
+          if (y > 0) { sum += d[i - C]; n++; }
+          if (y < R - 1) { sum += d[i + C]; n++; }
+          if (!n) continue;
+          h[i] = Math.max(0, d[i] + (sum / n - d[i]) * k);
+        }
+      }
+    }
   }
 
   /**

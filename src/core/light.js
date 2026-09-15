@@ -45,10 +45,26 @@ export class LightLayer {
 
   /**
    * Cut a light out of the darkness.
-   * cone: 1 =全方向, 0.3 = a narrow wedge around (dirX,dirY).
+   *   cone      1 = all round, 0.3 = a narrow wedge around (dirX,dirY)
+   *   softness  0 = a hard pie slice (cheap), 1 = a torch beam with spill:
+   *             the wedge is drawn as three nested cones, each wider and
+   *             weaker, plus a pool at the origin, so it has no cut edges.
    */
-  addLight(sx, sy, r, intensity = 1, dirX = 0, dirY = 0, cone = 1) {
+  addLight(sx, sy, r, intensity = 1, dirX = 0, dirY = 0, cone = 1, softness = 0) {
     if (!this.ctx) return;
+    const i = clamp(intensity, 0, 1);
+    if (i <= 0.002) return;
+    const coned = cone < 0.999 && (dirX || dirY);
+    const soft = clamp(softness, 0, 1);
+    if (!coned || soft <= 0.01) { this._cone(sx, sy, r, i, dirX, dirY, coned ? cone : 1); return; }
+    // core beam, then two softer skirts around it, then the pool at the mouth
+    this._cone(sx, sy, r, i * (1 - 0.32 * soft), dirX, dirY, cone);
+    this._cone(sx, sy, r * (1 - 0.14 * soft), i * 0.42 * soft, dirX, dirY, Math.min(1, cone * 1.9));
+    this._cone(sx, sy, r * (1 - 0.30 * soft), i * 0.24 * soft, dirX, dirY, Math.min(1, cone * 3.2));
+    this._cone(sx, sy, r * 0.30 * soft, i * 0.5 * soft, 0, 0, 1);
+  }
+
+  _cone(sx, sy, r, i, dirX, dirY, cone) {
     const g = this.ctx;
     const s = this.scale;
     const x = sx * s, y = sy * s, rr = Math.max(2, r * s);
@@ -63,9 +79,8 @@ export class LightLayer {
       g.clip();
     }
     const grad = g.createRadialGradient(x, y, 0, x, y, rr);
-    const i = clamp(intensity, 0, 1);
-    grad.addColorStop(0, 'rgba(0,0,0,' + i + ')');
-    grad.addColorStop(0.55, 'rgba(0,0,0,' + (i * 0.7).toFixed(3) + ')');
+    grad.addColorStop(0, 'rgba(0,0,0,' + i.toFixed(4) + ')');
+    grad.addColorStop(0.55, 'rgba(0,0,0,' + (i * 0.7).toFixed(4) + ')');
     grad.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = grad;
     g.beginPath(); g.arc(x, y, rr, 0, TAU); g.fill();
@@ -85,7 +100,8 @@ export class LightLayer {
     const l = Math.hypot(dx, dy) || 1;
     const r = hl.r * cam.zoom;
     this.addLight(p.x + (dx / l) * r * 0.32, p.y + (dy / l) * r * 0.32, r,
-      hl.intensity * (0.65 + 0.35 * vac.powerN), dx / l, dy / l, hl.cone);
+      hl.intensity * (0.65 + 0.35 * vac.powerN), dx / l, dy / l, hl.cone,
+      hl.softness === undefined ? 0 : hl.softness);
   }
 
   composite(ctx) {

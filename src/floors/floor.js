@@ -15,10 +15,12 @@ export class Floor {
     this.grime = null;
     this.gctx = null;
     this.grimeDirty = false;
+    this.grimeCleared = false;   // true once nothing is left to composite
   }
   enableGrime() {
     this.grime = makeCanvas(this.w, this.h);
     this.gctx = this.grime.getContext('2d');
+    this.grimeCleared = false;
     return this.gctx;
   }
   /** Erase a soft circular hole in the grime, in WORLD coordinates. */
@@ -35,14 +37,18 @@ export class Floor {
     g.fillStyle = grad;
     g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
     g.restore();
+    this.grimeDirty = true;
   }
+  /** Erase the whole grime layer. After this it costs nothing to draw. */
   clearGrime() {
     if (!this.gctx) return;
     this.gctx.clearRect(0, 0, this.w, this.h);
+    this.grimeCleared = true;
   }
   draw(ctx) {
     ctx.drawImage(this.base, this.rect.x0, this.rect.y0);
-    if (this.grime) ctx.drawImage(this.grime, this.rect.x0, this.rect.y0);
+    // a fully erased grime layer is a full-screen no-op composite every frame
+    if (this.grime && !this.grimeCleared) ctx.drawImage(this.grime, this.rect.x0, this.rect.y0);
   }
 }
 
