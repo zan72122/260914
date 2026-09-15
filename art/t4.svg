@@ -1,29 +1,61 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
-  <!-- T4 garden: the butterfly's dotted flight path runs off the right edge (edge socket). -->
+  <!-- T4 garden. The butterfly trail is cut off at the LEFT edge (docs/02.md D2)
+       and joins T1's fragment when T4 is placed to the right of T1. -->
   <symbol id="t4" viewBox="0 0 1000 1000">
+    <defs>
+      <filter id="grain-t4" x="0" y="0" width="100%" height="100%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3"/>
+        <feColorMatrix type="saturate" values="0"/>
+      </filter>
+    </defs>
+
     <g data-layer="bg">
-      <rect x="0" y="0" width="1000" height="1000" fill="#eef3e2"/>
-      <path d="M0 720 q250 -40 500 0 q250 40 500 0 V1000 H0 z" fill="#d9e4c2" stroke="#4a463d" stroke-width="6"/>
-    </g>
-    <g data-layer="bed">
-      <g stroke="#4a463d" stroke-width="8" fill="none" stroke-linecap="round">
-        <path d="M180 900 V770"/><path d="M360 920 V790"/><path d="M540 900 V780"/><path d="M760 930 V800"/>
+      <rect x="0" y="0" width="1000" height="1000" fill="#edf2e2"/>
+      <path d="M0 700 q250 -42 500 -2 q250 42 500 -6 V1000 H0 z" fill="#d7e2bf" stroke="#46423a" stroke-width="7"/>
+      <g stroke="#c3d0a8" stroke-width="5" fill="none" stroke-linecap="round">
+        <path d="M60 640 q40 -50 90 -18"/>
+        <path d="M840 630 q42 -48 92 -16"/>
       </g>
-      <circle cx="180" cy="750" r="42" fill="#e9a3b4" stroke="#4a463d" stroke-width="7"/>
-      <circle cx="360" cy="770" r="38" fill="#f2cf76" stroke="#4a463d" stroke-width="7"/>
-      <circle cx="540" cy="760" r="40" fill="#c7a6e0" stroke="#4a463d" stroke-width="7"/>
-      <circle cx="760" cy="780" r="36" fill="#e9a3b4" stroke="#4a463d" stroke-width="7"/>
     </g>
+
+    <g data-layer="bed">
+      <g stroke="#5d8a46" stroke-width="9" fill="none" stroke-linecap="round">
+        <path d="M180 910 V778"/><path d="M360 930 V798"/>
+        <path d="M540 906 V786"/><path d="M760 936 V806"/>
+        <path d="M180 850 q-50 -18 -66 -58"/><path d="M540 856 q54 -20 70 -60"/>
+        <path d="M360 876 q-52 -18 -68 -58"/><path d="M760 886 q54 -20 70 -60"/>
+      </g>
+      <g stroke="#46423a" stroke-width="7">
+        <circle cx="180" cy="756" r="44" fill="#d9958d"/>
+        <circle cx="360" cy="776" r="40" fill="#efc871"/>
+        <circle cx="540" cy="764" r="42" fill="#b9a3d2"/>
+        <circle cx="760" cy="784" r="38" fill="#d9958d"/>
+      </g>
+      <g fill="#f4e6c2" stroke="#46423a" stroke-width="4">
+        <circle cx="180" cy="756" r="14"/><circle cx="360" cy="776" r="13"/>
+        <circle cx="540" cy="764" r="14"/><circle cx="760" cy="784" r="12"/>
+      </g>
+    </g>
+
     <g data-layer="trail">
-      <path d="M240 560 q120 -120 240 -40 q120 80 240 -40 q80 -80 300 -60"
-            fill="none" stroke="#8d7f63" stroke-width="8" stroke-linecap="round" stroke-dasharray="4 34"/>
+      <path d="M60 248 C 200 190 316 330 462 330 C 592 330 606 388 632 428"
+            fill="none" stroke="#8d7f63" stroke-width="8" stroke-linecap="round" stroke-dasharray="4 32"/>
     </g>
+    <g data-layer="trail-join" opacity="0">
+      <path d="M0 248 H60" fill="none" stroke="#8d7f63" stroke-width="8"
+            stroke-linecap="round" stroke-dasharray="4 32"/>
+    </g>
+
     <g data-layer="butterfly">
-      <path d="M300 500 C250 424 186 442 206 494 C218 528 268 532 300 500 Z" fill="#f0b27a" stroke="#4a463d" stroke-width="7" stroke-linejoin="round"/>
-      <path d="M300 500 C350 424 414 442 394 494 C382 528 332 532 300 500 Z" fill="#f4cf9e" stroke="#4a463d" stroke-width="7" stroke-linejoin="round"/>
-      <ellipse cx="300" cy="498" rx="11" ry="36" fill="#6f6250" stroke="#4a463d" stroke-width="5"/>
-      <path d="M296 466 q-22 -30 -44 -38 M304 466 q22 -30 44 -38" fill="none" stroke="#4a463d" stroke-width="5" stroke-linecap="round"/>
+      <g transform="translate(340 20)">
+        <path d="M300 500 C250 424 186 442 206 494 C218 528 268 532 300 500 Z" fill="#e6a86f" stroke="#46423a" stroke-width="7" stroke-linejoin="round"/>
+        <path d="M300 500 C350 424 414 442 394 494 C382 528 332 532 300 500 Z" fill="#f0cb9c" stroke="#46423a" stroke-width="7" stroke-linejoin="round"/>
+        <ellipse cx="300" cy="498" rx="11" ry="36" fill="#6f6250" stroke="#46423a" stroke-width="5"/>
+        <path d="M296 466 q-22 -30 -44 -38 M304 466 q22 -30 44 -38" fill="none" stroke="#46423a" stroke-width="5" stroke-linecap="round"/>
+      </g>
     </g>
+
+    <rect data-layer="grain" x="0" y="0" width="1000" height="1000" filter="url(#grain-t4)"
+          opacity="0.1" style="mix-blend-mode:multiply" pointer-events="none"/>
   </symbol>
-  <use href="#t4" width="1000" height="1000"/>
 </svg>

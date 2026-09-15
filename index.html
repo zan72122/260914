@@ -9,118 +9,56 @@
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-<!-- Offline art defs. Mirrors art/t1.svg .. art/t4.svg; when the page is served over
-     http(s), js/tile.js re-fetches art/*.svg so those files stay the single source. -->
-<svg id="art-defs" aria-hidden="true" focusable="false"><defs>
-<symbol> body to swap art. -->
-  <symbol id="t1" viewBox="0 0 1000 1000">
-    <!-- hole geometry: consumed by tile.js to build a mask (window shows tiles stacked beneath) -->
-    <g data-hole="window">
-      <rect x="182" y="162" width="316" height="286" rx="10"/>
-    </g>
-    <!-- zoom stage 1 framing: pot close-up -->
-    <rect data-zoom-frame="1" x="520" y="470" width="360" height="360" fill="none"/>
+<!-- Parchment backdrop: faint pencil sketches (birds, vines) and the red spirals
+     of docs/01.md 1.1. Decoration only - never text, never interactive.
+     Tile art lives solely in art/*.svg (docs/02.md D1). -->
+<svg id="backdrop" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
+  <defs>
+    <filter id="paper-grain" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="4"/>
+      <feColorMatrix type="saturate" values="0"/>
+    </filter>
+  </defs>
+  <rect x="0" y="0" width="1000" height="1000" fill="#efe6d2"/>
+  <g stroke="#d3c5a4" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.85">
+    <path d="M120 140 q34 -26 70 -6 q-24 -40 16 -60 q22 42 66 28 q-32 34 -6 66"/>
+    <path d="M130 150 q-40 60 -14 128 q26 66 -6 120"/>
+    <path d="M118 236 q-52 -22 -66 -66 q54 2 78 44"/>
+    <path d="M126 322 q54 -26 70 -70 q-56 -2 -80 42"/>
+    <path d="M760 760 q40 -32 84 -8 q-28 -46 18 -70 q26 48 78 32 q-38 40 -8 78"/>
+    <path d="M772 772 q-46 70 -16 148"/>
+    <path d="M300 840 q42 -38 92 -14 M392 826 q26 -34 -2 -62"/>
+    <path d="M660 210 q40 -34 92 -12 M752 198 q28 -36 -2 -66"/>
+    <path d="M520 96 q30 -22 62 2 q-26 -6 -62 -2"/>
+    <path d="M430 930 q34 -24 68 2 q-28 -6 -68 -2"/>
+  </g>
+  <rect x="0" y="0" width="1000" height="1000" filter="url(#paper-grain)" opacity="0.13" style="mix-blend-mode:multiply"/>
+</svg>
 
-    <g data-hole-target="">
-      <g data-layer="bg">
-        <rect x="0" y="0" width="1000" height="1000" fill="#f3ecdc"/>
-        <rect x="0" y="700" width="1000" height="300" fill="#e7dcc4"/>
-        <path d="M0 700 H1000" stroke="#4a463d" stroke-width="4" fill="none"/>
-        <path d="M60 240 q40 -60 90 -30" stroke="#cfc3a6" stroke-width="5" fill="none" stroke-linecap="round"/>
-        <path d="M70 300 q50 -50 100 -20" stroke="#cfc3a6" stroke-width="5" fill="none" stroke-linecap="round"/>
-      </g>
-    </g>
-
-    <g data-layer="window">
-      <rect x="150" y="130" width="380" height="350" rx="14" fill="none" stroke="#4a463d" stroke-width="12"/>
-      <rect x="150" y="130" width="380" height="350" rx="14" fill="none" stroke="#8d7f63" stroke-width="3"/>
-      <path d="M340 162 V448" stroke="#4a463d" stroke-width="8"/>
-      <path d="M182 305 H498" stroke="#4a463d" stroke-width="8"/>
-      <rect x="132" y="470" width="416" height="26" rx="8" fill="#ded0b2" stroke="#4a463d" stroke-width="6"/>
-    </g>
-
-    <g data-layer="table">
-      <rect x="420" y="700" width="520" height="24" rx="8" fill="#dcc9a4" stroke="#4a463d" stroke-width="6"/>
-      <path d="M470 724 V900 M890 724 V900" stroke="#4a463d" stroke-width="10" stroke-linecap="round"/>
-    </g>
-
-    <g data-layer="pot" data-portal="pot">
-      <path d="M600 560 h200 l-26 130 h-148 z" fill="#cfd8dc" stroke="#4a463d" stroke-width="8" stroke-linejoin="round"/>
-      <rect x="586" y="534" width="228" height="34" rx="12" fill="#b9c6cc" stroke="#4a463d" stroke-width="8"/>
-      <path d="M604 566 h192 l-8 40 h-176 z" fill="#8b6f4e" data-layer="soil"/>
-      <circle cx="700" cy="586" r="12" fill="#6b5433" stroke="#4a463d" stroke-width="4" data-layer="seed"/>
-    </g>
-
-    <g data-layer="sprout" opacity="0">
-      <path d="M700 586 q-6 -60 -46 -86" stroke="#5c8a45" stroke-width="10" fill="none" stroke-linecap="round"/>
-      <path d="M676 536 q-46 -14 -58 -50 q44 -4 60 34 z" fill="#8fbf6a" stroke="#4a463d" stroke-width="5"/>
-    </g>
+<svg id="ornament-defs" aria-hidden="true" focusable="false"><defs>
+  <symbol id="orn-spiral" viewBox="0 0 200 200">
+    <path fill="none" stroke="#b0402f" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"
+      d="M100.0 97.0L99.4 96.3L98.6 95.7L97.6 95.2L96.4 95.0L95.1 95.1L93.8 95.5L92.4 96.1L91.2 97.1L90.1 98.4L89.1 100.0L88.5 101.8L88.2 103.8L88.2 106.0L88.7 108.2L89.5 110.5L90.9 112.6L92.6 114.6L94.7 116.3L97.2 117.7L100.0 118.7L103.0 119.3L106.3 119.3L109.6 118.8L112.8 117.7L116.0 116.0L118.9 113.8L121.6 111.0L123.8 107.7L125.5 104.0L126.6 100.0L127.0 95.7L126.8 91.3L125.8 86.9L124.0 82.5L121.6 78.4L118.4 74.7L114.6 71.4L110.1 68.8L105.3 66.8L100.0 65.6L94.5 65.2L88.9 65.8L83.3 67.2L77.9 69.6L72.9 72.9L68.3 77.0L64.4 81.9L61.3 87.4L59.0 93.5L57.7 100.0L57.5 106.7L58.3 113.5L60.2 120.3L63.3 126.7L67.3 132.7L72.4 138.0L78.3 142.6L85.0 146.2L92.3 148.7L100.0 150.1L108.0 150.3L116.0 149.2L123.8 146.8L131.3 143.1L138.2 138.2L144.4 132.2L149.6 125.3L153.6 117.4L156.5 108.9L158.0 100.0L158.0 90.8L156.6 81.6L153.8 72.6L149.4 64.1L143.8 56.2L136.8 49.3L128.8 43.4L119.9 38.9L110.2 35.8L100.0 34.2L89.6 34.2L79.2 35.9L69.0 39.2L59.5 44.2L50.7 50.7L42.9 58.5L36.4 67.6L31.4 77.7L28.0 88.6L26.3 100.0L26.4 111.6L28.4 123.3L32.2 134.5L37.8 145.2L45.1 154.9L53.9 163.4L64.1 170.6L75.3 176.1L87.4 179.8L100.0 181.5"/>
   </symbol>
-<symbol id="t2" viewBox="0 0 1000 1000">
-    <g data-layer="bg">
-      <rect x="0" y="0" width="1000" height="1000" fill="#e8eef2"/>
-      <path d="M0 860 H1000" stroke="#c3cdd4" stroke-width="4" fill="none"/>
-    </g>
-    <g data-layer="cloud">
-      <path d="M250 430 q-90 0 -90 -80 q0 -74 82 -84 q22 -96 128 -96 q92 0 122 78 q28 -22 66 -22 q96 0 106 100 q86 10 86 86 q0 78 -96 78 z"
-            fill="#cfd8de" stroke="#4a463d" stroke-width="10" stroke-linejoin="round"/>
-      <path d="M300 360 q60 -34 120 -6" stroke="#9aa9b3" stroke-width="8" fill="none" stroke-linecap="round"/>
-    </g>
-    <g data-layer="rain">
-      <path d="M300 500 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
-      <path d="M470 560 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
-      <path d="M640 520 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
-      <path d="M380 720 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
-      <path d="M560 780 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
-      <!-- drops cut by the tile edge -->
-      <path d="M300 960 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
-      <path d="M500 975 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
-      <path d="M700 955 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
-    </g>
-  </symbol>
-<symbol id="t3" viewBox="0 0 1000 1000">
-    <g data-layer="bg">
-      <rect x="0" y="0" width="1000" height="1000" fill="#fdf4dc"/>
-    </g>
-    <g data-layer="beams" opacity="0.85">
-      <path d="M140 0 L420 0 L120 1000 L-160 1000 z" fill="#f7e2a4"/>
-      <path d="M460 0 L700 0 L400 1000 L160 1000 z" fill="#fbecc0"/>
-      <path d="M740 0 L960 0 L660 1000 L440 1000 z" fill="#f7e2a4"/>
-    </g>
-    <g data-layer="sun">
-      <circle cx="700" cy="230" r="120" fill="#f6c95c" stroke="#4a463d" stroke-width="10"/>
-      <g stroke="#4a463d" stroke-width="8" stroke-linecap="round">
-        <path d="M700 60 V6 M700 454 V400 M530 230 H476 M924 230 H870"/>
-        <path d="M580 110 L542 72 M820 350 L858 388 M820 110 L858 72 M580 350 L542 388"/>
-      </g>
-    </g>
-  </symbol>
-<symbol id="t4" viewBox="0 0 1000 1000">
-    <g data-layer="bg">
-      <rect x="0" y="0" width="1000" height="1000" fill="#eef3e2"/>
-      <path d="M0 720 q250 -40 500 0 q250 40 500 0 V1000 H0 z" fill="#d9e4c2" stroke="#4a463d" stroke-width="6"/>
-    </g>
-    <g data-layer="bed">
-      <g stroke="#4a463d" stroke-width="8" fill="none" stroke-linecap="round">
-        <path d="M180 900 V770"/><path d="M360 920 V790"/><path d="M540 900 V780"/><path d="M760 930 V800"/>
-      </g>
-      <circle cx="180" cy="750" r="42" fill="#e9a3b4" stroke="#4a463d" stroke-width="7"/>
-      <circle cx="360" cy="770" r="38" fill="#f2cf76" stroke="#4a463d" stroke-width="7"/>
-      <circle cx="540" cy="760" r="40" fill="#c7a6e0" stroke="#4a463d" stroke-width="7"/>
-      <circle cx="760" cy="780" r="36" fill="#e9a3b4" stroke="#4a463d" stroke-width="7"/>
-    </g>
-    <g data-layer="trail">
-      <path d="M240 560 q120 -120 240 -40 q120 80 240 -40 q80 -80 300 -60"
-            fill="none" stroke="#8d7f63" stroke-width="8" stroke-linecap="round" stroke-dasharray="4 34"/>
-    </g>
-    <g data-layer="butterfly">
-      <path d="M300 500 C250 424 186 442 206 494 C218 528 268 532 300 500 Z" fill="#f0b27a" stroke="#4a463d" stroke-width="7" stroke-linejoin="round"/>
-      <path d="M300 500 C350 424 414 442 394 494 C382 528 332 532 300 500 Z" fill="#f4cf9e" stroke="#4a463d" stroke-width="7" stroke-linejoin="round"/>
-      <ellipse cx="300" cy="498" rx="11" ry="36" fill="#6f6250" stroke="#4a463d" stroke-width="5"/>
-      <path d="M296 466 q-22 -30 -44 -38 M304 466 q22 -30 44 -38" fill="none" stroke="#4a463d" stroke-width="5" stroke-linecap="round"/>
+  <symbol id="orn-petal" viewBox="0 0 200 200">
+    <g stroke="#b0402f" stroke-width="6" stroke-linejoin="round" fill="#dfa79c">
+      <ellipse cx="100" cy="52" rx="26" ry="40"/>
+      <ellipse cx="148" cy="100" rx="40" ry="26"/>
+      <ellipse cx="100" cy="148" rx="26" ry="40"/>
+      <ellipse cx="52" cy="100" rx="40" ry="26"/>
+      <ellipse cx="134" cy="66" rx="34" ry="22" transform="rotate(-45 134 66)"/>
+      <ellipse cx="134" cy="134" rx="34" ry="22" transform="rotate(45 134 134)"/>
+      <ellipse cx="66" cy="134" rx="34" ry="22" transform="rotate(-45 66 134)"/>
+      <ellipse cx="66" cy="66" rx="34" ry="22" transform="rotate(45 66 66)"/>
+      <circle cx="100" cy="100" r="24" fill="#e8c274"/>
     </g>
   </symbol>
 </defs></svg>
+
+<div id="ornaments" aria-hidden="true">
+  <svg class="orn orn-a" viewBox="0 0 200 200"><use class="orn-s" href="#orn-spiral"/><use class="orn-p" href="#orn-petal"/></svg>
+  <svg class="orn orn-b" viewBox="0 0 200 200"><use class="orn-s" href="#orn-spiral"/><use class="orn-p" href="#orn-petal"/></svg>
+</div>
 
 <div id="stage">
   <div id="board">
@@ -129,6 +67,8 @@
     <div class="cell" data-r="1" data-c="0"></div>
     <div class="cell" data-r="1" data-c="1"></div>
     <div id="tiles"></div>
+    <div id="fx"></div>
+    <div id="bloom"></div>
   </div>
 </div>
 <script type="module" src="js/main.js"></script>

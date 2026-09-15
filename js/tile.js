@@ -13,12 +13,14 @@ import { tween, easeInOutCubic } from './fx.js';
 
 export const ART_IDS = ['t1', 't2', 't3', 't4'];
 
-/** Tile definitions — docs/01.md 3.2 / 4.2. */
+/** Tile definitions — docs/01.md 3.2 / 4.2, revised by docs/02.md D2. */
 export const TILE_DEFS = {
   T1: {
     id: 'T1', art: 't1',
-    layers: ['bg', 'window', 'table', 'pot', 'soil', 'seed', 'sprout'],
-    edges: { left: 'butterfly-path', right: null, top: null, bottom: null },
+    layers: ['bg', 'window', 'table', 'beam', 'pot', 'soil', 'soil-wet', 'seed',
+             'sprout', 'bud', 'flower', 'rain', 'trail-in', 'trail-join'],
+    // the window sits on the right edge, so the butterfly trail arrives from the right
+    edges: { left: null, right: 'butterfly-path', top: null, bottom: null },
     hole: { shape: 'window', accepts: ['sun'] },
     emits: null,
     provides: [],
@@ -44,8 +46,9 @@ export const TILE_DEFS = {
   },
   T4: {
     id: 'T4', art: 't4',
-    layers: ['bg', 'bed', 'trail', 'butterfly'],
-    edges: { left: null, right: 'butterfly-path', top: null, bottom: null },
+    layers: ['bg', 'bed', 'trail', 'trail-join', 'butterfly'],
+    // T4 stands to the right of T1: its trail is cut off at the LEFT edge
+    edges: { left: 'butterfly-path', right: null, top: null, bottom: null },
     hole: null,
     emits: null,
     provides: ['butterfly'],
@@ -60,23 +63,16 @@ const ZOOM_MS = 350;
 const symbols = new Map();
 
 /**
- * Load the art symbols. art/*.svg is the source of truth when the page is served
- * over http(s); under file:// fetch is blocked, so we fall back to the identical
- * copies inlined in index.html.
+ * Load the art symbols. art/*.svg is the single source of truth (docs/02.md D1),
+ * so the page must be served over http(s); file:// is not supported.
  */
 export async function loadArt() {
-  for (const id of ART_IDS) {
-    let sym = null;
-    try {
-      const res = await fetch(`art/${id}.svg`, { cache: 'no-cache' });
-      if (res.ok) {
-        const doc = new DOMParser().parseFromString(await res.text(), 'image/svg+xml');
-        if (!doc.querySelector('parsererror')) sym = doc.querySelector('symbol');
-      }
-    } catch (_) { /* file:// — use the inline copy */ }
-    if (!sym) sym = document.querySelector(`#art-defs #${id}`);
+  await Promise.all(ART_IDS.map(async (id) => {
+    const res = await fetch(`art/${id}.svg`, { cache: 'no-cache' });
+    const doc = new DOMParser().parseFromString(await res.text(), 'image/svg+xml');
+    const sym = doc.querySelector('symbol');
     if (sym) symbols.set(id, sym);
-  }
+  }));
   return symbols;
 }
 

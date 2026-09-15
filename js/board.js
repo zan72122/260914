@@ -18,6 +18,15 @@ export class Board {
       this.cellEls[+el.dataset.r][+el.dataset.c] = el;
     }
     this._quiet = false;
+    // set while a staged sequence is running: input is refused, never left stuck
+    this.busy = false;
+  }
+
+  /** Remove every tile (used by the ending -> restart cycle). */
+  clear() {
+    for (const tile of this.tiles.values()) tile.el.remove();
+    this.tiles.clear();
+    this.cells = [[[], []], [[], []]];
   }
 
   add(tile, r, c) {

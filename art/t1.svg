@@ -1,47 +1,112 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
-  <!-- T1 room: window (hole) + table + pot + seed. Replace the <symbol> body to swap art. -->
+  <!-- T1 room. Window sits on the RIGHT edge (docs/02.md D2) and is a see-through
+       hole; the pot with the seed stands on the table to its left.
+       Swap the <symbol> body (e.g. for a single <image>) to replace the art. -->
   <symbol id="t1" viewBox="0 0 1000 1000">
-    <!-- hole geometry: consumed by tile.js to build a mask (window shows tiles stacked beneath) -->
+    <defs>
+      <filter id="grain-t1" x="0" y="0" width="100%" height="100%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="3"/>
+        <feColorMatrix type="saturate" values="0"/>
+      </filter>
+    </defs>
+
+    <!-- hole geometry: tile.js turns this into a mask over [data-hole-target] -->
     <g data-hole="window">
-      <rect x="182" y="162" width="316" height="286" rx="10"/>
+      <rect x="565" y="140" width="320" height="310" rx="6"/>
     </g>
-    <!-- zoom stage 1 framing: pot close-up -->
-    <rect data-zoom-frame="1" x="520" y="470" width="360" height="360" fill="none"/>
+    <!-- zoom stage 1: pot close-up -->
+    <rect data-zoom-frame="1" x="100" y="330" width="380" height="380" fill="none"/>
 
     <g data-hole-target="">
       <g data-layer="bg">
-        <rect x="0" y="0" width="1000" height="1000" fill="#f3ecdc"/>
-        <rect x="0" y="700" width="1000" height="300" fill="#e7dcc4"/>
-        <path d="M0 700 H1000" stroke="#4a463d" stroke-width="4" fill="none"/>
-        <path d="M60 240 q40 -60 90 -30" stroke="#cfc3a6" stroke-width="5" fill="none" stroke-linecap="round"/>
-        <path d="M70 300 q50 -50 100 -20" stroke="#cfc3a6" stroke-width="5" fill="none" stroke-linecap="round"/>
+        <rect x="0" y="0" width="1000" height="1000" fill="#f2e9d7"/>
+        <rect x="0" y="700" width="1000" height="300" fill="#e5d9be"/>
+        <path d="M0 700 H1000" stroke="#46423a" stroke-width="5" fill="none"/>
+        <g stroke="#cfc2a4" stroke-width="5" fill="none" stroke-linecap="round">
+          <path d="M96 210 q30 64 4 132 q-26 68 8 126"/>
+          <path d="M100 254 q-44 -22 -58 -62 q46 0 68 40"/>
+          <path d="M104 336 q44 -26 60 -66 q-48 -2 -72 38"/>
+          <path d="M98 414 q-44 -24 -58 -64 q46 0 68 40"/>
+        </g>
+        <path d="M0 760 q160 -18 320 -4" stroke="#d6c7a6" stroke-width="4" fill="none"/>
       </g>
     </g>
 
     <g data-layer="window">
-      <rect x="150" y="130" width="380" height="350" rx="14" fill="none" stroke="#4a463d" stroke-width="12"/>
-      <rect x="150" y="130" width="380" height="350" rx="14" fill="none" stroke="#8d7f63" stroke-width="3"/>
-      <path d="M340 162 V448" stroke="#4a463d" stroke-width="8"/>
-      <path d="M182 305 H498" stroke="#4a463d" stroke-width="8"/>
-      <rect x="132" y="470" width="416" height="26" rx="8" fill="#ded0b2" stroke="#4a463d" stroke-width="6"/>
+      <rect x="545" y="120" width="360" height="350" rx="10" fill="none" stroke="#46423a" stroke-width="13"/>
+      <rect x="545" y="120" width="360" height="350" rx="10" fill="none" stroke="#9a8b6c" stroke-width="3"/>
+      <path d="M725 140 V450" stroke="#46423a" stroke-width="9"/>
+      <path d="M565 295 H885" stroke="#46423a" stroke-width="9"/>
+      <rect x="524" y="468" width="402" height="28" rx="9" fill="#ded0b0" stroke="#46423a" stroke-width="7"/>
+      <path d="M540 496 h370" stroke="#c4b492" stroke-width="5"/>
     </g>
 
     <g data-layer="table">
-      <rect x="420" y="700" width="520" height="24" rx="8" fill="#dcc9a4" stroke="#4a463d" stroke-width="6"/>
-      <path d="M470 724 V900 M890 724 V900" stroke="#4a463d" stroke-width="10" stroke-linecap="round"/>
+      <rect x="60" y="618" width="470" height="30" rx="10" fill="#dcc9a4" stroke="#46423a" stroke-width="7"/>
+      <path d="M118 648 V884 M470 648 V884" stroke="#46423a" stroke-width="11" stroke-linecap="round"/>
+      <path d="M118 800 H470" stroke="#46423a" stroke-width="7"/>
+    </g>
+
+    <!-- light band from the window to the pot (P2) -->
+    <g data-layer="beam" opacity="0" style="mix-blend-mode:multiply">
+      <path d="M600 300 L700 316 L318 540 L250 486 z" fill="#f4dfa2" opacity="0.72"/>
+      <path d="M620 318 L664 324 L306 522 L282 498 z" fill="#fbf0cd" opacity="0.7"/>
     </g>
 
     <g data-layer="pot" data-portal="pot">
-      <path d="M600 560 h200 l-26 130 h-148 z" fill="#cfd8dc" stroke="#4a463d" stroke-width="8" stroke-linejoin="round"/>
-      <rect x="586" y="534" width="228" height="34" rx="12" fill="#b9c6cc" stroke="#4a463d" stroke-width="8"/>
-      <path d="M604 566 h192 l-8 40 h-176 z" fill="#8b6f4e" data-layer="soil"/>
-      <circle cx="700" cy="586" r="12" fill="#6b5433" stroke="#4a463d" stroke-width="4" data-layer="seed"/>
+      <path d="M170 488 h200 l-26 130 h-148 z" fill="#cbd5d8" stroke="#46423a" stroke-width="9" stroke-linejoin="round"/>
+      <path d="M198 512 q22 54 8 96" stroke="#aebbc0" stroke-width="7" fill="none"/>
+      <rect x="150" y="452" width="240" height="38" rx="13" fill="#b7c4c8" stroke="#46423a" stroke-width="9"/>
+      <path d="M186 490 h168 l-6 40 h-156 z" fill="#b89468" data-layer="soil"/>
+      <path d="M186 490 h168 l-6 40 h-156 z" fill="#6f5334" data-layer="soil-wet" opacity="0"/>
+      <circle cx="270" cy="508" r="14" fill="#7a5f37" stroke="#46423a" stroke-width="4" data-layer="seed"/>
     </g>
 
     <g data-layer="sprout" opacity="0">
-      <path d="M700 586 q-6 -60 -46 -86" stroke="#5c8a45" stroke-width="10" fill="none" stroke-linecap="round"/>
-      <path d="M676 536 q-46 -14 -58 -50 q44 -4 60 34 z" fill="#8fbf6a" stroke="#4a463d" stroke-width="5"/>
+      <path d="M270 508 q-10 -52 -14 -86" stroke="#5d8a46" stroke-width="11" fill="none" stroke-linecap="round"/>
+      <path d="M262 452 q-52 -16 -66 -54 q50 -6 70 36 z" fill="#8fb56a" stroke="#46423a" stroke-width="5"/>
+      <path d="M266 478 q50 -12 62 -46 q-48 -8 -66 30 z" fill="#a3c47d" stroke="#46423a" stroke-width="5"/>
     </g>
+
+    <g data-layer="bud" opacity="0">
+      <path d="M256 424 q-30 -34 -6 -62 q26 -26 48 4 q20 28 -10 58 z" fill="#d9a19a" stroke="#46423a" stroke-width="6"/>
+      <path d="M252 404 q22 -30 44 -12" stroke="#c48b84" stroke-width="5" fill="none"/>
+    </g>
+
+    <g data-layer="flower" opacity="0">
+      <g stroke="#46423a" stroke-width="6" stroke-linejoin="round">
+        <ellipse cx="270" cy="352" rx="34" ry="46" fill="#e0a49c"/>
+        <ellipse cx="320" cy="388" rx="46" ry="32" fill="#d9958d" transform="rotate(18 320 388)"/>
+        <ellipse cx="220" cy="388" rx="46" ry="32" fill="#d9958d" transform="rotate(-18 220 388)"/>
+        <ellipse cx="300" cy="438" rx="38" ry="30" fill="#e6b0a6" transform="rotate(38 300 438)"/>
+        <ellipse cx="240" cy="438" rx="38" ry="30" fill="#e6b0a6" transform="rotate(-38 240 438)"/>
+        <circle cx="270" cy="404" r="24" fill="#efc871"/>
+      </g>
+    </g>
+
+    <!-- rain that has crossed the cell boundary from T2 (P1) -->
+    <g data-layer="rain" opacity="0">
+      <g fill="#5fa3d2" stroke="#46423a" stroke-width="5">
+        <path d="M220 -40 q-13 30 0 44 q13 -14 0 -44 z"/>
+        <path d="M300 -130 q-13 30 0 44 q13 -14 0 -44 z"/>
+        <path d="M380 -60 q-13 30 0 44 q13 -14 0 -44 z"/>
+        <path d="M244 -250 q-13 30 0 44 q13 -14 0 -44 z"/>
+        <path d="M336 -320 q-13 30 0 44 q13 -14 0 -44 z"/>
+        <path d="M400 -210 q-13 30 0 44 q13 -14 0 -44 z"/>
+      </g>
+    </g>
+
+    <!-- the butterfly trail arrives from the right edge and stops (P3 socket) -->
+    <g data-layer="trail-in">
+      <path d="M1000 248 H918" fill="none" stroke="#8d7f63" stroke-width="8"
+            stroke-linecap="round" stroke-dasharray="4 32"/>
+    </g>
+    <g data-layer="trail-join" opacity="0">
+      <path d="M918 248 C 800 238 706 296 566 330 C 430 362 330 372 276 396"
+            fill="none" stroke="#8d7f63" stroke-width="8" stroke-linecap="round" stroke-dasharray="4 32"/>
+    </g>
+
+    <rect data-layer="grain" x="0" y="0" width="1000" height="1000" filter="url(#grain-t1)"
+          opacity="0.1" style="mix-blend-mode:multiply" pointer-events="none"/>
   </symbol>
-  <use href="#t1" width="1000" height="1000"/>
 </svg>

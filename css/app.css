@@ -1,4 +1,4 @@
-/* Wordless board: no text is ever rendered. Layout only. */
+/* Wordless board: no text is ever rendered. Layout + staging only. */
 :root{
   --parchment:#efe6d2;
   --parchment-deep:#e4d8bd;
@@ -8,6 +8,16 @@
   --margin:16px;
   --gap:1.4vmin;
   --radius:10px;
+  /* square board: min(available width, available height, 900px) */
+  --avail-w: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 2 * var(--margin));
+  --avail-h: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2 * var(--margin));
+  --size: min(var(--avail-w), var(--avail-h), 900px);
+}
+@supports (width: 100dvw){
+  :root{
+    --avail-w: calc(100dvw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 2 * var(--margin));
+    --avail-h: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2 * var(--margin));
+  }
 }
 
 *{box-sizing:border-box;}
@@ -22,59 +32,92 @@ html,body{
   -webkit-tap-highlight-color:transparent;
 }
 
-body{
-  /* faint parchment grain, no imagery that could read as text */
-  background-image:
-    radial-gradient(circle at 18% 22%, rgba(0,0,0,.035) 0 1px, transparent 1.6px),
-    radial-gradient(circle at 63% 71%, rgba(0,0,0,.03) 0 1px, transparent 1.6px),
-    radial-gradient(circle at 84% 34%, rgba(0,0,0,.025) 0 1px, transparent 1.6px);
-  background-size:37px 41px, 53px 47px, 29px 31px;
+/* ---------- parchment backdrop + spiral ornaments (docs/01.md 1.1) ---------- */
+
+#backdrop{
+  position:fixed;inset:0;width:100%;height:100%;
+  pointer-events:none;z-index:0;
 }
 
-#art-defs{position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;}
+#ornament-defs{position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;}
+
+#ornaments{position:fixed;inset:0;pointer-events:none;z-index:1;}
+.orn{
+  position:absolute;
+  width:17vmin;height:17vmin;
+  opacity:.72;
+}
+.orn .orn-p{opacity:0;transition:opacity 2.2s ease;}
+.orn .orn-s{opacity:1;transition:opacity 2.2s ease;}
+/* The ornaments are anchored just outside the board, so they live in the margins
+   and never sit behind the picture; when there is no margin they simply clip away. */
+.orn-a{right:calc(50% + var(--size) / 2 + 2vmin);top:50%;transform:translateY(-50%);}
+.orn-b{left:calc(50% + var(--size) / 2 + 2vmin);top:50%;transform:translateY(-50%) scaleX(-1);}
+@media (max-aspect-ratio: 1/1){
+  /* portrait: ornaments live in the top and bottom margins */
+  .orn-a{right:auto;left:50%;bottom:calc(50% + var(--size) / 2 + 2vmin);top:auto;transform:translateX(-50%);}
+  .orn-b{left:50%;top:calc(50% + var(--size) / 2 + 2vmin);transform:translateX(-50%) scaleY(-1);}
+}
+
+/* ending: the spirals turn into petals (docs/01.md 3.3 P3) */
+body.ending .orn .orn-s{opacity:0;}
+body.ending .orn .orn-p{opacity:1;}
 
 #stage{
-  position:fixed;inset:0;
+  position:fixed;inset:0;z-index:2;
   display:flex;align-items:center;justify-content:center;
   padding:
     calc(env(safe-area-inset-top, 0px) + var(--margin))
     calc(env(safe-area-inset-right, 0px) + var(--margin))
     calc(env(safe-area-inset-bottom, 0px) + var(--margin))
     calc(env(safe-area-inset-left, 0px) + var(--margin));
+  transition:opacity .5s ease;
 }
+#stage.fading{opacity:0;}
 
 #board{
-  /* square board: min(available width, available height, 900px) */
-  --avail-w: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 2 * var(--margin));
-  --avail-h: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2 * var(--margin));
-  --size: min(var(--avail-w), var(--avail-h), 900px);
   position:relative;
   width:var(--size);height:var(--size);
   display:grid;
   grid-template-columns:1fr 1fr;
   grid-template-rows:1fr 1fr;
   gap:var(--gap);
+  transition:gap 2.4s ease;
 }
-@supports (width: 100dvw){
-  #board{
-    --avail-w: calc(100dvw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 2 * var(--margin));
-    --avail-h: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 2 * var(--margin));
-  }
-}
+body.ending #board{gap:0px;}
 
 .cell{
   position:relative;
   border:2px solid var(--frame);
   border-radius:var(--radius);
   background:var(--parchment-deep);
-  transition:border-color .12s ease, box-shadow .12s ease;
+  transition:border-color .12s ease, box-shadow .12s ease, background-color 2.4s ease;
 }
 .cell.hot{
   border-color:var(--frame-hot);
   box-shadow:0 0 0 3px rgba(240,217,160,.55) inset;
 }
+body.ending .cell{
+  border-color:transparent;
+  background:#f6ead0;
+  transition:border-color 2.4s ease, background-color 2.4s ease;
+}
 
 #tiles{position:absolute;inset:0;pointer-events:none;}
+
+/* overlay for effects that cross cell boundaries (butterfly, falling seed) */
+#fx{position:absolute;inset:0;pointer-events:none;z-index:1000;}
+#fx .flyer{position:absolute;top:0;left:0;pointer-events:none;}
+#fx .seed-drop{pointer-events:auto;cursor:pointer;}
+
+/* warm wash that melts the four cells into one picture at the ending */
+#bloom{
+  position:absolute;inset:-4%;
+  pointer-events:none;z-index:1100;opacity:0;
+  background:radial-gradient(circle at 34% 46%, rgba(255,241,206,.85) 0%, rgba(250,228,186,.55) 42%, rgba(240,214,172,.22) 68%, rgba(240,214,172,0) 82%);
+  transition:opacity 2.4s ease;
+}
+body.ending #bloom{opacity:1;}
 
 .tile{
   position:absolute;top:0;left:0;
@@ -84,7 +127,7 @@ body{
   will-change:transform;
   transform-origin:50% 50%;
   filter:saturate(1);
-  transition:filter .5s ease;
+  transition:filter .9s ease, border-radius 2.4s ease, opacity 1.2s ease;
   touch-action:none;
   -webkit-user-select:none;user-select:none;
   -webkit-touch-callout:none;
@@ -95,5 +138,7 @@ body{
   filter:drop-shadow(0 10px 18px rgba(0,0,0,.34));
 }
 .tile.dragging.desaturated{filter:saturate(.12) drop-shadow(0 10px 18px rgba(0,0,0,.34));}
+body.ending .tile{border-radius:0;}
+body.ending .tile.fade-away{opacity:0;}
 
 .tile svg{display:block;width:100%;height:100%;}
