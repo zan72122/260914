@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import * as A from './audio.js';
 import { setHouseLit } from './house.js';
-import { playAnim, addCandy, setPath, girlWorldPoint } from './girl.js';
+import { playAnim, addCandy, setPath, girlWorldPoint, resetGirl } from './girl.js';
+import { rand } from './rng.js';
 
 export const STATES = ['FIND', 'WALK', 'BELL', 'OPEN', 'REVEAL', 'BUCKET', 'CANDY', 'NEXT', 'ENDING'];
 
@@ -16,8 +17,26 @@ export class Chain {
     this.idle = 0;
     this.busy = false;
     this.endingT = 0;
+    this.seatedT = 0;
     this.restartReady = false;
-    this.log = [];
+    this.ready = false;
+    this.frame = 0;
+    this.lastRejection = null;
+    this.events = [];          // ring buffer, see note()
+    this.eventSeq = 0;
+  }
+
+  // ------------------------------------------------------------ event log
+  /** append to the ring buffer; never called per frame */
+  note(type, data) {
+    this.events.push({ i: this.eventSeq++, frame: this.frame, type, state: this.state, ...data });
+    if (this.events.length > 200) this.events.splice(0, this.events.length - 200);
+  }
+
+  /** an input the chain deliberately did not act on */
+  reject(reason, detail) {
+    this.lastRejection = { reason, detail: detail || null, frame: this.frame };
+    this.note('reject', { reason, detail: detail || null });
   }
 
   // ------------------------------------------------------------ utilities
@@ -25,7 +44,7 @@ export class Chain {
     if (this.state === s) return;
     const prev = this.state;
     this.state = s;
-    this.log.push(s);
+    this.note('state', { from: prev, to: s, house: this.houseIndex });
     if (this.ctx.debug) console.log('[state]', prev, '->', s, 'house', this.houseIndex);
     this.idle = 0;
     this.onEnter(s);
@@ -54,6 +73,8 @@ export class Chain {
     world.setLitHouse(1);
     cam.snapNext = true;
     this.onEnter('FIND');
+    this.ready = true;
+    this.note('ready', { house: this.houseIndex });
   }
 
   onEnter(s) {
@@ -147,7 +168,7 @@ export class Chain {
         for (let i = 0; i < 9; i++) {
           this.after(0.45 + i * 0.16, () => {
             const to = girlWorldPoint(this.ctx.girl, 'bucket');
-            this.ctx.candy.drop(from.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.3, 0.1, (Math.random() - 0.5) * 0.3)), to);
+            this.ctx.candy.drop(from.clone().add(new THREE.Vector3((rand() - 0.5) * 0.3, 0.1, (rand() - 0.5) * 0.3)), to);
           });
         }
         this.after(2.4, () => {
@@ -223,7 +244,7 @@ export class Chain {
     const h = world.houses[i];
     h.windowFlash = 1;
     if (this.state === 'ENDING' && this.restartReady) { this.restart(); return true; }
-    if (this.busy) return true;
+    if (this.busy) { this.reject('busy', 'house:' + i); return true; }
     if (this.state === 'FIND' && i === this.houseIndex) {
       this.walkToPorch(h);
       this.setState('WALK');
@@ -235,12 +256,13 @@ export class Chain {
   }
 
   tapDoorbell(i) {
-    if (this.busy) return true;
+    if (this.busy) { this.reject('busy', 'doorbell:' + i); return true; }
     if (this.state === 'BELL' && i === this.houseIndex) {
       this.setState('OPEN');
       return true;
     }
     // ringing the wrong bell: a friendly twinkle, nothing breaks
+    this.reject('not-the-invited-doorbell', 'doorbell:' + i);
     const h = this.ctx.world.houses[i];
     h.bellShake = 1;
     h.windowFlash = 0.6;
@@ -256,7 +278,7 @@ export class Chain {
       A.sfxLaugh();
       return true;
     }
-    if (this.busy) return true;
+    if (this.busy) { this.reject('busy', 'girl'); return true; }
     if (this.state === 'REVEAL') {
       this.busy = true;
       playAnim(girl, 'reveal', 1.5);
@@ -272,6 +294,7 @@ export class Chain {
       return true;
     }
     // spin for fun any other time
+    this.reject('off-chain-tap', 'girl');
     playAnim(girl, 'reveal', 1.4);
     A.sfxSparkle();
     this.ctx.sparkles.ring(girl.pos.clone().setY(0.8), 24, 1.0, 0xffe08a);
@@ -281,13 +304,14 @@ export class Chain {
   tapBucket() {
     const { girl } = this.ctx;
     if (this.state === 'ENDING') { girl.bucketPulse = 1; A.sfxCandy(); return true; }
-    if (this.busy) return true;
+    if (this.busy) { this.reject('busy', 'bucket'); return true; }
     if (this.state === 'BUCKET') {
       this.setState('CANDY');
       return true;
     }
+    this.reject('off-chain-tap', 'bucket');
     girl.bucketPulse = 1;
-    A.sfxCandy((Math.random() * 5) | 0);
+    A.sfxCandy((rand() * 5) | 0);
     return true;
   }
 
@@ -301,7 +325,7 @@ export class Chain {
       if (this.restartReady) this.restart();
       return true;
     }
-    if (this.busy) return true;
+    if (this.busy) { this.reject('busy', 'ground'); return true; }
     // walk toward the tapped point, snapped near the road
     const t = world.nearestT(p);
     const centre = world.pointAt(t);
@@ -468,8 +492,8 @@ export class Chain {
       if (this.fw !== undefined) {
         this.fw -= dt;
         if (this.fw <= 0) {
-          this.fw = 1.6 + Math.random() * 1.6;
-          const p = world.offsetPoint(Math.random() * 0.22, (Math.random() - 0.5) * 26);
+          this.fw = 1.6 + rand() * 1.6;
+          const p = world.offsetPoint(rand() * 0.22, (rand() - 0.5) * 26);
           this.ctx.fireworks.launch(p.x, p.z);
           A.sfxFirework();
         }
@@ -522,6 +546,90 @@ export class Chain {
 
   noteInput() { this.idle = 0; }
 
+  /** why the chain is not accepting the next chain input right now */
+  waitReason() {
+    if (!this.ready) return 'loading';
+    if (this.ctx.girl.path) return 'walking';
+    if (this.state === 'OPEN') return 'animating:doorOpen';
+    if (this.state === 'CANDY') return 'animating:candy';
+    if (this.state === 'NEXT') return 'animating:nextHousePan';
+    if (this.state === 'REVEAL' && this.busy) return 'animating:costumeSpin';
+    if (this.busy) return 'animating:' + this.state.toLowerCase();
+    if (this.timers.length) return 'timers:' + this.timers.length;
+    return null;
+  }
+
+  /** the thing the world is currently inviting, as a world-space point */
+  invitedPoint() {
+    const h = this.house;
+    switch (this.state) {
+      case 'FIND': return h ? h.doorWorld.clone() : null;
+      case 'WALK': return h ? h.doorWorld.clone() : null;
+      case 'BELL': return h ? h.doorbell.getWorldPosition(new THREE.Vector3()) : null;
+      case 'REVEAL': return girlWorldPoint(this.ctx.girl, 'head');
+      case 'BUCKET': return girlWorldPoint(this.ctx.girl, 'bucket');
+      case 'ENDING':
+        if (!this.restartReady) return null;
+        return this.ctx.world.houses[0].lanterns[0].getWorldPosition(new THREE.Vector3());
+      default: return null;
+    }
+  }
+
+  // ------------------------------------------------------- named scenarios
+  /**
+   * Load the consistent state that sits right before `stage` at `houseIndex`,
+   * reusing the normal init and the normal transitions. The run-up to the
+   * stage is fast-forwarded; the stage itself is left untouched and waiting
+   * for a real tap.
+   */
+  loadScenario(stage, houseIndex) {
+    const st = String(stage || 'find').toUpperCase();
+    if (STATES.indexOf(st) < 0) throw new Error('unknown scenario stage: ' + stage);
+    const world = this.ctx.world;
+    let want = Math.max(1, Math.min(world.houses.length - 1, houseIndex || 1));
+    if (st === 'ENDING') want = world.houses.length - 1;
+
+    this.ready = false;
+    this.clearTimers();
+    this.fw = undefined;
+    resetGirl(this.ctx.girl);
+    world.resetHouses();
+    this.ctx.fireflies.reset();
+    this.ctx.leaves.reset();
+    this.ctx.sparkles.reset();
+    this.ctx.candy.reset();
+    this.ctx.bats.reset();
+    this.ctx.fireworks.reset();
+    this.ctx.cam.orbit = 0;
+    this.ctx.cam.eyeScale = 1;
+    this.ctx.cam.zoom = 1;
+    this.ctx.cam.pan = null;
+    this.events.length = 0;
+    this.eventSeq = 0;
+    this.lastRejection = null;
+
+    this.start();                       // the normal fresh-game path
+    this.note('scenario', { stage: st, house: want });
+
+    let guard = 0;
+    while (this.houseIndex < want && guard++ < 200) this.advance();
+    while (this.state !== st && guard++ < 200) this.advance();
+    // advance() leaves scheduled work behind; a scenario starts quiet
+    if (st !== 'OPEN' && st !== 'CANDY' && st !== 'NEXT' && st !== 'ENDING') this.clearTimers();
+    // and it must not inherit a half-played animation from the run-up
+    const g = this.ctx.girl;
+    if (st !== 'ENDING') {
+      g.anim = null; g.animT = 0; g.animDur = 0;
+      g.rig.position.set(0, 0, 0);
+      g.ringGlow = 0;
+      if (st !== 'WALK') g.path = null;
+    }
+    this.idle = 0;
+    this.ready = true;
+    this.note('ready', { stage: this.state, house: this.houseIndex });
+    return { stage: this.state, houseIndex: this.houseIndex };
+  }
+
   /** what the world is currently inviting a tap on - taps near it win ties */
   expected() {
     switch (this.state) {
@@ -529,6 +637,8 @@ export class Chain {
       case 'BELL': return { type: 'doorbell', house: this.houseIndex };
       case 'REVEAL': return { type: 'girl' };
       case 'BUCKET': return { type: 'bucket' };
+      // once the ending offers another go, the blinking home wins any tie
+      case 'ENDING': return this.restartReady ? { type: 'house', house: 0 } : null;
       default: return null;
     }
   }

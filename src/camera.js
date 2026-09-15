@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { rand } from './rng.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _a = new THREE.Vector3();
@@ -107,8 +108,8 @@ export class FollowCamera {
     this.snapNext = false;
 
     this.shake = Math.max(0, this.shake - dt * 2);
-    const sx = (Math.random() - 0.5) * this.shake * 0.25;
-    const sy = (Math.random() - 0.5) * this.shake * 0.25;
+    const sx = (rand() - 0.5) * this.shake * 0.25;
+    const sy = (rand() - 0.5) * this.shake * 0.25;
     cam.position.set(this.pos.x + sx, this.pos.y + sy, this.pos.z);
     cam.lookAt(this.look);
   }

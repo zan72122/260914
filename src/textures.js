@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { rand } from './rng.js';
 
 const cache = new Map();
 
@@ -27,7 +28,7 @@ function noise(g, w, h, amount, color = '0,0,0') {
   const img = g.getImageData(0, 0, w, h);
   const d = img.data;
   for (let i = 0; i < d.length; i += 4) {
-    const n = (Math.random() - 0.5) * amount;
+    const n = (rand() - 0.5) * amount;
     d[i] = Math.max(0, Math.min(255, d[i] + n));
     d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + n));
     d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + n));
@@ -39,9 +40,9 @@ export function asphaltTexture() {
   return tex('asphalt', 256, 256, (g, w, h) => {
     g.fillStyle = '#2e2f3a'; g.fillRect(0, 0, w, h);
     for (let i = 0; i < 2600; i++) {
-      const r = Math.random() * 2.2 + 0.3;
-      g.fillStyle = `rgba(${90 + Math.random() * 60 | 0},${90 + Math.random() * 60 | 0},${105 + Math.random() * 60 | 0},${Math.random() * 0.22})`;
-      g.beginPath(); g.arc(Math.random() * w, Math.random() * h, r, 0, 7); g.fill();
+      const r = rand() * 2.2 + 0.3;
+      g.fillStyle = `rgba(${90 + rand() * 60 | 0},${90 + rand() * 60 | 0},${105 + rand() * 60 | 0},${rand() * 0.22})`;
+      g.beginPath(); g.arc(rand() * w, rand() * h, r, 0, 7); g.fill();
     }
     noise(g, w, h, 22);
   });
@@ -51,8 +52,8 @@ export function sidewalkTexture() {
   return tex('sidewalk', 256, 256, (g, w, h) => {
     g.fillStyle = '#56545f'; g.fillRect(0, 0, w, h);
     for (let i = 0; i < 1800; i++) {
-      g.fillStyle = `rgba(255,255,255,${Math.random() * 0.06})`;
-      g.fillRect(Math.random() * w, Math.random() * h, 2, 2);
+      g.fillStyle = `rgba(255,255,255,${rand() * 0.06})`;
+      g.fillRect(rand() * w, rand() * h, 2, 2);
     }
     g.strokeStyle = 'rgba(0,0,0,0.35)'; g.lineWidth = 3;
     for (let y = 0; y <= h; y += 64) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
@@ -65,10 +66,10 @@ export function grassTexture() {
   return tex('grass', 256, 256, (g, w, h) => {
     g.fillStyle = '#1e3024'; g.fillRect(0, 0, w, h);
     for (let i = 0; i < 4000; i++) {
-      const x = Math.random() * w, y = Math.random() * h;
-      g.strokeStyle = `rgba(${30 + Math.random() * 45 | 0},${70 + Math.random() * 70 | 0},${45 + Math.random() * 40 | 0},${0.25 + Math.random() * 0.5})`;
+      const x = rand() * w, y = rand() * h;
+      g.strokeStyle = `rgba(${30 + rand() * 45 | 0},${70 + rand() * 70 | 0},${45 + rand() * 40 | 0},${0.25 + rand() * 0.5})`;
       g.lineWidth = 1;
-      g.beginPath(); g.moveTo(x, y); g.lineTo(x + (Math.random() - 0.5) * 3, y - 3 - Math.random() * 4); g.stroke();
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + (rand() - 0.5) * 3, y - 3 - rand() * 4); g.stroke();
     }
     noise(g, w, h, 12);
   });
@@ -82,8 +83,8 @@ export function sidingTexture(colorA, colorB) {
       g.fillStyle = 'rgba(0,0,0,0.28)'; g.fillRect(0, y + 14, w, 2);
     }
     for (let i = 0; i < 900; i++) {
-      g.fillStyle = `rgba(0,0,0,${Math.random() * 0.1})`;
-      g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 8, 1);
+      g.fillStyle = `rgba(0,0,0,${rand() * 0.1})`;
+      g.fillRect(rand() * w, rand() * h, 1 + rand() * 8, 1);
     }
   });
 }
@@ -96,7 +97,7 @@ export function shingleTexture(color) {
       for (let c = 0; c < cols; c++) {
         const x = c * (w / cols) + (r % 2 ? w / cols / 2 : 0);
         const y = r * (h / rows);
-        g.fillStyle = `rgba(0,0,0,${0.05 + Math.random() * 0.22})`;
+        g.fillStyle = `rgba(0,0,0,${0.05 + rand() * 0.22})`;
         g.beginPath();
         g.roundRect(x + 1, y + 1, w / cols - 2, h / rows - 2, 4);
         g.fill();
@@ -114,7 +115,7 @@ export function brickTexture(color) {
       for (let c = -1; c * bw < w + bw; c++) {
         const x = c * bw + (r % 2 ? bw / 2 : 0);
         g.fillStyle = color;
-        g.globalAlpha = 0.75 + Math.random() * 0.25;
+        g.globalAlpha = 0.75 + rand() * 0.25;
         g.fillRect(x + 1.5, r * bh + 1.5, bw - 3, bh - 3);
         g.globalAlpha = 1;
       }
@@ -126,12 +127,12 @@ export function woodTexture(color) {
   return tex('wood-' + color, 128, 128, (g, w, h) => {
     g.fillStyle = color; g.fillRect(0, 0, w, h);
     for (let i = 0; i < 60; i++) {
-      g.strokeStyle = `rgba(0,0,0,${0.04 + Math.random() * 0.12})`;
-      g.lineWidth = 0.5 + Math.random() * 2;
+      g.strokeStyle = `rgba(0,0,0,${0.04 + rand() * 0.12})`;
+      g.lineWidth = 0.5 + rand() * 2;
       g.beginPath();
-      const y = Math.random() * h;
+      const y = rand() * h;
       g.moveTo(0, y);
-      g.bezierCurveTo(w * 0.3, y + (Math.random() - 0.5) * 8, w * 0.6, y + (Math.random() - 0.5) * 8, w, y + (Math.random() - 0.5) * 6);
+      g.bezierCurveTo(w * 0.3, y + (rand() - 0.5) * 8, w * 0.6, y + (rand() - 0.5) * 8, w, y + (rand() - 0.5) * 6);
       g.stroke();
     }
   });
@@ -313,10 +314,10 @@ export function fogTexture() {
   return tex('fog', 256, 128, (g, w, h) => {
     g.clearRect(0, 0, w, h);
     for (let i = 0; i < 70; i++) {
-      const x = Math.random() * w, y = h * 0.45 + (Math.random() - 0.5) * h * 0.7;
-      const r = 20 + Math.random() * 55;
+      const x = rand() * w, y = h * 0.45 + (rand() - 0.5) * h * 0.7;
+      const r = 20 + rand() * 55;
       const grd = g.createRadialGradient(x, y, 0, x, y, r);
-      grd.addColorStop(0, `rgba(190,205,225,${0.05 + Math.random() * 0.06})`);
+      grd.addColorStop(0, `rgba(190,205,225,${0.05 + rand() * 0.06})`);
       grd.addColorStop(1, 'rgba(190,205,225,0)');
       g.fillStyle = grd;
       g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
@@ -424,7 +425,7 @@ export function skullSignTexture() {
   return tex('skullsign', 128, 128, (g, w, h) => {
     g.fillStyle = '#6a5a44'; g.fillRect(0, 0, w, h);
     g.fillStyle = 'rgba(0,0,0,0.2)';
-    for (let i = 0; i < 40; i++) g.fillRect(Math.random() * w, Math.random() * h, 12, 1);
+    for (let i = 0; i < 40; i++) g.fillRect(rand() * w, rand() * h, 12, 1);
     g.fillStyle = '#e8e4d4';
     g.beginPath(); g.ellipse(64, 56, 30, 34, 0, 0, 7); g.fill();
     g.fillRect(48, 82, 32, 18);

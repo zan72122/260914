@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import * as T from './textures.js';
+import { rand } from './rng.js';
 
 export const COSTUMES = ['witch', 'ghost', 'pumpkin', 'cat'];
 
@@ -217,8 +218,8 @@ export function createGirl() {
     const c = new THREE.Color(candyColors[i % candyColors.length]);
     candyColorArr[i * 3] = c.r; candyColorArr[i * 3 + 1] = c.g; candyColorArr[i * 3 + 2] = c.b;
     dummy.position.copy(candySlots[i]);
-    dummy.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
-    dummy.scale.setScalar(0.8 + Math.random() * 0.5);
+    dummy.rotation.set(rand() * 3, rand() * 3, rand() * 3);
+    dummy.scale.setScalar(0.8 + rand() * 0.5);
     dummy.updateMatrix();
     candyMesh.setMatrixAt(i, dummy.matrix);
   }
@@ -297,6 +298,27 @@ export function setCostume(g, name) {
   g.dressMat.emissiveIntensity = ghost ? 0.5 : 0;
   g.capeMat.transparent = ghost;
   g.capeMat.opacity = ghost ? 0.75 : 1;
+}
+
+/** back to a clean standing idle - used when a scenario reloads */
+export function resetGirl(g) {
+  g.path = null; g.pathI = 0;
+  g.speed = 0; g.speedScale = 1;
+  g.anim = null; g.animT = 0; g.animDur = 0;
+  g.walkPhase = 0; g.t = 0;
+  g.offer = 0; g.offerTarget = 0;
+  g.ringGlow = 0; g.bucketPulse = 0; g.bucketHaloTarget = 0;
+  g.lookAt = null;
+  g.candyCount = 0;
+  g.candyMesh.count = 0;
+  g.candyMesh.instanceMatrix.needsUpdate = true;
+  g.rig.position.set(0, 0, 0);
+  g.rig.rotation.set(0, 0, 0);
+  g.head.rotation.set(0, 0, 0);
+  for (const l of g.legs) l.rotation.set(0, 0, 0);
+  for (const a of g.arms) a.rotation.set(0, 0, 0);
+  for (const c of g.cape) c.rotation.set(0, 0, 0);
+  setCostume(g, 'witch');
 }
 
 export function addCandy(g, n) {

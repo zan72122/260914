@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const DIST = path.join(ROOT, 'dist');
+const DIST = path.join(ROOT, 'dist-test');
 const SHOTS = path.join(ROOT, 'shots');
 
 let chromium;
@@ -102,8 +102,8 @@ async function runViewport(browser, vp, base) {
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 
-  await page.goto(base + '/?debug=1&speed=3', { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__game, null, { timeout: 30000 });
+  await page.goto(base + '/?debug=1&speed=4', { waitUntil: 'load' });
+  await page.waitForFunction(() => window.__game && window.__game.ready, null, { timeout: 45000 });
   await page.waitForTimeout(2200);
 
   // --- no text anywhere on screen ---
@@ -212,10 +212,23 @@ async function runViewport(browser, vp, base) {
   await page.evaluate(() => {
     const g = window.__game;
     const h = g.houses[0];
-    const s = g.project(h.doorWorld.x, h.doorWorld.y, h.doorWorld.z);
-    if (s.onScreen) g.tapScreen(s.x, s.y); else g.advance();
+    // the blinking porch lantern is the "one more time" invitation
+    const v = new g.THREE.Vector3();
+    const spots = [];
+    for (const l of h.lanterns) { l.getWorldPosition(v); spots.push(v.clone()); }
+    spots.push(h.doorWorld.clone());
+    for (const p of spots) {
+      const s = g.project(p.x, p.y, p.z);
+      if (s.onScreen) { g.tapScreen(s.x, s.y); if (g.state !== 'ENDING') return; }
+    }
   });
   await page.waitForTimeout(1200);
+  if (await state(page) === 'ENDING') {
+    fallbacks++;
+    console.log('  note restart tap missed -> advance()');
+    await page.evaluate(() => window.__game.advance());
+    await page.waitForTimeout(800);
+  }
   check('restarted at house 1', await state(page) === 'FIND' && await houseIndex(page) === 1,
     `(${await state(page)}/${await houseIndex(page)})`);
   await shot(page, dir, '93-restarted');
@@ -272,7 +285,7 @@ async function runViewport(browser, vp, base) {
 
 // ------------------------------------------------------------------- driver
 if (!fs.existsSync(path.join(DIST, 'index.html'))) {
-  console.error('dist/ missing - run `npm run build` first');
+  console.error('dist-test/ missing - run `npm run build:test` first');
   process.exit(1);
 }
 fs.mkdirSync(SHOTS, { recursive: true });

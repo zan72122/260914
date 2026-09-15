@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import * as T from './textures.js';
+import { rand } from './rng.js';
 
 const glowTex = () => T.glowTexture();
 
@@ -122,7 +123,7 @@ export function makeJackOLantern(scale = 1, variant = 0) {
   g.userData.variant = variant;
   g.userData.lit = 0;
   g.userData.target = 0;
-  g.userData.flicker = Math.random() * 10;
+  g.userData.flicker = rand() * 10;
   g.userData.hitRadius = 0.7 * scale;
   return g;
 }
@@ -429,8 +430,34 @@ export function createHouse(opts) {
   winMesh.userData = { kind: 'house', house: index };
   door.userData = { kind: 'house', house: index };
 
-  h.pickMeshes = [bodyMesh, roofMesh, woodMesh, winMesh, door];
+  // the porch lanterns count as part of the house for tapping, so the blinking
+  // "one more time" invitation at the end is reachable
+  for (const l of lanterns) {
+    l.userData.kind = 'house';
+    l.userData.house = index;
+    l.traverse(o => { o.userData.kind = 'house'; o.userData.house = index; });
+  }
+
+  h.pickMeshes = [bodyMesh, roofMesh, woodMesh, winMesh, door, ...lanterns];
   return h;
+}
+
+/** put a house back to its cold, closed, unvisited state */
+export function resetHouse(h) {
+  h.lit = 0; h.litTarget = 0;
+  h.doorOpen = 0; h.doorTarget = 0;
+  h.bellGlow = 0; h.bellTarget = 0; h.bellShake = 0;
+  h.residentOut = 0; h.residentTarget = 0;
+  h.windowFlash = 0; h.pulseBoost = 0;
+  h.doorPivot.rotation.y = 0;
+  if (h.resident) {
+    h.resident.visible = false;
+    h.resident.userData.hop = 0;
+    h.resident.userData.waving = 0;
+    h.resident.userData.t = 0;
+    h.resident.userData.candy.visible = false;
+  }
+  for (const l of h.lanterns) { l.userData.target = 0; l.userData.lit = 0; }
 }
 
 export function setHouseLit(h, on) {

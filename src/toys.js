@@ -4,6 +4,7 @@ import * as A from './audio.js';
 import { makeJackOLantern, updateLantern, mergeColored } from './house.js';
 import { COSTUMES, setCostume } from './girl.js';
 import { mergeGeometries as mergeGeometriesLocal } from 'three/addons/utils/BufferGeometryUtils.js';
+import { rand } from './rng.js';
 
 const M = (c, r = 0.9) => new THREE.MeshStandardMaterial({ color: c, roughness: r });
 
@@ -15,7 +16,7 @@ function baseToy(kind, group, hitRadius) {
 
 // ------------------------------------------------------------ jack-o'-lantern
 export function toyPumpkin(pos, scale = 1) {
-  const g = makeJackOLantern(scale, (Math.random() * 4) | 0);
+  const g = makeJackOLantern(scale, (rand() * 4) | 0);
   g.position.copy(pos);
   g.userData.target = 0.25;
   const t = baseToy('pumpkin', g, 0.8 * scale);
@@ -175,9 +176,9 @@ export function toyScarecrow(pos, rotY = 0) {
   const strawParts = [];
   for (let i = 0; i < 10; i++) {
     const sg = new THREE.CylinderGeometry(0.012, 0.012, 0.22, 3);
-    const a = Math.random() * 6.28;
-    sg.rotateX(Math.random() * 0.8 - 0.4); sg.rotateZ(Math.random() * 0.8 - 0.4);
-    sg.translate(Math.cos(a) * 0.3, 0.86 + Math.random() * 0.1, Math.sin(a) * 0.3);
+    const a = rand() * 6.28;
+    sg.rotateX(rand() * 0.8 - 0.4); sg.rotateZ(rand() * 0.8 - 0.4);
+    sg.translate(Math.cos(a) * 0.3, 0.86 + rand() * 0.1, Math.sin(a) * 0.3);
     strawParts.push({ geo: sg, color: 0xc9a96a });
   }
   g.add(new THREE.Mesh(mergeColored(strawParts),
@@ -217,11 +218,11 @@ export function toyLeafPile(pos) {
   const cols = [0xb86a28, 0x9a4f22, 0xd08a30, 0x8a5a2a];
   const parts = [];
   for (let i = 0; i < 16; i++) {
-    const a = Math.random() * 6.28, r = Math.random() * 0.75;
+    const a = rand() * 6.28, r = rand() * 0.75;
     const geo = new THREE.SphereGeometry(0.22, 6, 5);
     geo.scale(1.3, 0.45, 1.1);
-    geo.rotateY(Math.random() * 6.28);
-    geo.translate(Math.cos(a) * r, 0.1 + Math.random() * 0.22 * (1 - r), Math.sin(a) * r);
+    geo.rotateY(rand() * 6.28);
+    geo.translate(Math.cos(a) * r, 0.1 + rand() * 0.22 * (1 - r), Math.sin(a) * r);
     parts.push({ geo, color: cols[i % cols.length] });
   }
   const mound = new THREE.Mesh(mergeColored(parts),

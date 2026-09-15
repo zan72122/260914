@@ -9,12 +9,23 @@ import { FollowCamera } from './camera.js';
 import { Chain } from './chain.js';
 import { Fireflies, Leaves, CandyDrops, Sparkles, Bats, Fireworks } from './particles.js';
 import * as A from './audio.js';
+import { setSeed, getSeed, randInt } from './rng.js';
 
 const QS = new URLSearchParams(location.search);
-const DEBUG = QS.has('debug');
+
+/**
+ * The testability layer (window.__game, ?scenario=, ?seed=, ?debug=) only
+ * exists in a development or test build. `__TESTABLE__` is replaced at build
+ * time by vite.config.js: `npm run build` produces false, `npm run build:test`
+ * and `npm run dev` produce true.
+ */
+const TESTABLE = __TESTABLE__;
+const DEBUG = TESTABLE && QS.has('debug');
 // Optional time multiplier, used by the automated walkthrough so a full
 // five-house run fits in a test budget on a software rasteriser.
-const TIME_SCALE = Math.max(0.25, Math.min(4, parseFloat(QS.get('speed')) || 1));
+const TIME_SCALE = TESTABLE
+  ? Math.max(0.25, Math.min(4, parseFloat(QS.get('speed')) || 1))
+  : 1;
 
 // ---------------------------------------------------------------- manifest
 (function manifest() {
@@ -38,6 +49,10 @@ const TIME_SCALE = Math.max(0.25, Math.min(4, parseFloat(QS.get('speed')) || 1))
   link.rel = 'manifest'; link.href = url;
   document.head.appendChild(link);
 })();
+
+// The whole world is generated from this seed, so a fixed seed means a fixed
+// street, decoration layout and particle motion.
+setSeed(TESTABLE ? (parseInt(QS.get('seed'), 10) || 1) : 1);
 
 // ---------------------------------------------------------------- renderer
 const container = document.getElementById('app');
@@ -99,7 +114,7 @@ const sparkles = new Sparkles(scene, 360);
 const candy = new CandyDrops(scene, 60);
 const bats = new Bats(scene, 28);
 const fireworks = new Fireworks(scene, sparkles);
-candy.onLand = () => { addCandy(girl, 1); A.sfxCandy((Math.random() * 5) | 0); };
+candy.onLand = () => { addCandy(girl, 1); A.sfxCandy(randInt(5)); };
 
 // ------------------------------------------------------------------ camera
 const cam = new FollowCamera(camera);
@@ -190,9 +205,21 @@ function ownerOf(obj) {
   return null;
 }
 
+/** one ring-buffer entry per tap - never per frame */
+function logTap(before, nx, ny, own) {
+  chain.note('input', {
+    hit: own.type,
+    house: own.house,
+    toy: own.toy ? own.toy.kind : undefined,
+    ndc: [Math.round(nx * 1000) / 1000, Math.round(ny * 1000) / 1000],
+    from: before
+  });
+}
+
 function handleTap(nx, ny) {
   A.unlock();
   chain.noteInput();
+  const before = chain.state;
   ndc.set(nx, ny);
   raycaster.setFromCamera(ndc, camera);
 
@@ -216,29 +243,32 @@ function handleTap(nx, ny) {
   }
 
   for (const own of owners) {
-    if (own.type === 'toy') { own.toy.tap(ctx); return own; }
-    if (own.type === 'bucket') { chain.tapBucket(); return own; }
-    if (own.type === 'girl') { chain.tapGirl(); return own; }
-    if (own.type === 'doorbell') { chain.tapDoorbell(own.house); return own; }
+    if (own.type === 'toy') { logTap(before, nx, ny, own); own.toy.tap(ctx); return own; }
+    if (own.type === 'bucket') { logTap(before, nx, ny, own); chain.tapBucket(); return own; }
+    if (own.type === 'girl') { logTap(before, nx, ny, own); chain.tapGirl(); return own; }
+    if (own.type === 'doorbell') { logTap(before, nx, ny, own); chain.tapDoorbell(own.house); return own; }
     if (own.type === 'resident') {
+      logTap(before, nx, ny, own);
       const h = world.houses[own.house];
       if (h.resident) { h.resident.userData.hop = 1; h.resident.userData.waving = 1.2; }
       A.sfxHum(230);
       sparkles.burst(h.doorWorld.clone().add(new THREE.Vector3(0, 1.2, 0)), 12, 0xffd8a0, 0.7);
       return own;
     }
-    if (own.type === 'house') { chain.tapHouse(own.house); return own; }
+    if (own.type === 'house') { logTap(before, nx, ny, own); chain.tapHouse(own.house); return own; }
   }
 
   // ground
   const p = new THREE.Vector3();
   const ok = raycaster.ray.intersectPlane(groundPlane, p);
   if (ok && raycaster.ray.direction.y < -0.02) {
+    logTap(before, nx, ny, { type: 'ground' });
     chain.tapGround(p);
     return { type: 'ground', point: p };
   }
   // sky
   const sky = raycaster.ray.origin.clone().addScaledVector(raycaster.ray.direction, 26);
+  logTap(before, nx, ny, { type: 'sky' });
   chain.tapSky(sky);
   return { type: 'sky', point: sky };
 }
@@ -282,13 +312,17 @@ window.addEventListener('pointerdown', () => A.unlock(), { once: true });
 // ------------------------------------------------------------------- loop
 let last = performance.now(), elapsed = 0;
 let frames = 0, fpsT = 0, fps = 60, lastCalls = 0, lastTris = 0;
+let paused = false;
+let rafId = 0;
 
-function animate() {
-  const now = performance.now();
-  const dt = Math.min(0.1, (now - last) / 1000) * TIME_SCALE;
-  last = now;
+/**
+ * One simulation + render step. `step(dt, n)` below drives exactly this, so a
+ * stepped run goes through the same code as a real frame - nothing is skipped.
+ */
+function frame(dt, render = true) {
   elapsed += dt;
   const t = elapsed;
+  chain.frame++;
 
   chain.update(dt);
   updateGirl(girl, dt, t);
@@ -307,20 +341,49 @@ function animate() {
   moonLight.position.copy(girl.pos).addScaledVector(lightDir, 55);
   moonTarget.position.copy(girl.pos);
 
-  renderer.info.reset();
-  composer.render();
-  lastCalls = renderer.info.render.calls;
-  lastTris = renderer.info.render.triangles;
+  camera.updateMatrixWorld(true);
+  if (render) {
+    renderer.info.reset();
+    composer.render();
+    lastCalls = renderer.info.render.calls;
+    lastTris = renderer.info.render.triangles;
+  }
 
   frames++; fpsT += dt;
   if (fpsT > 1) { fps = frames / fpsT; frames = 0; fpsT = 0; }
-  requestAnimationFrame(animate);
 }
-requestAnimationFrame(animate);
+
+function animate() {
+  const now = performance.now();
+  const dt = Math.min(0.1, (now - last) / 1000) * TIME_SCALE;
+  last = now;
+  if (!paused) frame(dt);
+  rafId = requestAnimationFrame(animate);
+}
+rafId = requestAnimationFrame(animate);
 
 // --------------------------------------------------------------- test hook
+function simplify(r) {
+  if (!r) return null;
+  return { type: r.type, house: r.house, toy: r.toy ? r.toy.kind : undefined };
+}
+
+function projectPoint(p) {
+  camera.updateMatrixWorld(true);
+  const v = p.clone().project(camera);
+  const r = renderer.domElement.getBoundingClientRect();
+  return {
+    x: Math.round((r.left + (v.x * 0.5 + 0.5) * r.width) * 10) / 10,
+    y: Math.round((r.top + (-v.y * 0.5 + 0.5) * r.height) * 10) / 10,
+    onScreen: v.x >= -1 && v.x <= 1 && v.y >= -1 && v.y <= 1 && v.z < 1
+  };
+}
+
+const r2 = (n) => Math.round(n * 100) / 100;
+
 const api = {
   THREE,
+  // ---- plain state -------------------------------------------------------
   get state() { return chain.state; },
   get houseIndex() { return chain.houseIndex; },
   get houses() { return world.houses; },
@@ -329,32 +392,116 @@ const api = {
   get costume() { return girl.costume; },
   setCostume: (c) => setCostume(girl, c),
   costumes: COSTUMES,
-  advance: () => chain.advance(),
-  restart: () => chain.restart(),
-  setIdle: (sec) => { chain.idle = sec; },
-  get idle() { return chain.idle; },
+  get ready() { return chain.ready; },
   get busy() { return chain.busy; },
   get restartReady() { return chain.restartReady; },
   get candyCount() { return girl.candyCount; },
+  get idle() { return chain.idle; },
   get fps() { return fps; },
-  get info() {
+  get seed() { return getSeed(); },
+  get frame() { return chain.frame; },
+  debug: DEBUG,
+
+  // ---- observation -------------------------------------------------------
+  /** small, side-effect free picture of what is going on right now */
+  snapshot() {
+    const invited = chain.invitedPoint();
+    const h = world.houses[chain.houseIndex];
+    const waiting = chain.waitReason();
     return {
-      calls: lastCalls,
-      triangles: lastTris,
-      programs: renderer.info.programs ? renderer.info.programs.length : 0,
-      geometries: renderer.info.memory.geometries,
-      textures: renderer.info.memory.textures
+      ready: chain.ready,
+      stage: chain.state,
+      houseIndex: chain.houseIndex,
+      seed: getSeed(),
+      frame: chain.frame,
+      time: r2(elapsed),
+      target: invited ? {
+        kind: (chain.expected() || {}).type || null,
+        world: { x: r2(invited.x), y: r2(invited.y), z: r2(invited.z) },
+        screen: projectPoint(invited)
+      } : null,
+      girl: {
+        x: r2(girl.pos.x), z: r2(girl.pos.z),
+        heading: r2(girl.heading),
+        anim: girl.anim,
+        walking: !!girl.path,
+        speed: r2(girl.speed),
+        costume: girl.costume
+      },
+      bucket: { fill: girl.candyCount, capacity: girl.candySlots.length },
+      house: h ? {
+        lit: r2(h.lit), litTarget: h.litTarget,
+        doorOpen: r2(h.doorOpen), doorTarget: h.doorTarget,
+        bellGlow: r2(h.bellGlow), bellTarget: h.bellTarget,
+        residentOut: r2(h.residentOut)
+      } : null,
+      litHouses: world.houses.map((x, i) => (x.litTarget > 0.5 ? i : -1)).filter(i => i >= 0),
+      input: {
+        accepted: !chain.busy && chain.ready,
+        lastRejection: chain.lastRejection
+      },
+      wait: waiting,
+      restartReady: chain.restartReady,
+      paused,
+      render: { calls: lastCalls, triangles: lastTris }
     };
   },
+
+  /** ordered ring buffer of inputs, transitions and rejections */
+  log(n) {
+    const e = chain.events;
+    return n ? e.slice(Math.max(0, e.length - n)) : e.slice();
+  },
+  clearLog() { chain.events.length = 0; },
+
+  // ---- scenarios ---------------------------------------------------------
+  /** loadScenario('bell:2') or loadScenario('bell', 2) */
+  loadScenario(name, index) {
+    let stage = name, i = index;
+    if (typeof name === 'string' && name.includes(':')) {
+      const parts = name.split(':');
+      stage = parts[0];
+      i = parseInt(parts[1], 10);
+    }
+    const out = chain.loadScenario(stage, i || 1);
+    cam.snapNext = true;
+    frame(1 / 60);              // settle the camera and one round of updates
+    return out;
+  },
+  scenarios: ['find', 'walk', 'bell', 'open', 'reveal', 'bucket', 'candy', 'next', 'ending'],
+
+  // ---- deterministic time -----------------------------------------------
+  pause() { paused = true; },
+  resume() { paused = false; last = performance.now(); },
+  /** advance the real update loop n times by exactly dt seconds each */
+  step(dt = 1 / 60, n = 1) {
+    paused = true;
+    const d = Math.max(0.0001, Math.min(0.1, dt));
+    // every step runs the full simulation; only the last one is drawn, since
+    // drawing feeds nothing back into game state
+    for (let k = 0; k < n; k++) frame(d, k === n - 1);
+    return chain.state;
+  },
+  /** step until `pred(snapshot)` is true or the budget runs out */
+  stepUntil(predSrc, maxSteps = 900, dt = 1 / 60) {
+    const pred = typeof predSrc === 'function' ? predSrc : new Function('s', 'return (' + predSrc + ')(s);');
+    paused = true;
+    for (let k = 0; k < maxSteps; k++) {
+      if (pred(api.snapshot())) { frame(0.0001); return { ok: true, steps: k }; }
+      frame(Math.min(0.1, dt), false);
+    }
+    const ok = pred(api.snapshot());
+    frame(0.0001);
+    return { ok, steps: maxSteps };
+  },
+
+  // ---- input (the real path) --------------------------------------------
   /** world coordinates -> screen pixels */
-  project(x, y, z) {
-    const v = new THREE.Vector3(x, y, z).project(camera);
-    const r = renderer.domElement.getBoundingClientRect();
-    return {
-      x: r.left + (v.x * 0.5 + 0.5) * r.width,
-      y: r.top + (-v.y * 0.5 + 0.5) * r.height,
-      onScreen: v.x >= -1 && v.x <= 1 && v.y >= -1 && v.y <= 1 && v.z < 1
-    };
+  project(x, y, z) { return projectPoint(new THREE.Vector3(x, y, z)); },
+  /** the screen position of whatever the world is inviting right now */
+  targetScreen() {
+    const p = chain.invitedPoint();
+    return p ? projectPoint(p) : null;
   },
   tapScreen(px, py) {
     const [nx, ny] = screenToNdc(px, py);
@@ -365,12 +512,29 @@ const api = {
     return api.tapScreen(p.x, p.y);
   },
   tapNdc(nx, ny) { return simplify(handleTap(nx, ny)); },
-  debug: DEBUG,
-  timeScale: TIME_SCALE
+
+  // ---- shortcuts ---------------------------------------------------------
+  advance: () => chain.advance(),
+  restart: () => chain.restart(),
+  setIdle: (sec) => { chain.idle = sec; },
+  get info() {
+    return {
+      calls: lastCalls,
+      triangles: lastTris,
+      programs: renderer.info.programs ? renderer.info.programs.length : 0,
+      geometries: renderer.info.memory.geometries,
+      textures: renderer.info.memory.textures
+    };
+  }
 };
-function simplify(r) {
-  if (!r) return null;
-  return { type: r.type, house: r.house, toy: r.toy ? r.toy.kind : undefined };
+
+if (TESTABLE) {
+  window.__game = api;
+  const sc = QS.get('scenario');
+  if (sc) {
+    // a scenario starts paused so the very first observation is reproducible
+    paused = true;
+    try { api.loadScenario(sc); } catch (e) { console.error('[scenario]', e.message); }
+  }
+  if (DEBUG) console.log('[state] ready', chain.state, 'seed', getSeed());
 }
-window.__game = api;
-if (DEBUG) console.log('[state] ready', chain.state);

@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:test": "TESTABLE=1 vite build",
     "preview": "vite preview",
-    "test": "node tests/walkthrough.spec.mjs",
-    "pretest": "vite build"
+    "test": "npm run build:test && node tests/scenario.spec.mjs",
+    "test:full": "npm run build:test && node tests/walkthrough.spec.mjs"
   },
   "dependencies": {
     "three": "^0.186.0",

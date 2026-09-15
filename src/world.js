@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import * as T from './textures.js';
-import { createHouse, HOUSE_STYLES, setHouseLit, updateHouse } from './house.js';
+import { createHouse, HOUSE_STYLES, setHouseLit, updateHouse, resetHouse } from './house.js';
 import * as Toys from './toys.js';
+import { rand } from './rng.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -72,17 +73,17 @@ export class World {
     const siz = new Float32Array(N);
     this.starPhase = new Float32Array(N);
     for (let i = 0; i < N; i++) {
-      const u = Math.random() * Math.PI * 2;
-      const v = Math.random();
+      const u = rand() * Math.PI * 2;
+      const v = rand();
       const y = Math.pow(v, 0.55);
       const r = Math.sqrt(1 - y * y);
       pos[i * 3] = Math.cos(u) * r * 300;
       pos[i * 3 + 1] = y * 300 + 8;
       pos[i * 3 + 2] = Math.sin(u) * r * 300;
-      const tint = 0.75 + Math.random() * 0.25;
-      col[i * 3] = tint; col[i * 3 + 1] = tint * (0.9 + Math.random() * 0.1); col[i * 3 + 2] = 1;
-      siz[i] = 0.5 + Math.random();
-      this.starPhase[i] = Math.random() * 6.28;
+      const tint = 0.75 + rand() * 0.25;
+      col[i * 3] = tint; col[i * 3 + 1] = tint * (0.9 + rand() * 0.1); col[i * 3 + 2] = 1;
+      siz[i] = 0.5 + rand();
+      this.starPhase[i] = rand() * 6.28;
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -238,7 +239,7 @@ export class World {
       const b = new THREE.CylinderGeometry(0.04, 0.11, 1.9, 5);
       const m = new THREE.Matrix4();
       const a = (i / 7) * Math.PI * 2 + 0.4;
-      const tilt = 0.7 + Math.random() * 0.5;
+      const tilt = 0.7 + rand() * 0.5;
       m.makeRotationFromEuler(new THREE.Euler(Math.cos(a) * tilt, 0, Math.sin(a) * tilt));
       m.setPosition(Math.cos(a) * 0.55, 3.4 + (i % 3) * 0.45, Math.sin(a) * 0.55);
       b.applyMatrix4(m);
@@ -259,12 +260,12 @@ export class World {
     for (let i = 0; i < COUNT; i++) {
       const t = 0.02 + (i / COUNT) * 0.98;
       const side = i % 2 ? 1 : -1;
-      const lat = side * (15.5 + Math.random() * 13);
-      const p = this.offsetPoint(t + (Math.random() - 0.5) * 0.02, lat);
+      const lat = side * (15.5 + rand() * 13);
+      const p = this.offsetPoint(t + (rand() - 0.5) * 0.02, lat);
       d.position.set(p.x, 0, p.z);
-      d.rotation.set(0, Math.random() * 6.28, 0);
-      const s = 0.8 + Math.random() * 0.75;
-      d.scale.set(s, s * (0.9 + Math.random() * 0.4), s);
+      d.rotation.set(0, rand() * 6.28, 0);
+      const s = 0.8 + rand() * 0.75;
+      d.scale.set(s, s * (0.9 + rand() * 0.4), s);
       d.updateMatrix();
       trees.setMatrixAt(i, d.matrix);
     }
@@ -320,9 +321,9 @@ export class World {
         const pl = new THREE.PointLight(0xffb060, 5.0, 16, 2);
         pl.position.set(L.x, 4.5, L.z);
         this.scene.add(pl);
-        this.lamps.push({ mat, halo, light: pl, flick: Math.random() * 10 });
+        this.lamps.push({ mat, halo, light: pl, flick: rand() * 10 });
       } else {
-        this.lamps.push({ mat, halo: null, light: null, flick: Math.random() * 10, off: true });
+        this.lamps.push({ mat, halo: null, light: null, flick: rand() * 10, off: true });
       }
     }
   }
@@ -431,9 +432,9 @@ export class World {
       const side = i % 2 ? 1 : -1;
       const c = this.offsetPoint(t, side * 7.8);
       for (let k = 0; k < 3; k++) {
-        const a = Math.random() * 6.28, r = Math.random() * 1.3;
-        const p = new THREE.Vector3(c.x + Math.cos(a) * r, 0.34 + Math.random() * 0.1, c.z + Math.sin(a) * r);
-        this.addToy(Toys.toyPumpkin(p, 0.55 + Math.random() * 0.3));
+        const a = rand() * 6.28, r = rand() * 1.3;
+        const p = new THREE.Vector3(c.x + Math.cos(a) * r, 0.34 + rand() * 0.1, c.z + Math.sin(a) * r);
+        this.addToy(Toys.toyPumpkin(p, 0.55 + rand() * 0.3));
       }
       const lp = this.offsetPoint(t + 0.03, -side * 7.4);
       this.addToy(Toys.toyLeafPile(new THREE.Vector3(lp.x, 0, lp.z)));
@@ -460,7 +461,7 @@ export class World {
       const mesh = new THREE.Mesh(g, mat);
       mesh.position.set(p.x, 0.75, p.z);
       mesh.renderOrder = 2;
-      mesh.userData.phase = Math.random() * 6.28;
+      mesh.userData.phase = rand() * 6.28;
       mesh.userData.baseX = p.x;
       this.scene.add(mesh);
       planes.push(mesh);
@@ -506,6 +507,17 @@ export class World {
         if (L.light) L.light.intensity = 5.0 * f;
       }
     }
+  }
+
+  /** cold, closed, unvisited - used when a scenario reloads */
+  resetHouses() {
+    for (const h of this.houses) resetHouse(h);
+    for (const t of this.toys) {
+      if (t.kind === 'pumpkin') t.group.userData.target = 0.25;
+      if (t.kind === 'cat') { t.follow = false; t.group.position.copy(t.home); }
+      if (t.kind === 'leafpile') { t.catTimer = 0; t.catOut = 0; }
+    }
+    this.moonSmile.opacity = 0;
   }
 
   setLitHouse(index) {

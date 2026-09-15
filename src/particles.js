@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import * as T from './textures.js';
+import { rand } from './rng.js';
 
 const _v = new THREE.Vector3();
 const _d = new THREE.Object3D();
@@ -13,13 +14,13 @@ export class Fireflies {
     this.data = [];
     for (let i = 0; i < count; i++) {
       const p = new THREE.Vector3(
-        (Math.random() - 0.5) * 34,
-        0.4 + Math.random() * 2.6,
-        -Math.random() * 115 + 12
+        (rand() - 0.5) * 34,
+        0.4 + rand() * 2.6,
+        -rand() * 115 + 12
       );
       this.data.push({
-        p, v: new THREE.Vector3(), phase: Math.random() * 6.28,
-        speed: 0.25 + Math.random() * 0.5, home: p.clone()
+        p, v: new THREE.Vector3(), phase: rand() * 6.28,
+        speed: 0.25 + rand() * 0.5, home: p.clone()
       });
       pos[i * 3] = p.x; pos[i * 3 + 1] = p.y; pos[i * 3 + 2] = p.z;
       col[i * 3] = 1; col[i * 3 + 1] = 0.85; col[i * 3 + 2] = 0.4;
@@ -40,6 +41,10 @@ export class Fireflies {
     this.attract = 0;
   }
   flowTo(v) { this.target = v ? v.clone() : null; this.attract = 1; }
+  reset() {
+    this.target = null; this.attract = 0;
+    for (const f of this.data) { f.p.copy(f.home); f.v.set(0, 0, 0); }
+  }
   update(dt, t) {
     const pos = this.geo.attributes.position.array;
     const col = this.geo.attributes.color.array;
@@ -94,18 +99,22 @@ export class Leaves {
     this.next = 0;
     this.tints = [[0.85, 0.45, 0.16], [0.72, 0.28, 0.12], [0.9, 0.62, 0.2], [0.55, 0.33, 0.14]];
   }
+  reset() {
+    for (const it of this.items) it.life = 0;
+    this.next = 0;
+  }
   burst(center, n = 18, power = 1) {
     for (let i = 0; i < n; i++) {
       const it = this.items[this.next]; this.next = (this.next + 1) % this.max;
-      it.life = 1.6 + Math.random() * 1.6;
+      it.life = 1.6 + rand() * 1.6;
       it.maxLife = it.life;
-      it.p.copy(center).add(new THREE.Vector3((Math.random() - 0.5) * 1.4, Math.random() * 0.2, (Math.random() - 0.5) * 1.4));
-      const a = Math.random() * Math.PI * 2;
-      it.v.set(Math.cos(a) * (0.6 + Math.random()) * power, (1.4 + Math.random() * 1.8) * power, Math.sin(a) * (0.6 + Math.random()) * power);
-      it.r.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
-      it.rv.set((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5);
-      it.s = 0.7 + Math.random() * 0.7;
-      const c = this.tints[(Math.random() * this.tints.length) | 0];
+      it.p.copy(center).add(new THREE.Vector3((rand() - 0.5) * 1.4, rand() * 0.2, (rand() - 0.5) * 1.4));
+      const a = rand() * Math.PI * 2;
+      it.v.set(Math.cos(a) * (0.6 + rand()) * power, (1.4 + rand() * 1.8) * power, Math.sin(a) * (0.6 + rand()) * power);
+      it.r.set(rand() * 6, rand() * 6, rand() * 6);
+      it.rv.set((rand() - 0.5) * 5, (rand() - 0.5) * 5, (rand() - 0.5) * 5);
+      it.s = 0.7 + rand() * 0.7;
+      const c = this.tints[(rand() * this.tints.length) | 0];
       this.mesh.instanceColor.setXYZ(this.items.indexOf(it), c[0], c[1], c[2]);
     }
     this.mesh.instanceColor.needsUpdate = true;
@@ -161,19 +170,24 @@ export class CandyDrops {
     this.colors = [[1, 0.37, 0.54], [0.42, 0.82, 1], [1, 0.85, 0.29], [0.62, 1, 0.48], [0.79, 0.54, 1]];
   }
 
+  reset() {
+    for (const it of this.items) it.alive = false;
+    this.next = 0; this.live = 0;
+  }
+
   /** toss one sweet from a hand into the bucket */
   drop(from, to) {
     const i = this.next; this.next = (this.next + 1) % this.max;
     const it = this.items[i];
     it.alive = true;
     it.t = 0;
-    it.dur = 0.75 + Math.random() * 0.35;
+    it.dur = 0.75 + rand() * 0.35;
     it.from.copy(from);
     it.to.copy(to);
     it.p.copy(from);
-    it.arc = 0.45 + Math.random() * 0.4;
-    it.spin = 4 + Math.random() * 8;
-    const c = this.colors[(Math.random() * this.colors.length) | 0];
+    it.arc = 0.45 + rand() * 0.4;
+    it.spin = 4 + rand() * 8;
+    const c = this.colors[(rand() * this.colors.length) | 0];
     this.mesh.instanceColor.setXYZ(i, c[0], c[1], c[2]);
     this.mesh.instanceColor.needsUpdate = true;
   }
@@ -237,15 +251,19 @@ export class Sparkles {
     this.next = 0;
     for (let i = 0; i < max; i++) pos[i * 3 + 1] = -999;
   }
+  reset() {
+    for (const it of this.items) it.life = 0;
+    this.next = 0;
+  }
   burst(center, n = 26, color = 0xffe08a, power = 1.4, gravity = 1) {
     const c = new THREE.Color(color);
     for (let i = 0; i < n; i++) {
       const it = this.items[this.next]; this.next = (this.next + 1) % this.max;
-      it.life = 0.7 + Math.random() * 0.9;
+      it.life = 0.7 + rand() * 0.9;
       it.maxLife = it.life;
       it.p.copy(center);
-      const a = Math.random() * Math.PI * 2, b = Math.acos(2 * Math.random() - 1);
-      const s = power * (0.4 + Math.random());
+      const a = rand() * Math.PI * 2, b = Math.acos(2 * rand() - 1);
+      const s = power * (0.4 + rand());
       it.v.set(Math.sin(b) * Math.cos(a) * s, Math.cos(b) * s * 0.9 + power * 0.3, Math.sin(b) * Math.sin(a) * s);
       it.c.copy(c);
       it.g = gravity;
@@ -255,11 +273,11 @@ export class Sparkles {
     const c = new THREE.Color(color);
     for (let i = 0; i < n; i++) {
       const it = this.items[this.next]; this.next = (this.next + 1) % this.max;
-      it.life = 1.0 + Math.random() * 0.5;
+      it.life = 1.0 + rand() * 0.5;
       it.maxLife = it.life;
       const a = (i / n) * Math.PI * 2;
-      it.p.set(center.x + Math.cos(a) * radius, center.y + Math.random() * 0.3, center.z + Math.sin(a) * radius);
-      it.v.set(Math.cos(a) * 0.4, 0.9 + Math.random() * 0.6, Math.sin(a) * 0.4);
+      it.p.set(center.x + Math.cos(a) * radius, center.y + rand() * 0.3, center.z + Math.sin(a) * radius);
+      it.v.set(Math.cos(a) * 0.4, 0.9 + rand() * 0.6, Math.sin(a) * 0.4);
       it.c.copy(c);
       it.g = 0.2;
     }
@@ -304,17 +322,21 @@ export class Bats {
     for (let i = 0; i < max; i++) this.items.push({ life: 0, p: new THREE.Vector3(), v: new THREE.Vector3(), ph: 0, s: 1 });
     this.next = 0;
   }
+  reset() {
+    for (const it of this.items) it.life = 0;
+    this.next = 0;
+  }
   flock(from, dir, n = 10) {
     for (let i = 0; i < n; i++) {
       const it = this.items[this.next]; this.next = (this.next + 1) % this.max;
-      it.life = 5 + Math.random() * 3;
+      it.life = 5 + rand() * 3;
       it.maxLife = it.life;
-      it.p.copy(from).add(new THREE.Vector3((Math.random() - 0.5) * 3, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 3));
-      it.v.copy(dir).normalize().multiplyScalar(4 + Math.random() * 3);
-      it.v.x += (Math.random() - 0.5) * 3;
-      it.v.y += 1.2 + Math.random() * 1.5;
-      it.ph = Math.random() * 6.28;
-      it.s = 0.7 + Math.random() * 0.8;
+      it.p.copy(from).add(new THREE.Vector3((rand() - 0.5) * 3, (rand() - 0.5) * 2, (rand() - 0.5) * 3));
+      it.v.copy(dir).normalize().multiplyScalar(4 + rand() * 3);
+      it.v.x += (rand() - 0.5) * 3;
+      it.v.y += 1.2 + rand() * 1.5;
+      it.ph = rand() * 6.28;
+      it.s = 0.7 + rand() * 0.8;
     }
   }
   update(dt, t) {
@@ -348,12 +370,13 @@ export class Fireworks {
     this.rockets = [];
     this.scene = scene;
   }
+  reset() { this.rockets.length = 0; }
   launch(x, z, color) {
     this.rockets.push({
       p: new THREE.Vector3(x, 1, z),
-      v: new THREE.Vector3((Math.random() - 0.5) * 2, 15 + Math.random() * 5, (Math.random() - 0.5) * 2),
-      t: 1.0 + Math.random() * 0.4,
-      color: color || [0xff8a2e, 0xffd24a, 0x8affc2, 0xff7ab8, 0x9fd4ff][(Math.random() * 5) | 0]
+      v: new THREE.Vector3((rand() - 0.5) * 2, 15 + rand() * 5, (rand() - 0.5) * 2),
+      t: 1.0 + rand() * 0.4,
+      color: color || [0xff8a2e, 0xffd24a, 0x8affc2, 0xff7ab8, 0x9fd4ff][(rand() * 5) | 0]
     });
   }
   update(dt) {
@@ -372,10 +395,10 @@ export class Fireworks {
           const rad = (1 + 0.12 * Math.cos(a * 6)) * (Math.abs(Math.cos(a)) * 1.25 + 0.75);
           const it = this.sparkles.items[this.sparkles.next];
           this.sparkles.next = (this.sparkles.next + 1) % this.sparkles.max;
-          it.life = 1.4 + Math.random() * 0.8;
+          it.life = 1.4 + rand() * 0.8;
           it.maxLife = it.life;
           it.p.copy(r.p);
-          it.v.set(Math.cos(a) * rad * 5.5, Math.sin(a) * rad * 5.0, (Math.random() - 0.5) * 1.6);
+          it.v.set(Math.cos(a) * rad * 5.5, Math.sin(a) * rad * 5.0, (rand() - 0.5) * 1.6);
           it.c.setHex(r.color);
           it.g = 0.35;
         }
@@ -385,7 +408,7 @@ export class Fireworks {
           this.sparkles.next = (this.sparkles.next + 1) % this.sparkles.max;
           it.life = 1.2; it.maxLife = 1.2;
           it.p.copy(r.p);
-          it.v.set((Math.random() - 0.5) * 0.8, 6.2 + k * 0.4, (Math.random() - 0.5) * 0.8);
+          it.v.set((rand() - 0.5) * 0.8, 6.2 + k * 0.4, (rand() - 0.5) * 0.8);
           it.c.setHex(0x8fd44a);
           it.g = 0.35;
         }
