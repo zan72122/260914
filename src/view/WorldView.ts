@@ -19,6 +19,9 @@ const VERDIGRIS = 0x3e8b78;
 const SKIN = 0xd8b48c;
 const CLOTH = 0x3b5a6b;
 
+/** 呼んでいないときの腕の角度（体の横に下ろす）。 */
+const ARM_REST = 1.35;
+
 function wave(t: number, period: number, phase = 0): number {
   return Math.sin((t / period) * Math.PI * 2 + phase);
 }
@@ -109,6 +112,7 @@ export class WorldView {
       this.sparkG,
       this.lampG,
       this.workerG,
+      this.deskWorkerG,
       this.deskG,
       this.factoryGlow,
       this.factoryG,
@@ -116,7 +120,6 @@ export class WorldView {
       this.remoteG,
       this.remoteLampG,
       this.testFireworkG,
-      this.deskWorkerG,
       this.benchG,
       this.burnerG,
       this.flameRenderer.view,
@@ -147,7 +150,7 @@ export class WorldView {
       .rect(l.workshop.x, l.workshop.y + l.workshop.h * 0.86, l.workshop.w, l.workshop.h * 0.14)
       .fill({ color: WALL_DARK });
     // 切れた配線の周りの緑青（現実に基づく手がかり）
-    this.wallG.circle(l.wireGap.x, l.wireGap.y + u * 0.9, u * 1.6).fill({ color: VERDIGRIS, alpha: 0.35 });
+    this.wallG.circle(l.wireGap.x, l.wireGap.y + u * 0.7, u * 0.95).fill({ color: VERDIGRIS, alpha: 0.3 });
 
     // 窓の外の港: 夕暮れの空・海・桟橋
     this.harborG.clear();
@@ -320,8 +323,10 @@ export class WorldView {
   /** 銅: 火花が止まり、線がつながり、電流が走って作業灯が灯る。 */
   private updateWiring(world: World, timeMs: number, u: number, l: Layout): void {
     const job = world.job('wiring');
-    const connected = job.status === 'job_running' || job.status === 'done';
-    const t = job.status === 'job_running' ? job.progress : connected ? 1 : 0;
+    // 呼ばれている間だけ線が切れている。直った後はそのまま繋がったまま。
+    const called = job.status === 'called';
+    const t = job.status === 'job_running' ? job.progress : called ? 0 : 1;
+    const connected = t >= 1;
     this.wireG.clear();
     const lw = Math.max(2, u * 0.26);
     this.wireG
@@ -353,23 +358,30 @@ export class WorldView {
         .fill({ color: 0xfff6d0, alpha: 0.5 + 0.4 * wave(timeMs, 220) });
     }
 
-    const lit = job.status === 'job_running' ? job.progress : job.status === 'done' ? 1 : 0;
+    const lit = t;
     this.lampGlow.clear();
     if (lit > 0) {
       const flick = 0.9 + 0.1 * wave(timeMs, 1700);
-      this.lampGlow
-        .poly([
-          l.workLamp.x - u * 1.1, l.workLamp.y,
-          l.workLamp.x + u * 1.1, l.workLamp.y,
-          l.workLamp.x + u * 7.5, l.workLamp.y + u * 12,
-          l.workLamp.x - u * 7.5, l.workLamp.y + u * 12,
-        ])
-        .fill({ color: 0xffe6b0, alpha: 0.13 * lit * flick });
+      // 光の輪郭が硬く出ないよう、広い薄い錐と狭い明るい錐を重ねる
+      for (const [spread, depth, alpha] of [
+        [7.5, 12, 0.07],
+        [4.6, 9, 0.07],
+        [2.4, 6, 0.08],
+      ] as const) {
+        this.lampGlow
+          .poly([
+            l.workLamp.x - u * 1.0, l.workLamp.y,
+            l.workLamp.x + u * 1.0, l.workLamp.y,
+            l.workLamp.x + u * spread, l.workLamp.y + u * depth,
+            l.workLamp.x - u * spread, l.workLamp.y + u * depth,
+          ])
+          .fill({ color: 0xffe6b0, alpha: alpha * lit * flick });
+      }
       this.lampGlow.circle(l.workLamp.x, l.workLamp.y + u * 0.2, u * 2.2).fill({ color: 0xffeec4, alpha: 0.35 * lit * flick });
       this.lampGlow.circle(l.workLamp.x, l.workLamp.y + u * 0.2, u * 0.8).fill({ color: 0xfff7e0, alpha: 0.9 * lit * flick });
     }
 
-    this.workerArm.rotation = job.status === 'called' ? -0.9 + wave(timeMs, 520) * 0.7 : 0.2;
+    this.workerArm.rotation = called ? -0.9 + wave(timeMs, 520) * 0.7 : ARM_REST;
   }
 
   /**
@@ -421,11 +433,11 @@ export class WorldView {
 
     // 船の人: 呼んでいる間は腕を振り、信号炎が上がったら腕を下ろす
     const calling = job.status === 'called';
-    this.shipArm.rotation = calling && p < 0.5 ? -1.0 + wave(timeMs, 460) * 0.7 : 0.25;
+    this.shipArm.rotation = calling && p < 0.5 ? -1.0 + wave(timeMs, 460) * 0.7 : ARM_REST;
     this.shipG.y = l.ship.y + wave(timeMs, 2600) * u * 0.2;
 
     // 桟橋の人
-    this.pierArm.rotation = calling ? -0.9 + wave(timeMs, 540) * 0.7 : 0.2;
+    this.pierArm.rotation = calling ? -0.9 + wave(timeMs, 540) * 0.7 : ARM_REST;
 
     // 救助船の光が近づく
     this.rescueG.clear();
@@ -449,7 +461,9 @@ export class WorldView {
   private updateBattery(world: World, timeMs: number, u: number, l: Layout): void {
     const job = world.job('battery');
     const running = job.status === 'job_running';
-    const p = running ? job.progress : job.status === 'done' ? 1 : 0;
+    const called = job.status === 'called';
+    // 呼ばれている間だけ電池室が空。直った後は電池が入ったまま。
+    const p = running ? job.progress : called ? 0 : 1;
 
     // 受け口に粉が入り、装置が動く
     const feeding = seg(p, 0, 0.2);
@@ -471,7 +485,7 @@ export class WorldView {
     this.batteryG.clear();
     const out = seg(p, 0.45, 0.6);
     const slide = seg(p, 0.6, 0.85);
-    const inPlace = job.status === 'done' || p >= 0.85;
+    const inPlace = p >= 0.85;
     if (p >= 0.45) {
       const from = l.batteryOutlet;
       const to = { x: l.remote.x - u * 0.3, y: l.remote.y };
@@ -507,7 +521,7 @@ export class WorldView {
       }
     }
 
-    this.deskArm.rotation = job.status === 'called' ? -0.9 + wave(timeMs, 500) * 0.7 : 0.2;
+    this.deskArm.rotation = called ? -0.9 + wave(timeMs, 500) * 0.7 : ARM_REST;
   }
 
   /** 材料と余熱発光。 */

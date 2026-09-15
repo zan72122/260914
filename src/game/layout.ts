@@ -173,7 +173,7 @@ export function computeLayout(width: number, height: number): Layout {
     batteryOutlet: { x: desk.x + desk.w * 0.24, y: desk.y + desk.h * 0.72 },
     remote: { x: desk.x + desk.w * 0.74, y: desk.y + desk.h * 0.72 },
     remoteLamp: { x: desk.x + desk.w * 0.74 + unit * 0.85, y: desk.y + desk.h * 0.72 - unit * 0.3 },
-    deskWorker: { x: desk.x + desk.w * 0.98, y: desk.y + desk.h * 1.25 },
+    deskWorker: { x: desk.x + desk.w * 0.01, y: desk.y + desk.h * 0.72 },
     testFirework: { x: desk.x + desk.w * 0.74, y: desk.y - desk.h * 0.35 },
   };
 }

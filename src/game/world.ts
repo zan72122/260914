@@ -304,8 +304,9 @@ export class World {
     const r = this.layout.touchRadius;
     let best: MaterialState | null = null;
     let bestD = Infinity;
+    // すでに何かを持っているなら（シナリオが持たせた場合など）持ち替えない
     for (const m of this.materials) {
-      if (m.at === 'held') continue;
+      if (m.at === 'held' || this.heldId !== null) continue;
       const d = Math.hypot(x - m.x, y - m.y);
       if (d <= r * 1.2 && d < bestD) {
         best = m;
