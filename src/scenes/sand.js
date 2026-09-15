@@ -85,9 +85,11 @@ export class SandScene extends Scene {
 
     // ---- what is hidden in it -------------------------------------------
     const kinds = ['marble', 'shell', 'button'];
+    // all three sit inside the heap's core, so they surface inside the bowl the
+    // nozzle digs rather than out on a flank where it has no reach
     const spots = portrait
-      ? [[-44, -34], [40, 8], [-4, 54]]
-      : [[-48, 20], [34, -34], [26, 52]];
+      ? [[-38, -28], [34, -4], [-6, 34]]
+      : [[-40, 12], [28, -30], [18, 36]];
     for (let i = 0; i < 3; i++) {
       const b = new BuriedItem(mat.x + spots[i][0], mat.y + spots[i][1], rng, kinds[i]);
       b.pile = pile;

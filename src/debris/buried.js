@@ -3,11 +3,14 @@ import { smoothstep, TAU, noise1 } from '../core/math.js';
 
 const TMPF = { fx: 0, fy: 0, strength: 0, inCapture: false, dist: 0 };
 
-const BURY = 15;       // sand depth that hides an item completely
-const SHOW = 3.5;      // depth below which it is fully out in the open
-const BREAK = 0.62;    // a solid little object needs much more air than a grain
+const BURY = 10;       // sand depth that hides an item completely
+const SHOW = 5.2;      // depth below which it is loose enough to be taken
+const BREAK = 0.55;    // a solid little object needs much more air than a grain
 const ACC = 1050;
 const FRICTION = 2.6;
+const ROLLDOWN = 34;   // how hard the slope of the bowl pulls a rolling thing in
+const CREEP = 1.6;     // how fast a still-buried thing slides with the sand
+const SLIP = 2.0;      // slope under an exposed thing that starts it toppling in
 
 /**
  * Something solid buried in the sand: a marble, a shell, a coin-sized button.
@@ -34,6 +37,8 @@ export class BuriedItem extends Debris {
     this.cock = 0;
     this.charge = 0;
     this.lx = 0; this.ly = 0;   // smoothed direction of the pull
+    this.dx = 0; this.dy = 0;   // downhill, into the bowl
+    this.slip = 0;
     this.clack = 0;
     this._clackT = 0;
     this.hue = this.kind2 === 'marble'
@@ -59,8 +64,22 @@ export class BuriedItem extends Debris {
       this.ly += (f.fy / s - this.ly) * k;
     }
 
-    if (e < 0.999) {
-      // still held in the sand: the flow can only make it shiver in its socket
+    if (e < 0.9) {
+      // Still held in the sand — but the sand around it is sliding, so it
+      // creeps downhill with it. That is what walks a buried thing toward the
+      // crater, i.e. toward the side of the pile the nozzle is working, so it
+      // surfaces where the head can reach it instead of out on a flank.
+      if (this.pile && s > 0.08) {
+        // The sand under it is not just slumping, it is being carried AT the
+        // mouth, so it settles toward the nozzle as well as downhill. That is
+        // what makes a buried thing surface on the side the player is working.
+        const hf = this.pile.hf, c = 10;
+        const gx = hf.get(this.x - c, this.y) - hf.get(this.x + c, this.y);
+        const gy = hf.get(this.x, this.y - c) - hf.get(this.x, this.y + c);
+        const k = CREEP * s * dt;
+        this.x += (gx * 0.45 + this.lx * 26) * k;
+        this.y += (gy * 0.45 + this.ly * 26) * k;
+      }
       this.rock += (smoothstep(0.08, 0.7, s) * e - this.rock) * (1 - Math.exp(-11 * dt));
       this.state = s > 0.08 && e > 0.05 ? State.REACTING : State.IDLE;
       return;
@@ -75,8 +94,8 @@ export class BuriedItem extends Debris {
           // it does not fly in: it is knocked out of its hollow sideways and
           // rolls, curving into the mouth, clacking on the bare floor
           const side = this.rng.next() < 0.5 ? 1 : -1;
-          this.vx = f.fx * 46 - f.fy * 95 * side;
-          this.vy = f.fy * 46 + f.fx * 95 * side;
+          this.vx = f.fx * 46 - f.fy * 95 * side + this.dx * 70;
+          this.vy = f.fy * 46 + f.fx * 95 * side + this.dy * 70;
           this.spin = (this.rng.next() - 0.5) * 9;
           this.clack = 1;
           if (world && world.audio) world.audio.pop('tick', 0.8);
@@ -89,10 +108,39 @@ export class BuriedItem extends Debris {
       this.state = s > 0.06 ? State.REACTING : State.IDLE;
       if (s > BREAK) this.charge += (s - BREAK) * dt;
       else this.charge = Math.max(0, this.charge - dt * 0.45);
-      if (this.charge > 0.14) { this.cock = 0.09; this.state = State.REACTING; }
+      // It is also standing on the lip of the hole the nozzle just dug out from
+      // under it. Behind the head the cone gives almost no pull, so without
+      // this an exposed thing would sit on the rim for ever.
+      this.slip = 0;
+      if (this.pile) {
+        const hf = this.pile.hf, c = 9;
+        const gx = hf.get(this.x - c, this.y) - hf.get(this.x + c, this.y);
+        const gy = hf.get(this.x, this.y - c) - hf.get(this.x, this.y + c);
+        const m = Math.hypot(gx, gy);
+        if (m > SLIP) {
+          this.slip = m;
+          this.dx = gx / m; this.dy = gy / m;
+          this.charge += (m - SLIP) * 0.16 * dt;
+          this.rock = Math.max(this.rock, smoothstep(SLIP, SLIP + 5, m) * 0.8);
+        }
+      }
+      // once it is out of the sand it is just a loose thing on a hard floor:
+      // even the weak air behind the head walks it slowly toward the nozzle
+      if (s > 0.04) { this.x += this.lx * s * 150 * dt; this.y += this.ly * s * 150 * dt; }
+      if (this.charge > 0.11) { this.cock = 0.09; this.state = State.REACTING; }
     } else {
       this.vx += f.fx * ACC * dt;
       this.vy += f.fy * ACC * dt;
+      // A round thing on a slope rolls DOWNHILL, and the bowl the nozzle has
+      // dug is downhill. That is what carries it in from beside the head,
+      // where the cone gives almost no pull of its own.
+      if (this.pile) {
+        const hf = this.pile.hf, c = 9;
+        const gx = hf.get(this.x - c, this.y) - hf.get(this.x + c, this.y);
+        const gy = hf.get(this.x, this.y - c) - hf.get(this.x, this.y + c);
+        this.vx += gx * ROLLDOWN * dt;
+        this.vy += gy * ROLLDOWN * dt;
+      }
       const d = Math.exp(-FRICTION * dt);
       this.vx *= d; this.vy *= d;
       const px = this.x, py = this.y;
@@ -112,10 +160,20 @@ export class BuriedItem extends Debris {
         // it ploughs a little furrow through whatever sand is left
         this.pile.hf.add(this.x, this.y, -Math.min(0.9, sp * 0.004));
       }
-      if (sp < 7 && s < BREAK * 0.55) { this.rolling = false; this.vx = 0; this.vy = 0; this.charge = 0; }
+      if (sp < 7 && s < 0.18) { this.rolling = false; this.vx = 0; this.vy = 0; this.charge = 0; }
     }
 
-    if (f.inCapture) {
+    // The real head has a slot across its whole width, so anything rolling on
+    // the floor goes in as soon as it is under the head — not only when it
+    // happens to cross the little ellipse in front of the mouth.
+    let taken = f.inCapture;
+    if (!taken && this.rolling) {
+      const dx = this.x - vac.nozzle.x, dy = this.y - vac.nozzle.y;
+      const rr = vac.headRadius + this.r * 0.6;
+      taken = dx * dx + dy * dy < rr * rr;
+    }
+    if (taken) {
+      this.clack = 1;
       this._handOff(vac, { kind: this.kind2, color: this.hue, size: this.r * 2.4 });
       world && world.onCaptured && world.onCaptured(this);
     }
@@ -144,7 +202,7 @@ export class BuriedItem extends Debris {
       ctx.fill();
     }
     // only the part that is above the sand line is visible
-    if (e < 0.999) {
+    if (e < 0.9) {
       ctx.beginPath();
       ctx.rect(x - r * 1.6, y - r * 1.6, r * 3.2, r * 1.6 + r * 1.6 * e);
       ctx.clip();
@@ -237,6 +295,7 @@ export class BuriedItem extends Debris {
     s.rock = +this.rock.toFixed(3);
     s.rolling = this.rolling;
     s.charge = +this.charge.toFixed(3);
+    s.slip = +this.slip.toFixed(2);
     return s;
   }
 }
