@@ -20,10 +20,11 @@
  */
 import { CrowdScene } from './crowdScene';
 import type { SceneContext } from '../core/scene';
-import type { HandEvent } from '../core/input';
+import type { Hand, HandEvent } from '../core/input';
 import { Crowd } from '../crowd/crowd';
 import { gatherTowards, wander } from '../crowd/behaviors';
 import { SAFE } from '../core/viewport';
+import { KID_WORLD_H } from '../art/kidSheet';
 import { SCENE_TINTS } from '../art/palette';
 import { BGM_GATHER } from '../core/audio';
 import { CLUSTER_RADIUS, allExited, allGathered, gatherProgress } from './gatherLogic';
@@ -79,12 +80,14 @@ export class GatherScene extends CrowdScene {
     const halfH = Math.min(l.worldHeight, SAFE * 1.7) / 2;
     this.crowd.bounds.left = -halfW - 200;
     this.crowd.bounds.right = halfW + 900;
-    this.crowd.bounds.top = -halfH;
+    // A kid's sprite grows upwards from its feet, so keep everybody a whole
+    // kid's height away from the top edge: no decapitated children.
+    this.crowd.bounds.top = -(halfH - KID_WORLD_H);
     this.crowd.bounds.bottom = halfH;
     this.exitX = halfW + 400;
     if (!this.laidOut) {
       this.laidOut = true;
-      this.crowd.scatter(halfW * 0.88, halfH * 0.88);
+      this.crowd.scatter(halfW * 0.88, Math.min(halfH * 0.88, halfH - KID_WORLD_H));
       // Clear the middle: the scene must open with exactly one kid in the
       // centre, waving, and everybody else scattered around him. Anyone who
       // landed inside the cluster is pushed out past its edge.
@@ -97,7 +100,7 @@ export class GatherScene extends CrowdScene {
         if (d >= keepOut) continue;
         const a = d > 1e-3 ? Math.atan2(k.y, k.x) : (i / kids.length) * Math.PI * 2;
         const rx = Math.min(halfW * 0.92, keepOut + (i % 5) * 60);
-        const ry = Math.min(halfH * 0.92, keepOut + (i % 5) * 60);
+        const ry = Math.min(halfH - KID_WORLD_H, keepOut + (i % 5) * 60);
         k.x = Math.cos(a) * rx;
         k.y = Math.sin(a) * ry;
       }
@@ -121,6 +124,22 @@ export class GatherScene extends CrowdScene {
       this.ctx.audio.sfx.play('laugh', { gain: 0.5, detune: (Math.random() - 0.5) * 300 });
       this.pinWaver();
     }
+  }
+
+  /**
+   * A finger held down keeps inviting whoever it passes: the kids it touches
+   * take the finger as their target and walk along with it, so a slow sweep
+   * across the playground really does pull a line of kids behind it (§2.4,
+   * natural mapping between finger movement and world movement).
+   */
+  override applyHands(hands: Iterable<Hand>, dt: number): void {
+    super.applyHands(hands, dt);
+    if (this.phase !== 'scatter') return;
+    for (const hand of hands) {
+      if (!hand.active) continue;
+      gatherTowards(this.crowd, hand.x, hand.y, hand.radius * 1.6);
+    }
+    this.pinWaver();
   }
 
   /** The waver never gets dragged away by a gather; he is the landmark. */

@@ -21,10 +21,16 @@ export const IDLE_HINT_MIN = 8;
 export const IDLE_HINT_MAX = 12;
 export const AUTO_ADVANCE_AFTER = 30;
 
-/** World distance between consecutive scene origins (wider than any viewport). */
-export const PAN_STEP = 2400;
+/**
+ * World distance between consecutive scene origins. Wide enough that two
+ * scenes' contents never overlap (the widest scene is under +-600 units), but
+ * close enough that the incoming scene slides into view while the outgoing
+ * crowd is still leaving on the other side: the camera never travels over an
+ * empty screen.
+ */
+export const PAN_STEP = 1800;
 /** Seconds the camera takes to travel that distance. */
-export const PAN_SEC = 1.5;
+export const PAN_SEC = 1.3;
 
 export interface Camera {
   x: number;
@@ -95,6 +101,15 @@ export class Director {
   /** True while the camera is travelling between two scenes. */
   get panning(): boolean {
     return this.panT < 1;
+  }
+
+  /**
+   * True when the current scene's 30-second "nobody is touching anything"
+   * rescue has already fired. Exposed so the e2e suite can prove that a scene
+   * was completed by real gestures rather than by the safety net.
+   */
+  get autoAdvanceFired(): boolean {
+    return this.autoFired;
   }
 
   /** Index of the active scene in the sequence. */

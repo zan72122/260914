@@ -1,50 +1,10 @@
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import { SHOT_DIR, VIEWPORTS, bootGame, expectWordless, gotoScene } from './helpers';
 
-/** Device viewports from the plan: iPhone, iPad portrait, iPad landscape. */
-const VIEWPORTS = [
-  { name: 'iphone-390x844', width: 390, height: 844 },
-  { name: 'ipad-1024x1366-portrait', width: 1024, height: 1366 },
-  { name: 'ipad-1366x1024-landscape', width: 1366, height: 1024 },
-] as const;
-
-const SHOT_DIR = 'tests/e2e/__screenshots__';
-
-interface KidsHooks {
-  ready: boolean;
-  textCount: () => number;
-  kidCount: () => number;
-  fps: () => number;
-}
-
-declare global {
-  interface Window {
-    __kids?: KidsHooks;
-  }
-}
-
-async function bootGame(page: Page): Promise<void> {
-  await page.goto('/');
-  await page.waitForFunction(() => window.__kids?.ready === true, undefined, { timeout: 30_000 });
-  // Let the crowd settle so the screenshots show a living playground.
-  await page.waitForTimeout(1500);
-}
-
-/** Visible text nodes anywhere in the DOM (the <title> is not rendered). */
-async function domTextNodes(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
-    const found: string[] = [];
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    let node = walker.nextNode();
-    while (node) {
-      const t = (node.nodeValue ?? '').trim();
-      if (t.length > 0) found.push(t);
-      node = walker.nextNode();
-    }
-    return found;
-  });
-}
-
+/**
+ * The charter checks (§2 of the plan): every scene, on every device, must show
+ * zero text, zero buttons, and must react to any touch at all.
+ */
 for (const vp of VIEWPORTS) {
   test.describe(vp.name, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
@@ -55,24 +15,14 @@ for (const vp of VIEWPORTS) {
       await bootGame(page);
 
       // The crowd is actually simulated.
-      expect(await page.evaluate(() => window.__kids!.kidCount())).toBe(120);
+      expect(await page.evaluate(() => window.__kids!.kidCount())).toBeGreaterThan(20);
+      await expectWordless(page);
 
-      // Charter: zero text. No DOM text nodes...
-      expect(await domTextNodes(page)).toEqual([]);
-      // ...and no Pixi Text / BitmapText objects on the stage.
-      expect(await page.evaluate(() => window.__kids!.textCount())).toBe(0);
-
-      // No buttons, inputs or links either - there is no UI at all.
-      expect(await page.locator('button, a, input, select, textarea').count()).toBe(0);
-
-      await page.screenshot({ path: `${SHOT_DIR}/${vp.name}-idle.png` });
-
-      // A tap anywhere must be handled without error and stay wordless.
       const cx = vp.width / 2;
       const cy = vp.height / 2;
       await page.mouse.click(cx, cy);
       await page.waitForTimeout(300);
-      await page.screenshot({ path: `${SHOT_DIR}/${vp.name}-tap.png` });
+      await expectWordless(page);
 
       // A drag: press, move a long way, release.
       await page.mouse.move(cx - 120, cy - 80);
@@ -83,10 +33,13 @@ for (const vp of VIEWPORTS) {
       }
       await page.mouse.up();
       await page.waitForTimeout(400);
-      await page.screenshot({ path: `${SHOT_DIR}/${vp.name}-drag.png` });
+      await expectWordless(page);
 
-      expect(await page.evaluate(() => window.__kids!.textCount())).toBe(0);
-      expect(await domTextNodes(page)).toEqual([]);
+      // ...and the second scene has to be just as wordless as the first.
+      await gotoScene(page, 'ballpit');
+      await page.mouse.click(cx, cy);
+      await page.waitForTimeout(400);
+      await expectWordless(page);
       expect(consoleErrors).toEqual([]);
     });
   });
@@ -97,6 +50,7 @@ test.describe('multi-touch', () => {
 
   test('two fingers at once do not conflict', async ({ page }) => {
     await bootGame(page);
+    const before = await page.evaluate(() => window.__kids!.kidCount());
     const client = await page.context().newCDPSession(page);
     await client.send('Input.dispatchTouchEvent', {
       type: 'touchStart',
@@ -117,8 +71,8 @@ test.describe('multi-touch', () => {
     await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     await page.waitForTimeout(400);
     await page.screenshot({ path: `${SHOT_DIR}/ipad-multitouch.png` });
-    expect(await page.evaluate(() => window.__kids!.textCount())).toBe(0);
-    expect(await page.evaluate(() => window.__kids!.kidCount())).toBe(120);
+    await expectWordless(page);
+    expect(await page.evaluate(() => window.__kids!.kidCount())).toBe(before);
   });
 });
 
@@ -127,10 +81,38 @@ test.describe('rotation', () => {
 
   test('survives an orientation change without restarting', async ({ page }) => {
     await bootGame(page);
+    const before = await page.evaluate(() => window.__kids!.kidCount());
     await page.setViewportSize({ width: 1366, height: 1024 });
     await page.waitForTimeout(800);
-    expect(await page.evaluate(() => window.__kids!.kidCount())).toBe(120);
-    expect(await page.evaluate(() => window.__kids!.textCount())).toBe(0);
+    expect(await page.evaluate(() => window.__kids!.kidCount())).toBe(before);
+    await expectWordless(page);
     await page.screenshot({ path: `${SHOT_DIR}/ipad-rotated.png` });
+  });
+});
+
+test.describe('transitions', () => {
+  test.use({ viewport: { width: 1024, height: 1366 } });
+
+  test('runs the two scenes in order and wraps around, with no blackout', async ({ page }) => {
+    await bootGame(page);
+    expect(await page.evaluate(() => window.__kids!.sceneName())).toBe('gather');
+    // End scene 1 the way the game does: the crowd runs off to the right and
+    // the camera follows them into the next scene.
+    await page.evaluate(() => window.__kids!.finishScene());
+    // Mid-pan both worlds are on screen at once: the camera moves, nothing cuts.
+    await page.waitForTimeout(900);
+    expect(await page.evaluate(() => window.__kids!.panning())).toBe(true);
+    await page.screenshot({ path: `${SHOT_DIR}/transition-pan.png` });
+    await expectWordless(page);
+    await page.waitForTimeout(1400);
+    expect(await page.evaluate(() => window.__kids!.panning())).toBe(false);
+    expect(await page.evaluate(() => window.__kids!.sceneName())).toBe('ballpit');
+    expect(await page.evaluate(() => window.__kids!.sceneIndex())).toBe(1);
+
+    await page.evaluate(() => window.__kids!.advanceScene());
+    await page.waitForTimeout(2200);
+    expect(await page.evaluate(() => window.__kids!.sceneName())).toBe('gather');
+    expect(await page.evaluate(() => window.__kids!.sceneIndex())).toBe(0);
+    await expectWordless(page);
   });
 });

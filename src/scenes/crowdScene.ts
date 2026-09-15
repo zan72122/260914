@@ -16,6 +16,7 @@ import { applyAttention, applyDragForce } from '../crowd/behaviors';
 import { FRAME_H, KID_WORLD_H } from '../art/kidSheet';
 import { buildRingTexture } from '../art/ring';
 import { Confetti } from './confetti';
+import { PAN_STEP } from '../core/director';
 
 interface Ripple {
   sprite: Sprite;
@@ -129,14 +130,19 @@ export abstract class CrowdScene extends Scene {
     }
   }
 
-  /** Sends the whole crowd running off the right edge, laughing. */
+  /**
+   * Sends the whole crowd running off the right edge, laughing. The target is
+   * far past the edge on purpose: nobody must ever stop and stand around in
+   * view while the camera is still panning to the next scene.
+   */
   protected runOff(): void {
     const kids = this.crowd.kids;
+    this.crowd.bounds.right = this.exitX + PAN_STEP * 2;
     for (let i = 0; i < kids.length; i++) {
       const k = kids[i];
       k.locked = false;
       k.hasTarget = true;
-      k.targetX = this.exitX + 300 + (i % 5) * 80;
+      k.targetX = this.exitX + PAN_STEP + (i % 5) * 80;
       k.targetY = k.y + ((i % 7) - 3) * 18;
       k.setState('run', true);
       k.locked = true;

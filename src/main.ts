@@ -102,6 +102,7 @@ async function boot(): Promise<void> {
       return s?.debugPhase?.() ?? '';
     },
     panning: () => director.panning,
+    autoFired: () => director.autoAdvanceFired,
     advanceScene: () => director.advanceScene(),
     finishScene: () => director.current?.finishNow(),
     idleHint: () => director.current?.onIdleHint(),
