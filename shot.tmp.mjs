@@ -1,0 +1,17 @@
+import { chromium } from '@playwright/test';
+process.env.PLAYWRIGHT_BROWSERS_PATH ??= '/opt/pw-browsers';
+const names = ['gather','march','tickle','ballpit','butterfly','slide','hide','balloon','tower','sleep'];
+const scene = process.argv[2] ?? 'gather';
+const dev = process.argv[3] ?? 'ipad';
+const vp = dev === 'ipad' ? { width: 1366, height: 1024 } : { width: 390, height: 844 };
+const out = `/tmp/claude-0/-home-user-260914/fa042630-0978-56be-9ddd-9330ae7d5132/scratchpad/${scene}-${dev}.png`;
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: vp });
+await page.goto('http://127.0.0.1:4173/');
+await page.waitForFunction(() => window.__kids?.ready === true, undefined, { timeout: 30000 });
+await page.waitForTimeout(1000);
+await page.evaluate((i) => window.__kids.gotoScene(i), names.indexOf(scene));
+await page.waitForTimeout(1500);
+await page.screenshot({ path: out, clip: process.argv[5] ? undefined : undefined });
+console.log('wrote', out);
+await browser.close();

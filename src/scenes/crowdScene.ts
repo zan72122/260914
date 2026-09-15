@@ -13,7 +13,7 @@ import type { SceneContext } from '../core/scene';
 import type { Hand, HandEvent } from '../core/input';
 import { Crowd } from '../crowd/crowd';
 import { applyAttention, applyDragForce } from '../crowd/behaviors';
-import { FRAME_H, KID_WORLD_H } from '../art/kidSheet';
+import { FRAME_H, KID_WORLD_H, boilFrame } from '../art/kidSheet';
 import { buildRingTexture } from '../art/ring';
 import { Confetti } from './confetti';
 import { PAN_STEP } from '../core/director';
@@ -52,6 +52,12 @@ export abstract class CrowdScene extends Scene {
   private ringTexture = buildRingTexture();
   protected spriteScale = 1;
   protected time = 0;
+  /**
+   * Clock for the line boil. It is separate from `time` because scenes use
+   * `time` for their own animation and some of them stop advancing it; the
+   * crayon lines have to keep breathing whatever the scene is doing.
+   */
+  private boilTime = 0;
   /** Per-kid extra sprite scale, used for the "waves bigger" hint. */
   protected extraScale: number[] = [];
   /**
@@ -121,11 +127,15 @@ export abstract class CrowdScene extends Scene {
   protected syncSprites(dt: number): void {
     const kids = this.crowd.kids;
     const sheet = this.ctx.sheet;
+    // One integer for the whole crowd: which bake of the boil everybody is
+    // drawn from this frame. Same atlas, same draw call, living line.
+    this.boilTime += dt;
+    const boil = boilFrame(this.boilTime);
     let steps = 0;
     for (let i = 0; i < kids.length; i++) {
       const k = kids[i];
       const s = this.sprites[i];
-      s.texture = sheet.get(k.variant, k.pose, k.frame);
+      s.texture = sheet.get(k.variant, k.pose, k.frame, boil);
       s.position.set(k.x, k.y);
       const e = this.extraScale[i] * (1 + k.attention * 0.04);
       s.scale.x = this.spriteScale * k.facing * e;

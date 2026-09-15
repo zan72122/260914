@@ -65,6 +65,30 @@ export const FRAMES_PER_VARIANT = POSE_ORDER.reduce((n, p) => n + POSE_FRAMES[p]
 /** Number of kid variants (one per pastel shirt colour). */
 export const VARIANTS = SHIRTS.length;
 
+/**
+ * "Boil": the hand-drawn line never sits still (§3 of the plan).
+ *
+ * Every frame of every pose is baked three times over, each with a different
+ * wobble seed, and the whole crowd cycles through those three bakes at
+ * BOIL_FPS. Because the wobble is only ever a pixel or two, the result reads
+ * as a crayon line that is alive rather than as anything moving; because the
+ * three bakes are three more rows of the SAME atlas, it costs no extra draw
+ * calls and no per-frame work beyond one integer.
+ *
+ * Three is the traditional number (a "three-frame boil"), and it is also the
+ * most the atlas can afford: at three the sheet is 2688x2304, comfortably
+ * inside the 4096 limit every target device guarantees.
+ */
+export const BOIL_VARIANTS = 3;
+/** How fast the boil cycles, in bakes per second. */
+export const BOIL_FPS = 8;
+
+/** Which bake of the boil to draw at `time` seconds. */
+export function boilFrame(time: number): number {
+  const n = Math.floor(time * BOIL_FPS) % BOIL_VARIANTS;
+  return n < 0 ? n + BOIL_VARIANTS : n;
+}
+
 export const FRAME_W = 96;
 export const FRAME_H = 128;
 /**
@@ -97,16 +121,20 @@ export function poseColumn(pose: PoseName): number {
   return 0;
 }
 
-/** Atlas frame index (0..VARIANTS*FRAMES_PER_VARIANT-1). */
-export function frameIndex(variant: number, pose: PoseName, frame: number): number {
+/**
+ * Atlas frame index. The atlas is laid out as BOIL_VARIANTS blocks of VARIANTS
+ * rows: bake 0's six shirt colours, then bake 1's, then bake 2's.
+ */
+export function frameIndex(variant: number, pose: PoseName, frame: number, boil = 0): number {
   const v = ((variant % VARIANTS) + VARIANTS) % VARIANTS;
+  const b = ((boil % BOIL_VARIANTS) + BOIL_VARIANTS) % BOIL_VARIANTS;
   const n = POSE_FRAMES[pose];
   const f = ((frame % n) + n) % n;
-  return v * FRAMES_PER_VARIANT + poseColumn(pose) + f;
+  return (b * VARIANTS + v) * FRAMES_PER_VARIANT + poseColumn(pose) + f;
 }
 
 export const ATLAS_W = FRAME_W * FRAMES_PER_VARIANT;
-export const ATLAS_H = FRAME_H * VARIANTS;
+export const ATLAS_H = FRAME_H * VARIANTS * BOIL_VARIANTS;
 
 export interface PoseParams {
   /** Vertical body offset (jump). */
@@ -246,13 +274,16 @@ export function drawKidFrame(
   variant: number,
   pose: PoseName,
   frame: number,
+  boil = 0,
 ): void {
   const shirt = SHIRTS[variant % SHIRTS.length];
   const skin = SKINS[variant % SKINS.length];
   const hair = HAIRS[variant % HAIRS.length];
   const p = poseParams(pose, frame);
-  // Seed per (variant,pose,frame) so wobble is stable but varied.
-  const rng = seededRandom(1000 + variant * 97 + poseColumn(pose) * 13 + frame * 7);
+  // Seed per (variant,pose,frame,boil) so the wobble is stable between runs
+  // but different in each bake of the boil — which is the whole effect: the
+  // same drawing, redrawn by the same hand, a pixel or two out each time.
+  const rng = seededRandom(1000 + variant * 97 + poseColumn(pose) * 13 + frame * 7 + boil * 100003);
 
   ctx.save();
   ctx.translate(ox + FRAME_W / 2, oy + FRAME_H);
@@ -467,12 +498,15 @@ function drawCurled(
 /** Draws the whole atlas into a canvas-2d context. Pure Canvas2D, no Pixi. */
 export function drawKidSheet(ctx: Ctx2D): void {
   ctx.clearRect(0, 0, ATLAS_W, ATLAS_H);
-  for (let v = 0; v < VARIANTS; v++) {
-    let col = 0;
-    for (const pose of POSE_ORDER) {
-      for (let f = 0; f < POSE_FRAMES[pose]; f++) {
-        drawKidFrame(ctx, col * FRAME_W, v * FRAME_H, v, pose, f);
-        col++;
+  for (let b = 0; b < BOIL_VARIANTS; b++) {
+    for (let v = 0; v < VARIANTS; v++) {
+      const row = b * VARIANTS + v;
+      let col = 0;
+      for (const pose of POSE_ORDER) {
+        for (let f = 0; f < POSE_FRAMES[pose]; f++) {
+          drawKidFrame(ctx, col * FRAME_W, row * FRAME_H, v, pose, f, b);
+          col++;
+        }
       }
     }
   }
@@ -482,7 +516,7 @@ export interface KidSheet {
   /** All frames, indexed by `frameIndex()`. */
   textures: Texture[];
   canvas: HTMLCanvasElement;
-  get(variant: number, pose: PoseName, frame: number): Texture;
+  get(variant: number, pose: PoseName, frame: number, boil?: number): Texture;
 }
 
 /** Builds the atlas canvas and slices it into Pixi textures (browser only). */
@@ -497,12 +531,12 @@ export function buildKidSheet(): KidSheet {
   const base = Texture.from(canvas).source;
   base.scaleMode = 'linear';
   const textures: Texture[] = [];
-  for (let v = 0; v < VARIANTS; v++) {
+  for (let row = 0; row < VARIANTS * BOIL_VARIANTS; row++) {
     for (let c = 0; c < FRAMES_PER_VARIANT; c++) {
       textures.push(
         new Texture({
           source: base,
-          frame: new Rectangle(c * FRAME_W, v * FRAME_H, FRAME_W, FRAME_H),
+          frame: new Rectangle(c * FRAME_W, row * FRAME_H, FRAME_W, FRAME_H),
         }),
       );
     }
@@ -510,8 +544,8 @@ export function buildKidSheet(): KidSheet {
   return {
     textures,
     canvas,
-    get(variant, pose, frame) {
-      return textures[frameIndex(variant, pose, frame)];
+    get(variant, pose, frame, boil = 0) {
+      return textures[frameIndex(variant, pose, frame, boil)];
     },
   };
 }
