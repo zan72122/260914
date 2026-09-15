@@ -1,4 +1,4 @@
-import type { Board, Height, Layer, Tile, TileKind, Tool, ToolKind, Vec2, Direction } from '../core/types';
+import type { Board, Height, Layer, Reveal, Tile, TileKind, Tool, ToolKind, Vec2, Direction } from '../core/types';
 
 /** テーマ ID(7.1 のパレット表に対応)。M2 時点では砂漠(昼)のみ使用 */
 export type ThemeId =
@@ -46,6 +46,8 @@ export interface CellSpec {
   readonly rot?: Direction;
   readonly height?: Height;
   readonly layer?: Layer;
+  /** block のとき、壊すと現れるタイル(4.2 T3) */
+  readonly reveal?: Reveal;
 }
 
 export interface ToolSpec {
@@ -77,12 +79,13 @@ export function buildBoard(level: Level): Board {
   for (let i = 0; i < tiles.length; i++) tiles[i] = { ...EMPTY_TILE, layer: defaultLayer };
   for (const c of level.cells) {
     if (c.x < 0 || c.y < 0 || c.x >= w || c.y >= h) continue;
-    tiles[c.y * w + c.x] = {
+    const base: Tile = {
       kind: c.kind,
       rot: c.rot ?? 0,
       height: c.height ?? 0,
       layer: c.layer ?? defaultLayer,
     };
+    tiles[c.y * w + c.x] = c.reveal ? { ...base, reveal: c.reveal } : base;
   }
   return { w, h, tiles };
 }

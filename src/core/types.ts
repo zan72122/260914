@@ -55,6 +55,18 @@ export interface Tile {
   readonly height: Height;
   /** 通行不可タイル(empty/block)でも便宜上レイヤーを持つ */
   readonly layer: Layer;
+  /**
+   * `block` を壊したときに現れるタイル(瓦礫の下に埋まっている道)。
+   * 省略時は跡が空地になる。破壊できるのは `block` だけなので、
+   * これを持たせても「壊して道を失う」操作は増えない(4.2 T3 / R9)。
+   */
+  readonly reveal?: Reveal;
+}
+
+/** block の下に埋まっているもの */
+export interface Reveal {
+  readonly kind: TileKind;
+  readonly rot: Direction;
 }
 
 export interface Board {

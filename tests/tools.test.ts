@@ -139,3 +139,113 @@ describe('applyTool', () => {
     expect(r.state).toBe(s);
   });
 });
+
+describe('範囲ツール(1×2 / 2×2)', () => {
+  it('1×2 の上げ下げは 2 枚が同時に動く', () => {
+    const cells = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+    ];
+    let b = board(2, 1, [t('straight', 1, 1), t('straight', 1, 1)]);
+    b = toggleHeight(b, cells);
+    expect(tileAt(b, { x: 0, y: 0 })?.height).toBe(0);
+    expect(tileAt(b, { x: 1, y: 0 })?.height).toBe(0);
+    b = toggleHeight(b, cells);
+    expect(tileAt(b, { x: 0, y: 0 })?.height).toBe(1);
+    expect(tileAt(b, { x: 1, y: 0 })?.height).toBe(1);
+  });
+
+  it('2×2 の上げ下げは 4 枚が同時に動く', () => {
+    const cells = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 0, y: 1 },
+      { x: 1, y: 1 },
+    ];
+    const b = toggleHeight(
+      board(2, 2, [t('empty', 0, 1), t('straight', 0, 1), t('empty', 0, 1), t('curve', 0, 1)]),
+      cells,
+    );
+    for (const c of cells) expect(tileAt(b, c)?.height).toBe(0);
+  });
+
+  it('2×2 の範囲は種別に関わらず全部動く(空地も一緒に上下する)', () => {
+    const cells = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 0, y: 1 },
+      { x: 1, y: 1 },
+    ];
+    const b = toggleHeight(board(2, 2, [t('empty'), t('empty'), t('block'), t('goal')]), cells);
+    for (const c of cells) expect(tileAt(b, c)?.height).toBe(1);
+  });
+
+  it('2×2 の回転は 4 枚が同時に回り、回せないものは据え置き', () => {
+    const cells = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 0, y: 1 },
+      { x: 1, y: 1 },
+    ];
+    const b = rotateTiles(board(2, 2, [t('curve', 0), t('tee', 1), t('cross', 0), t('block', 0)]), cells);
+    expect(tileAt(b, { x: 0, y: 0 })?.rot).toBe(1);
+    expect(tileAt(b, { x: 1, y: 0 })?.rot).toBe(2);
+    expect(tileAt(b, { x: 0, y: 1 })?.rot).toBe(0);
+    expect(tileAt(b, { x: 1, y: 1 })?.rot).toBe(0);
+  });
+
+  it('2×2 の破壊は範囲内の block だけを消す', () => {
+    const cells = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 0, y: 1 },
+      { x: 1, y: 1 },
+    ];
+    const b = destroyBlocks(board(2, 2, [t('block'), t('straight', 1), t('block'), t('empty')]), cells);
+    expect(tileAt(b, { x: 0, y: 0 })?.kind).toBe('empty');
+    expect(tileAt(b, { x: 1, y: 0 })?.kind).toBe('straight');
+    expect(tileAt(b, { x: 0, y: 1 })?.kind).toBe('empty');
+  });
+});
+
+describe('瓦礫の下のタイル(reveal)', () => {
+  it('壊すと下に埋まっていた道が現れる', () => {
+    const tile: Tile = {
+      kind: 'block',
+      rot: 0,
+      height: 1,
+      layer: 'rail',
+      reveal: { kind: 'curve', rot: 2 },
+    };
+    const b = destroyBlocks(board(1, 1, [tile]), [{ x: 0, y: 0 }]);
+    const after = tileAt(b, { x: 0, y: 0 });
+    expect(after?.kind).toBe('curve');
+    expect(after?.rot).toBe(2);
+    expect(after?.height).toBe(1); // 高さとレイヤーは保たれる
+    expect(after?.layer).toBe('rail');
+    expect(after?.reveal).toBeUndefined();
+  });
+
+  it('reveal が無ければ跡は空地のまま', () => {
+    const b = destroyBlocks(board(1, 1, [t('block', 0, 1)]), [{ x: 0, y: 0 }]);
+    expect(tileAt(b, { x: 0, y: 0 })?.kind).toBe('empty');
+    expect(tileAt(b, { x: 0, y: 0 })?.height).toBe(1);
+  });
+
+  it('block は壊す前は回せない(壊してから回す順でしか通らない)', () => {
+    const tile: Tile = { kind: 'block', rot: 0, height: 0, layer: 'road', reveal: { kind: 'curve', rot: 0 } };
+    const rotated = rotateTiles(board(1, 1, [tile]), [{ x: 0, y: 0 }]);
+    expect(tileAt(rotated, { x: 0, y: 0 })?.kind).toBe('block');
+    expect(tileAt(rotated, { x: 0, y: 0 })?.reveal?.rot).toBe(0);
+  });
+});
+
+describe('線路レイヤー', () => {
+  it('道路と線路は混ざらない(レイヤーは操作で変わらない)', () => {
+    const rail: Tile = { kind: 'curve', rot: 0, height: 0, layer: 'rail' };
+    let b = board(1, 1, [rail]);
+    b = rotateTiles(b, [{ x: 0, y: 0 }]);
+    b = toggleHeight(b, [{ x: 0, y: 0 }]);
+    expect(tileAt(b, { x: 0, y: 0 })?.layer).toBe('rail');
+  });
+});

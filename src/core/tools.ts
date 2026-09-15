@@ -69,7 +69,14 @@ export function destroyBlocks(board: Board, cells: readonly Vec2[]): Board {
     const t = tileAt(board, c);
     if (!t) continue;
     if (t.kind !== 'block') continue;
-    updates.push({ at: c, tile: { ...t, kind: 'empty', rot: 0 } });
+    // 瓦礫の下に道が埋まっていればそれが現れる。無ければ跡は空地。
+    const r = t.reveal;
+    updates.push({
+      at: c,
+      tile: r
+        ? { kind: r.kind, rot: r.rot, height: t.height, layer: t.layer }
+        : { kind: 'empty', rot: 0, height: t.height, layer: t.layer },
+    });
   }
   return updates.length > 0 ? withTiles(board, updates) : board;
 }
