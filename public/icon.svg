@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    ホーム画面のアイコン。文字は一切入れない（絶対条件 1）。
+    形は炎だけ。色は工房の闇色の上に、ガス炎の青から銅の青緑へ。
+  -->
+  <defs>
+    <linearGradient id="outer" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#001a4d" />
+      <stop offset="0.35" stop-color="#0053b3" />
+      <stop offset="0.75" stop-color="#00a8cf" />
+      <stop offset="1" stop-color="#00d0d3" />
+    </linearGradient>
+    <linearGradient id="inner" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#7fe6ff" />
+      <stop offset="0.6" stop-color="#d8fbff" />
+      <stop offset="1" stop-color="#ffffff" />
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.62" r="0.5">
+      <stop offset="0" stop-color="#0d5fa8" stop-opacity="0.55" />
+      <stop offset="1" stop-color="#05070d" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="#05070d" />
+  <rect width="512" height="512" fill="url(#glow)" />
+  <g id="flame">
+    <path
+      fill="url(#outer)"
+      d="M256 40 C 330 140 386 196 386 288 C 386 360 328 420 256 420 C 184 420 126 360 126 288 C 126 222 168 188 196 132 C 214 186 236 196 240 150 C 244 112 250 76 256 40 Z"
+    />
+    <path
+      fill="url(#inner)"
+      d="M256 196 C 292 250 318 276 318 318 C 318 356 290 384 256 384 C 222 384 194 356 194 318 C 194 288 214 272 228 240 C 238 268 250 262 252 238 C 253 222 254 210 256 196 Z"
+    />
+  </g>
+</svg>
