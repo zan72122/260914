@@ -1,4 +1,4 @@
-// tests/e2e.mjs — F1/F2 verification. No npm dependencies: uses node's http server
+// tests/e2e.mjs — F3/F4 verification. No npm dependencies: uses node's http server
 // and the globally installed Playwright (PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers).
 //
 //   node tests/e2e.mjs
@@ -122,6 +122,21 @@ const SIZES = [
   { name: 'ipad-1024x1366', width: 1024, height: 1366 }
 ];
 
+const INITIAL = JSON.stringify([[[], ['T4']], [['T1'], ['T2']]]);
+
+const runner = (page) => page.evaluate(() => ({
+  index: window.__game.runner.index,
+  solved: [...window.__game.runner.solved],
+  current: window.__game.runner.current() ? window.__game.runner.current().id : null,
+  busy: window.__game.board.busy
+}));
+
+/** Wait for the staged sequence of a puzzle to finish. */
+const settled = (page, index) => page.waitForFunction(
+  (i) => window.__game.runner.index >= i && window.__game.board.busy === false,
+  index, { timeout: 30000 }
+);
+
 const server = await serve();
 const { chromium } = await loadPlaywright();
 const browser = await chromium.launch();
@@ -136,7 +151,7 @@ try {
     const page = await ctx.newPage();
     watchConsole(page, errors);
     await ready(page);
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(300);
     const shot = path.join(SHOT_DIR, `${s.name}.png`);
     await page.screenshot({ path: shot });
 
@@ -149,74 +164,151 @@ try {
     ok(Math.abs(m.cx - m.vw / 2) < 1.5 && Math.abs(m.cy - m.vh / 2) < 1.5, `${s.name}: board is centred`);
     ok(m.w <= 900.5, `${s.name}: board <= 900px (${m.w.toFixed(1)})`);
     ok(m.w <= Math.min(m.vw, m.vh) + 0.5, `${s.name}: board fits the short side`);
-    ok(m.tiles === 4, `${s.name}: 4 tiles rendered`);
+    ok(m.tiles === 3, `${s.name}: 3 tiles rendered (top-left starts empty)`);
     console.log(`        -> ${shot}`);
     await ctx.close();
   }
 
-  /* --- 2. interaction --- */
-  console.log('\n[2] interaction');
+  /* --- 2. drop rules, ordering, zoom --- */
+  console.log('\n[2] drop rules / ordering / zoom');
   const ctx = await browser.newContext({ viewport: { width: 844, height: 844 }, deviceScaleFactor: 1, hasTouch: true });
   const page = await ctx.newPage();
   watchConsole(page, errors);
   await ready(page);
 
   let s0 = await state(page);
-  ok(JSON.stringify(s0.cells) === JSON.stringify([[['T3'], ['T2']], [['T1'], ['T4']]]),
-     'initial placement T3/T2/T1/T4', JSON.stringify(s0.cells));
+  ok(JSON.stringify(s0.cells) === INITIAL, 'initial placement: empty / T4 / T1 / T2 (docs 02 D2)', JSON.stringify(s0.cells));
+  ok(!(await page.evaluate(() => window.__game.board.tiles.has('T3'))), 'T3 is not on the board yet');
+  ok((await runner(page)).current === 'P1', 'the current puzzle is P1');
 
-  // 2a. stack: T3 onto T1 (T1 has the window hole) -> T3 slides underneath
-  await drag(page, await cellPoint(page, 0, 0), await cellPoint(page, 1, 0));
+  // 2a. wrong place: T4 dropped on T2 (no hole) floats back home
+  await drag(page, await cellPoint(page, 0, 1), await cellPoint(page, 1, 1));
   let s1 = await state(page);
-  ok(JSON.stringify(s1.cells[1][0]) === '["T3","T1"]', 'T3 slid under T1 (stack, hole)', JSON.stringify(s1.cells));
-  ok(s1.cells[0][0].length === 0, 'top-left cell is now empty');
-  await page.screenshot({ path: path.join(SHOT_DIR, 'step-stacked.png') });
+  ok(JSON.stringify(s1.cells) === INITIAL, 'drop on a hole-less tile floats back home', JSON.stringify(s1.cells));
 
-  // 2b. move: T2 into the now empty cell above T1
-  await drag(page, await cellPoint(page, 0, 1), await cellPoint(page, 0, 0));
+  // 2b. wrong place: dragged off the board floats back home
+  await drag(page, await cellPoint(page, 0, 1), { x: 6, y: 6 });
+  ok(JSON.stringify((await state(page)).cells) === INITIAL, 'drop outside the board floats back home');
+
+  // 2c. P2 cannot be reached before P1: stacking T4 under T1 solves nothing
+  await drag(page, await cellPoint(page, 0, 1), await cellPoint(page, 1, 0));
   let s2 = await state(page);
-  ok(JSON.stringify(s2.cells[0][0]) === '["T2"]', 'T2 moved into the empty cell', JSON.stringify(s2.cells));
-  ok(s2.cells[0][1].length === 0, 'vacated cell is empty');
+  ok(JSON.stringify(s2.cells[1][0]) === '["T4","T1"]', 'T4 slid under T1 (legal stack, wrong item)', JSON.stringify(s2.cells));
+  let r2 = await runner(page);
+  ok(r2.index === 0 && r2.solved.length === 0, 'no puzzle is solved out of order (P2 needs P1 first)', JSON.stringify(r2));
 
-  // 2c. reject: T4 dropped on T2 (no hole) -> returns home
-  await drag(page, await cellPoint(page, 1, 1), await cellPoint(page, 0, 0));
-  let s3 = await state(page);
-  ok(JSON.stringify(s3.cells[1][1]) === '["T4"]', 'drop on a hole-less tile floats back home', JSON.stringify(s3.cells));
-
-  // 2d. reject: drag outside the board -> returns home
-  await drag(page, await cellPoint(page, 1, 1), { x: 5, y: 5 });
-  let s4 = await state(page);
-  ok(JSON.stringify(s4.cells[1][1]) === '["T4"]', 'drop outside the board floats back home', JSON.stringify(s4.cells));
-
-  // 2e. zoom in: tap the pot portal inside T1
-  const pot = await svgPoint(page, 'T1', 700, 600);
+  // 2d. zoom in / out on the pot portal
+  const pot = await svgPoint(page, 'T1', 270, 520);
   await page.mouse.move(pot.x, pot.y);
   await page.mouse.down(); await page.mouse.up();
   await page.waitForTimeout(600);
-  let s5 = await state(page);
-  ok(s5.zoom.T1 === 1, 'tapping the pot portal zooms T1 in', JSON.stringify(s5.zoom));
-  await page.screenshot({ path: path.join(SHOT_DIR, 'step-zoomed.png') });
-
-  // 2f. zoom out: drag the zoomed tile out of its frame (it must not move)
+  ok((await state(page)).zoom.T1 === 1, 'tapping the pot portal zooms T1 in');
   await drag(page, await cellPoint(page, 1, 0), { x: 20, y: 20 });
-  let s6 = await state(page);
-  ok(s6.zoom.T1 === 0, 'dragging a zoomed tile out of its frame zooms out', JSON.stringify(s6.zoom));
-  ok(JSON.stringify(s6.cells[1][0]) === '["T3","T1"]', 'a zoomed tile does not move', JSON.stringify(s6.cells));
+  let s3 = await state(page);
+  ok(s3.zoom.T1 === 0, 'dragging a zoomed tile out of its frame zooms out');
+  ok(JSON.stringify(s3.cells[1][0]) === '["T4","T1"]', 'a zoomed tile does not move');
 
-  /* --- 3. wordless --- */
-  console.log('\n[3] wordless');
-  const text = await page.evaluate(() => document.body.innerText.trim());
-  ok(text === '', 'document.body.innerText.trim() === ""', JSON.stringify(text));
-  const svgText = await page.evaluate(() => document.querySelectorAll('svg text, svg tspan').length);
-  ok(svgText === 0, 'no <text>/<tspan> in any SVG');
-  const alts = await page.evaluate(() => [...document.querySelectorAll('[alt],[aria-label],[title]')].length);
-  ok(alts === 0, 'no alt/aria-label/title attributes that could render text');
+  // 2e. the world invites after 15s of silence (docs/01.md 4.7)
+  await page.evaluate(() => window.__game.hints.reset());
+  ok(await page.evaluate(() => window.__game.board.tiles.get('T2').el.getAnimations().length === 0),
+     'no hint while the hand is moving');
+  await page.waitForTimeout(15600);
+  const hint1 = await page.evaluate(() => ({
+    supply: window.__game.board.tiles.get('T2').el.getAnimations().length,
+    target: window.__game.board.tiles.get('T1').layer('soil').getAnimations().length
+  }));
+  ok(hint1.supply > 0, '15s: the supplying tile floats', JSON.stringify(hint1));
+  ok(hint1.target > 0, '15s: the receiving soil brightens', JSON.stringify(hint1));
 
-  await page.screenshot({ path: path.join(SHOT_DIR, 'step-final.png') });
+  // the 45s stage leans the tile toward the receiving cell
+  const hint2 = await page.evaluate(() => {
+    window.__game.hints.show(2);
+    const anims = window.__game.board.tiles.get('T2').el.getAnimations();
+    const kf = anims.length ? anims[0].effect.getKeyframes() : [];
+    return { n: anims.length, frames: kf.map((f) => f.transform) };
+  });
+  ok(hint2.n > 0 && /translate\(/.test(hint2.frames.join(' ')), '45s: the supplying tile leans over', JSON.stringify(hint2));
+  await page.evaluate(() => window.__game.hints.reset());
+  ok(await page.evaluate(() => window.__game.board.tiles.get('T2').el.getAnimations().length === 0),
+     'any input cancels the invitation');
   await ctx.close();
 
-  /* --- 4. console --- */
-  console.log('\n[4] console');
+  /* --- 3. the full run: P1 -> P2 -> P3 -> ending -> seed -> start over --- */
+  console.log('\n[3] P1 -> P2 -> P3 -> ending');
+  const ctx2 = await browser.newContext({ viewport: { width: 844, height: 844 }, deviceScaleFactor: 1, hasTouch: true });
+  const play = await ctx2.newPage();
+  watchConsole(play, errors);
+  await ready(play);
+
+  // P1: T2 (bottom-right) onto the empty cell above T1
+  await drag(play, await cellPoint(play, 1, 1), await cellPoint(play, 0, 0));
+  await settled(play, 1);
+  let p1 = await state(play);
+  ok(JSON.stringify(p1.cells[0][0]) === '["T2"]', 'P1: T2 sits above T1', JSON.stringify(p1.cells));
+  ok(JSON.stringify(p1.cells[1][1]) === '["T3"]', 'P1: the sun rises into the freed cell', JSON.stringify(p1.cells));
+  ok((await play.evaluate(() => window.__game.board.tiles.get('T2').el.classList.contains('desaturated'))),
+     'P1: T2 has lost its colour');
+  ok((await play.evaluate(() => +window.__game.board.tiles.get('T1').layer('sprout').style.opacity)) === 1,
+     'P1: the sprout is visible');
+  await play.screenshot({ path: path.join(SHOT_DIR, 'p1-rain.png') });
+  ok((await runner(play)).current === 'P2', 'P2 is next');
+
+  // P2: T3 slid under T1
+  await drag(play, await cellPoint(play, 1, 1), await cellPoint(play, 1, 0));
+  await settled(play, 2);
+  let p2 = await state(play);
+  ok(JSON.stringify(p2.cells[1][0]) === '["T3","T1"]', 'P2: T3 is under T1, sun in the window', JSON.stringify(p2.cells));
+  ok((await play.evaluate(() => +window.__game.board.tiles.get('T1').layer('bud').style.opacity)) === 1,
+     'P2: the bud is visible');
+  ok(!(await play.evaluate(() => window.__game.board.tiles.get('T4').el.classList.contains('desaturated'))),
+     'P2: the garden has its colour back');
+  await play.waitForTimeout(1000);   // let the saturation transition finish before the shot
+  await play.screenshot({ path: path.join(SHOT_DIR, 'p2-light.png') });
+
+  // P3: T4 to the right of T1
+  await drag(play, await cellPoint(play, 0, 1), await cellPoint(play, 1, 1));
+  await play.waitForFunction(() => document.body.classList.contains('ending'), null, { timeout: 30000 });
+  let p3 = await state(play);
+  ok(JSON.stringify(p3.cells[1][1]) === '["T4"]', 'P3: T4 sits right of T1', JSON.stringify(p3.cells));
+  ok((await play.evaluate(() => +window.__game.board.tiles.get('T1').layer('flower').style.opacity)) === 1,
+     'P3: the flower has opened');
+  await play.screenshot({ path: path.join(SHOT_DIR, 'p3-bloom.png') });
+
+  // ending: the four cells melt together, then a seed drops
+  await play.waitForSelector('#fx .seed-drop', { timeout: 30000 });
+  await play.waitForTimeout(1600);
+  ok(await play.evaluate(() => document.body.classList.contains('ending')), 'ending: the board has melted into one picture');
+  ok(await play.evaluate(() => {
+    const el = document.querySelector('#fx .seed-drop');
+    return el ? Math.min(el.getBoundingClientRect().width, el.getBoundingClientRect().height) >= 64 : false;
+  }), 'ending: the seed is at least 64px across');
+  await play.screenshot({ path: path.join(SHOT_DIR, 'ending.png') });
+
+  // tapping the seed floats everything back to the start
+  const seedBox = await (await play.$('#fx .seed-drop')).boundingBox();
+  await play.mouse.move(seedBox.x + seedBox.width / 2, seedBox.y + seedBox.height / 2);
+  await play.mouse.down(); await play.mouse.up();
+  await play.waitForFunction(() => !document.body.classList.contains('ending') &&
+                                   window.__game.runner.index === 0, null, { timeout: 30000 });
+  await play.waitForTimeout(900);
+  let back = await state(play);
+  ok(JSON.stringify(back.cells) === INITIAL, 'restart: the board is back to its first arrangement', JSON.stringify(back.cells));
+  ok(!(await play.evaluate(() => window.__game.board.busy)), 'restart: input is released (board.busy === false)');
+  ok(await play.evaluate(() => document.querySelectorAll('#fx *').length === 0), 'restart: the overlay is empty');
+  await play.screenshot({ path: path.join(SHOT_DIR, 'restart.png') });
+
+  /* --- 4. wordless --- */
+  console.log('\n[4] wordless');
+  const text = await play.evaluate(() => document.body.innerText.trim());
+  ok(text === '', 'document.body.innerText.trim() === ""', JSON.stringify(text));
+  const svgText = await play.evaluate(() => document.querySelectorAll('svg text, svg tspan').length);
+  ok(svgText === 0, 'no <text>/<tspan> in any SVG');
+  const alts = await play.evaluate(() => [...document.querySelectorAll('[alt],[aria-label],[title]')].length);
+  ok(alts === 0, 'no alt/aria-label/title attributes that could render text');
+  await ctx2.close();
+
+  /* --- 5. console --- */
+  console.log('\n[5] console');
   ok(errors.length === 0, `console errors = ${errors.length}`, errors.join(' | '));
 } finally {
   await browser.close();
