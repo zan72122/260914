@@ -73,31 +73,31 @@ const W3 = [[0.14, 0.24, 0.30, 0.26], [0.56, 0.24, 0.30, 0.26], [0.33, 0.64, 0.3
 const W2 = [[0.18, 0.26, 0.28, 0.30], [0.54, 0.26, 0.28, 0.30]];
 const HOUSES = [
   // back row (the far side of the street) — nearest the joint lights first
-  { x: 100, y: 86, w: 120, h: 114, roof: 34, litAt: 0.72, win: W3 },
-  { x: 250, y: 44, w: 104, h: 156, roof: 26, litAt: 0.80, sign: true, win: W6 },
-  { x: 392, y: 80, w: 124, h: 120, roof: 34, litAt: 0.88, manual: 'window:0', win: W3 },
-  { x: -20, y: 30, w: 96, h: 170, roof: 24, litAt: 1.02, win: W6 },
-  { x: 548, y: 36, w: 100, h: 164, roof: 24, litAt: 1.10, win: W6 },
-  { x: -170, y: 70, w: 120, h: 130, roof: 34, litAt: 1.26, win: W4 },
-  { x: 678, y: 88, w: 118, h: 112, roof: 32, litAt: 1.32, win: W3 },
+  { x: 100, y: 86, w: 120, h: 114, roof: 34, litAt: 0.58, manual: 'window:3', win: W3 },
+  { x: 250, y: 44, w: 104, h: 156, roof: 26, litAt: 0.64, sign: true, win: W6 },
+  { x: 392, y: 80, w: 124, h: 120, roof: 34, litAt: 0.70, manual: 'window:0', win: W3 },
+  { x: -20, y: 30, w: 96, h: 170, roof: 24, litAt: 0.82, win: W6 },
+  { x: 548, y: 36, w: 100, h: 164, roof: 24, litAt: 0.88, win: W6 },
+  { x: -170, y: 70, w: 120, h: 130, roof: 34, litAt: 1.01, win: W4 },
+  { x: 678, y: 88, w: 118, h: 112, roof: 32, litAt: 1.06, win: W3 },
   // front row (this side of the street)
-  { x: 160, y: 510, w: 118, h: 130, roof: 34, litAt: 0.94, win: W4 },
-  { x: 320, y: 540, w: 110, h: 100, roof: 28, litAt: 1.00, manual: 'window:1', win: W2 },
-  { x: 10, y: 545, w: 104, h: 95, roof: 26, litAt: 1.14, win: W2 },
-  { x: 470, y: 505, w: 128, h: 135, roof: 36, litAt: 1.18, win: W4 },
-  { x: -150, y: 520, w: 124, h: 120, roof: 34, litAt: 1.34, win: W3 },
-  { x: 640, y: 535, w: 112, h: 105, roof: 30, litAt: 1.40, win: W3 }
+  { x: 160, y: 510, w: 118, h: 130, roof: 34, litAt: 0.75, win: W4 },
+  { x: 320, y: 540, w: 110, h: 100, roof: 28, litAt: 0.80, manual: 'window:1', win: W2 },
+  { x: 10, y: 545, w: 104, h: 95, roof: 26, litAt: 0.91, win: W2 },
+  { x: 470, y: 505, w: 128, h: 135, roof: 36, litAt: 0.94, win: W4 },
+  { x: -150, y: 520, w: 124, h: 120, roof: 34, litAt: 1.07, win: W3 },
+  { x: 640, y: 535, w: 112, h: 105, roof: 30, litAt: 1.12, win: W3 }
 ];
 
 /** street lamps: base of the pole, height, light delay */
 const LAMPS = [
-  { x: 60, y: 238, h: 74, litAt: 0.84 },
-  { x: 520, y: 238, h: 74, litAt: 0.96, manual: 'window:2' },
-  { x: 120, y: 700, h: 84, litAt: 1.06 },
-  { x: 300, y: 700, h: 84, litAt: 0.98 },
-  { x: 480, y: 700, h: 84, litAt: 1.22 },
-  { x: -60, y: 700, h: 84, litAt: 1.38 },
-  { x: 660, y: 700, h: 84, litAt: 1.44 }
+  { x: 60, y: 238, h: 74, litAt: 0.67 },
+  { x: 520, y: 238, h: 74, litAt: 0.77, manual: 'window:2' },
+  { x: 120, y: 700, h: 84, litAt: 0.85, manual: 'window:4' },
+  { x: 300, y: 700, h: 84, litAt: 0.78 },
+  { x: 480, y: 700, h: 84, litAt: 0.98 },
+  { x: -60, y: 700, h: 84, litAt: 1.10 },
+  { x: 660, y: 700, h: 84, litAt: 1.15 }
 ];
 
 /** fat board components (never thin detail), kept clear of the traced corridor */
@@ -266,7 +266,7 @@ export default {
     let idleT = 0;
     // §2.2 / review G: after the domino, 2 windows + 1 lamp stay dark on purpose so the
     // child can keep touching. Each one lit adds time; the train can be tooted.
-    let leaveAt = 9.5;              // seconds after the joint closes (capped at 18)
+    let leaveAt = 12;               // seconds after the joint closes (capped at 18)
     const manualOn = new Map();     // house/lamp object -> flow time it was switched on
     let trainU = 0;
     let trainBoost = 0;
@@ -304,6 +304,15 @@ export default {
       for (const lp of LAMPS) if (flow >= litTime(lp)) n++;
       return n;
     };
+    /** lights the domino itself brings up (the reserved dark ones are the child's) */
+    const autoLit = () => {
+      if (flow < 0) return 0;
+      let n = 0;
+      for (const hs of HOUSES) if (!hs.manual && flow >= hs.litAt) n++;
+      for (const lp of LAMPS) if (!lp.manual && flow >= lp.litAt) n++;
+      return n;
+    };
+    const autoTotal = HOUSES.filter((h) => !h.manual).length + LAMPS.filter((l) => !l.manual).length;
     /** the reserved dark lights, in a stable order, with their world anchor point */
     const DARK = [];
     for (const hs of HOUSES) if (hs.manual) DARK.push({ id: hs.manual, o: hs, x: hs.x + hs.w / 2, y: hs.y + hs.h * 0.45 });
@@ -594,7 +603,7 @@ export default {
           if (camAnim.t >= camAnim.dur) camAnim = null;
         }
         // 「どう」— spoken once, mid pull-back, when more than half the town is lit
-        if (!spoken && litCount() > litTotal * 0.5) {
+        if (!spoken && autoLit() > autoTotal * 0.5) {
           spoken = true;
           engine.audio.speakElement(DEF.id);
         }
@@ -790,7 +799,7 @@ export default {
       const bodyCol = lerpColor(HOUSE_DARK, HOUSE_LIT, lit * 0.75);
       const cx = hs.x + hs.w / 2;
       g.save();
-      if (hs.manual && lit <= 0 && flow > 1.0) {
+      if (hs.manual && lit <= 0 && flow > 1.2) {
         const b = 0.35 + 0.65 * (0.5 - 0.5 * Math.cos(t * 3.2));
         glowCircle(g, cx, hs.y + hs.h * 0.5, hs.w * 0.9, DEF.glowColor, 0.18 + 0.3 * b);
       }
@@ -852,7 +861,7 @@ export default {
     function drawLamp(g, lp) {
       const lit = flow < 0 ? 0 : clamp((flow - litTime(lp)) / 0.28);
       g.save();
-      if (lp.manual && lit <= 0 && flow > 1.0) {
+      if (lp.manual && lit <= 0 && flow > 1.2) {
         const b = 0.35 + 0.65 * (0.5 - 0.5 * Math.cos(t * 3.2));
         glowCircle(g, lp.x, lp.y - lp.h, 78, DEF.glowColor, 0.18 + 0.3 * b);
       }
@@ -1189,12 +1198,16 @@ export default {
 
       hitPoints() {
         if (phase === 'leaving') return [];
-        const a = w2s(A.x, A.y), b = w2s(B.x, B.y);
-        // the joint stays published for the whole world so a harness never blocks on it
-        const out = [
-          { id: 'trace:start', x: a.x, y: a.y, r: S * 0.12 },
-          { id: 'trace:end', x: b.x, y: b.y, r: S * 0.12 }
-        ];
+        const out = [];
+        // The joint is only touchable until the circuit closes. It stays published through
+        // 'change' (the current is still racing and a replayed gesture must find it) and is
+        // dropped the moment the town is alive — after that only the dark windows and the
+        // train can actually be touched (round-2 新-6).
+        if (phase !== 'complete') {
+          const a = w2s(A.x, A.y), b = w2s(B.x, B.y);
+          out.push({ id: 'trace:start', x: a.x, y: a.y, r: S * 0.12 });
+          out.push({ id: 'trace:end', x: b.x, y: b.y, r: S * 0.12 });
+        }
         if (flow >= 0) {
           for (const d of DARK) {
             if (manualOn.has(d.o)) continue;
