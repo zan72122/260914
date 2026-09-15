@@ -29,6 +29,12 @@ export default {
     g.doneT = 0;
     g.nextIn = 0;
     g.draggingNext = false;
+    // 「最後の仕上げ」: 残った grindMask / polishMask を 1.0 まで滑らかに埋める。
+    // 窓の跡・色・seed はそのまま残る。
+    g.stone.grindCap = 1.0;
+    u.uGrindCap.value = 1.0;
+    g.finishT = 0;
+    g.stone.beginFinish();
 
     if (!restored) {
       g.audio.silence();
@@ -44,7 +50,14 @@ export default {
     const u = g.stone.material.uniforms;
     g.doneT += dt;
 
-    g.machines.dopExtend = approach(g.machines.dopExtend, 0, dt, 2.0);
+    // 完成演出の最後の仕上げ（0.8 秒でシルエットのギザギザを埋め切る）
+    if (g.finishT < 0.8001) {
+      g.finishT = Math.min(0.8, g.finishT + dt);
+      g.stone.applyFinish(g.finishT / 0.8);
+      if (g.finishT >= 0.8) g.finishT = 0.81;
+    }
+
+    g.machines.dopExtend = approach(g.machines.dopExtend, 0, dt, 3.4);
     g.machines.padExtend = approach(g.machines.padExtend, 0, dt, 3.0);
     g.machines.rigExtend = approach(g.machines.rigExtend, 0, dt, 3.0);
     g.machines.pedExtend = approach(g.machines.pedExtend, 1, dt, 2.0);
@@ -58,8 +71,10 @@ export default {
     g.stone.group.position.copy(g.layout.conf.stone);
     g.stone.group.position.y += g.bounce;
 
-    // 指を離すとゆっくり星が正面に戻る
-    if ((g.t - g.lastTouch) > 0.9) g.assist(dt * 0.45);
+    // 傾けすぎて石の裏（平らな底）が見えないよう ±35° に制限
+    g.clampTilt(35);
+    // 指を離すと緩やかに正面へ戻る（星が常に見える）
+    if ((g.t - g.lastTouch) > 0.35) g.assist(dt * 1.0);
 
     g.audio.setMotor(0);
 
@@ -124,6 +139,7 @@ export default {
     }
     // 画面のどこを触っても石が傾く（指が石を隠さない）
     g.trackball(m.dx, m.dy, 0.0040);
+    g.clampTilt(35);
     if (Math.random() < 0.10) g.audio.blip(1500 + Math.random() * 1500, 0.07, 'sine', 0.035);
   },
 

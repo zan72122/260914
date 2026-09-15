@@ -5,6 +5,8 @@ import { approach, rubPaint } from './common.js';
 export default {
   enter(g) {
     g.machines.wheelSpin = 11;
+    g.stone.grindCap = 1.0;
+    g.stone.material.uniforms.uGrindCap.value = 1.0;
     g.stone.spinSpeed = 0.85;
     g.polishNoise = 0;
     g.starBurst = 0;

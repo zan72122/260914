@@ -80,6 +80,9 @@ export class Stone {
     this.hintDir = new THREE.Vector3(1, 0, 0);
     this.stage = 0;
     this.seed = 1;
+    // その工程で削れる上限（Stage2 = 出っ張りを落とすだけ / Stage3 以降 = 全周を丸める）
+    this.grindCap = 1.0;
+    this._finBase = null;
     this.params = {};
     this._effQ = new THREE.Quaternion();
     this._invQ = new THREE.Quaternion();
@@ -273,6 +276,7 @@ export class Stone {
    */
   paint(channel, localDir, angRadius = 0.36, amount = 0.5, bandMix = 0, protBias = 0) {
     const ch = channel === 'grind' ? 0 : channel === 'polish' ? 1 : 2;
+    const cap = ch === 0 ? this.grindCap : 1.0;
     const cosOut = Math.cos(angRadius);
     const cosIn = Math.cos(angRadius * 0.32);
     let added = 0;
@@ -302,7 +306,7 @@ export class Stone {
       if (protBias > 0) w *= (1 - protBias) + protBias * pr[i];
       const j = i * 3 + ch;
       const prev = m[j];
-      const nv = Math.min(1, prev + amount * w);
+      const nv = Math.min(cap, prev + amount * w);
       if (nv > prev) { added += nv - prev; m[j] = nv; }
     }
     if (added > 0) { this.geometry.attributes.aMask.needsUpdate = true; this._statsCache = null; }
@@ -312,11 +316,12 @@ export class Stone {
   /** 全体をわずかに進める（丸める・全体研磨の表現） */
   paintGlobal(channel, amount) {
     const ch = channel === 'grind' ? 0 : channel === 'polish' ? 1 : 2;
+    const cap = ch === 0 ? this.grindCap : 1.0;
     const m = this.aMask;
     let added = 0;
     for (let i = 0; i < this.count; i++) {
       const j = i * 3 + ch;
-      const nv = Math.min(1, m[j] + amount);
+      const nv = Math.min(cap, m[j] + amount);
       if (nv > m[j]) { added += nv - m[j]; m[j] = nv; }
     }
     if (added > 0) { this.geometry.attributes.aMask.needsUpdate = true; this._statsCache = null; }
@@ -344,14 +349,38 @@ export class Stone {
     if (changed) { this.geometry.attributes.aMask.needsUpdate = true; this._statsCache = null; }
   }
 
+  /**
+   * 完成演出の「最後の仕上げ」: 残った grind / polish を 1.0 まで滑らかに埋める。
+   * 窓の跡（z チャンネル）・色・seed はそのまま残す。
+   */
+  beginFinish() {
+    this._finBase = Float32Array.from(this.aMask);
+  }
+
+  applyFinish(t) {
+    const b = this._finBase;
+    if (!b) return;
+    const k = t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
+    const m = this.aMask;
+    for (let i = 0; i < this.count; i++) {
+      const j = i * 3;
+      m[j] = b[j] + (1 - b[j]) * k;
+      m[j + 1] = b[j + 1] + (1 - b[j + 1]) * k;
+    }
+    this.geometry.attributes.aMask.needsUpdate = true;
+    this._statsCache = null;
+    if (k >= 1) this._finBase = null;
+  }
+
   stats() {
     if (this._statsCache) return this._statsCache;
     let g = 0, p = 0, w = 0, maxProt = 0;
     const m = this.aMask, pr = this.aProt, N = this.count;
     const hist = new Int32Array(64);
+    const capN = Math.max(0.05, this.grindCap);
     for (let i = 0; i < N; i++) {
       g += m[i * 3]; p += m[i * 3 + 1]; w += m[i * 3 + 2];
-      const res = pr[i] * (1 - m[i * 3]);
+      const res = pr[i] * (1 - Math.min(1, m[i * 3] / capN));
       if (res > maxProt) maxProt = res;
       hist[Math.min(63, (res * 64) | 0)]++;
     }

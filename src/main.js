@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Stone } from './stone.js';
 import { Machines } from './machines.js';
 import { Particles } from './particles.js';
@@ -35,12 +36,12 @@ class Game {
     this.renderer = new THREE.WebGLRenderer({
       antialias: true, alpha: false, powerPreference: 'high-performance'
     });
-    this.renderer.setClearColor(0x05070d, 1);
+    this.renderer.setClearColor(0x080c16, 1);
     this.renderer.autoClear = false;
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.FogExp2(0x05070d, 0.045);
+    this.scene.fog = new THREE.FogExp2(0x080c16, 0.038);
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
 
     // 暗い作業台の空気（背景のゆるいグラデーション）
@@ -53,9 +54,9 @@ class Game {
         fragmentShader: `precision mediump float; varying vec3 vP;
           void main(){
             float h = clamp(vP.y / 40.0 * 0.5 + 0.5, 0.0, 1.0);
-            vec3 c = mix(vec3(0.020,0.031,0.055), vec3(0.008,0.012,0.026), h);
+            vec3 c = mix(vec3(0.034,0.049,0.082), vec3(0.012,0.018,0.036), h);
             float r = 1.0 - clamp(length(vP.xy) / 34.0, 0.0, 1.0);
-            c += vec3(0.02, 0.035, 0.075) * pow(r, 3.0);
+            c += vec3(0.035, 0.056, 0.105) * pow(r, 2.6);
             gl_FragColor = vec4(c, 1.0);
           }`
       })
@@ -64,16 +65,28 @@ class Game {
     bg.renderOrder = -10;
     this.scene.add(bg);
 
-    this.scene.add(new THREE.AmbientLight(0x35507a, 0.9));
-    const key = new THREE.DirectionalLight(0xfff3e0, 1.5);
+    // 機械（金属・フェルト）に写り込む環境。これが無いと metalness の高い材質が真っ黒になる
+    {
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      this.scene.environmentIntensity = 0.42;
+      pmrem.dispose();
+    }
+
+    this.scene.add(new THREE.AmbientLight(0x43608c, 1.15));
+    const key = new THREE.DirectionalLight(0xfff3e0, 1.9);
     key.position.set(2.2, 5.2, 4.2);
     this.scene.add(key);
-    const fill = new THREE.DirectionalLight(0x6fa8ff, 0.7);
+    const fill = new THREE.DirectionalLight(0x7fb4ff, 0.95);
     fill.position.set(-4.0, 1.4, 2.8);
     this.scene.add(fill);
-    const rigLight = new THREE.PointLight(0x9ec6ff, 26, 12, 2);
-    rigLight.position.set(1.4, -0.4, 2.2);
-    this.scene.add(rigLight);
+    // 作業台のスポット（柔らかい落とし込み）と、石の輪郭を起こすリム
+    const spotLight = new THREE.PointLight(0xbcd8ff, 46, 14, 2);
+    spotLight.position.set(0.6, 2.6, 2.4);
+    this.scene.add(spotLight);
+    const rimLight = new THREE.DirectionalLight(0x86aef0, 0.85);
+    rimLight.position.set(-2.4, 2.2, -3.6);
+    this.scene.add(rimLight);
 
     this.stone = new Stone();
     this.machines = new Machines();
@@ -228,6 +241,21 @@ class Game {
     this.stone.applyOrientation();
   }
 
+  /** 完成品の傾きを ±maxDeg に制限する（裏の平らな底が見えないように） */
+  clampTilt(maxDeg) {
+    const cw = this.stone.worldCAxis(new THREE.Vector3());
+    const ideal = this.idealAxis(new THREE.Vector3());
+    const d = Math.max(-1, Math.min(1, cw.dot(ideal)));
+    const ang = Math.acos(d);
+    const max = maxDeg * Math.PI / 180;
+    if (ang <= max) return;
+    const q = new THREE.Quaternion().setFromUnitVectors(cw, ideal);
+    // 超過分だけ戻す
+    q.slerp(new THREE.Quaternion(), max / ang);
+    this.stone.orientation.premultiply(q).normalize();
+    this.stone.applyOrientation();
+  }
+
   updateAlign() {
     const cw = this.stone.worldCAxis(this._v);
     const v = this.viewDir(this._v2);
@@ -308,11 +336,23 @@ class Game {
           windowAvg: s.windowAvg,
           maxProtrusion: s.maxProtrusion,
           protHigh: s.protHigh,
-          seed: self.stone.seed
+          seed: self.stone.seed,
+          collection: self.collection.length
         };
       },
       // 画面上の石の位置（試遊スクリプトが指を当てるためだけの補助。進行はしない）
       stoneScreen() { return self.layout.stoneScreen(self.stone); },
+      // 次の原石の画面位置（再プレイ検証用の補助。進行はしない）
+      nextStoneScreen() {
+        const m = self.machines.nextStone;
+        if (!m.visible) return null;
+        const p = m.position.clone().project(self.camera);
+        return {
+          x: (p.x * 0.5 + 0.5) * self.layout.w,
+          y: (-p.y * 0.5 + 0.5) * self.layout.h
+        };
+      },
+      collectionSize() { return self.collection.length; },
       orientation() { return self.stone.orientation.toArray(); }
     };
   }
@@ -344,8 +384,11 @@ class Game {
       this.stone.group.position,
       this.stone.worldCAxis(this._v),
       this.t,
-      this.machines.dopPulse || 0
+      this.machines.dopPulse || 0,
+      this.stone.hitRadius()
     );
+    // 砥石／磨き皿は常に石に接触する位置へ（石が小さくなれば寄っていく）
+    this.machines.placeRig(this.stone.group.position, this.stone.hitRadius());
     this.particles.update(dt);
 
     this.pendingSave += dt;

@@ -7,9 +7,11 @@ export default {
   enter(g) {
     const u = g.stone.material.uniforms;
     u.uStarForm.value = 0;
-    u.uStarBoost.value = 1.35;
+    u.uStarBoost.value = 1.15;
     u.uProtGlow.value = 0;
     u.uPulse.value = 0;
+    u.uGrindCap.value = 1.0;
+    g.stone.grindCap = 1.0;
     g.stone.spinSpeed = 0;
     g.stone.spin = 0;
     g.stone.ghost.visible = false;
@@ -50,7 +52,8 @@ export default {
     u.uGlow.value = approach(u.uGlow.value, 0.05 + 0.35 * sweep + good, dt, 8);
 
     // 薄皮ヒント（窓を開けたくなる場所）。窓が開くほど消える
-    u.uHintStrength.value = Math.max(0, 1 - st.windowAvg * 22) * 0.9;
+    // 薄皮ヒント（窓を開けたくなる場所）: 脈打つ淡い青白い斑。窓が開くほど消える
+    u.uHintStrength.value = Math.max(0, 1 - st.windowAvg * 22) * 1.15;
 
     g.audio.setDrone(a);
 

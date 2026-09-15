@@ -253,6 +253,63 @@ async function runOrientation(browser, label, viewport, outDir, log) {
   await page.screenshot({ path: path.join(outDir, 'stage5-play.png') });
   log(`  完成後: ${JSON.stringify(await stats())}`);
 
+  // ---- 縦のみ: リロード復元 と 再プレイ（新しい原石を迎える）を検証 ----
+  if (label === 'portrait') {
+    // (a) リロードしても同じ seed / stage / masks が戻るか
+    const beforeReload = await stats();
+    await sleep(2200);                       // 自動保存（2 秒間隔）を確実に通す
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() => window.__game && window.__game.getStats, null, { timeout: 20000 });
+    await sleep(1400);
+    const afterReload = await stats();
+    const restored =
+      beforeReload.seed === afterReload.seed &&
+      beforeReload.stage === afterReload.stage &&
+      Math.abs(beforeReload.grindAvg - afterReload.grindAvg) < 0.02 &&
+      Math.abs(beforeReload.polishAvg - afterReload.polishAvg) < 0.02 &&
+      Math.abs(beforeReload.windowAvg - afterReload.windowAvg) < 0.02;
+    log(`  [リロード復元] ${restored ? 'OK' : 'NG'}`);
+    log(`    before=${JSON.stringify(beforeReload)}`);
+    log(`    after =${JSON.stringify(afterReload)}`);
+
+    // (b) 新しい原石が転がってくるのを待ち、ドラッグで中央へ引き込む
+    const oldSeed = afterReload.seed;
+    const tWait = Date.now();
+    let np = null;
+    while (Date.now() - tWait < 40000) {
+      np = await page.evaluate(() => window.__game.nextStoneScreen());
+      if (np) break;
+      await sleep(400);
+    }
+    log(`  [再プレイ] 新しい原石の出現: ${np ? 'OK ' + JSON.stringify(np) : 'NG（現れず）'}`);
+    let replay = await stats();
+    if (np) {
+      await page.screenshot({ path: path.join(outDir, 'stage5-next.png') });
+      const target = await screen();
+      for (let k = 0; k < 14; k++) {
+        const cur = await page.evaluate(() => window.__game.nextStoneScreen());
+        if (!cur) break;
+        const pts = [];
+        for (let i = 0; i <= 10; i++) {
+          pts.push([cur.x + (target.x - cur.x) * (i / 10), cur.y + (target.y - cur.y) * (i / 10)]);
+        }
+        await stroke(f, pts, 22);
+        // 新しい石に切り替わった瞬間の状態を見る（そのまま触り続けると次へ進んでしまう）
+        replay = await stats();
+        if (replay.stage !== 5) break;
+        await sleep(120);
+      }
+    }
+    const ok = replay.stage === 0 && replay.seed !== oldSeed &&
+      replay.grindAvg < 0.02 && replay.polishAvg < 0.02 && replay.windowAvg < 0.02 &&
+      replay.collection === 1;
+    log(`  [再プレイ] ${ok ? 'OK' : 'NG'} (stage=${replay.stage} 新 seed=${replay.seed !== oldSeed} 棚=${replay.collection} 個)`);
+    log(`    ${JSON.stringify(replay)}`);
+    await page.screenshot({ path: path.join(outDir, 'replay-stage0.png') });
+    results.replay = ok;
+    results.restored = restored;
+  }
+
   await ctx.close();
   return results;
 }
@@ -295,8 +352,9 @@ async function runOrientation(browser, label, viewport, outDir, log) {
       log(`[${name}] 到達ステージ: ${res.map((r) => r.stage).join(' → ')}`);
       for (const r of res) log(`  stage${r.stage}: ${JSON.stringify(r.stats)}`);
     }
-    const ok = p.length === 6 && l.length === 6;
-    log(ok ? 'RESULT: OK (縦横とも Stage 0〜5 を一周)' : 'RESULT: 未達あり');
+    log(`[portrait] リロード復元: ${p.restored ? 'OK' : 'NG'} / 再プレイ: ${p.replay ? 'OK' : 'NG'}`);
+    const ok = p.length === 6 && l.length === 6 && p.restored === true && p.replay === true;
+    log(ok ? 'RESULT: OK (縦横とも Stage 0〜5 を一周 / リロード復元・再プレイも OK)' : 'RESULT: 未達あり');
     if (!ok) process.exitCode = 1;
   } finally {
     if (browser) await browser.close().catch(() => {});

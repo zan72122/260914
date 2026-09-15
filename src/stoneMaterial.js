@@ -55,6 +55,7 @@ uniform vec3  uDepthColor;
 uniform vec3  uCAxis;
 uniform vec3  uLightDir;
 uniform vec3  uLightDir2;
+uniform vec3  uRimDir;
 uniform vec3  uHintDir;
 uniform float uTime;
 uniform float uSilkDensity;
@@ -64,6 +65,7 @@ uniform float uAlign;
 uniform float uStarForm;    // 0 = 原石の光帯 / 1 = 完成した六条星
 uniform float uStarBoost;
 uniform float uProtGlow;    // 出っ張りの発光（Stage2 の誘い）
+uniform float uGrindCap;    // その工程で削れる上限（出っ張りの発光はこれを基準に消える）
 uniform float uPulse;       // 曇りの下で脈打つ光（Stage4 の誘い）
 uniform float uGlow;        // 良い向きでふわっと脈打つ（Stage0/1）
 uniform float uHintStrength;// 薄皮ヒント（Stage0 の誘い）
@@ -77,6 +79,28 @@ varying vec3 vCAxisW;
 varying float vProt;
 
 ${COMMON}
+
+// ---- テクスチャ無しの解析的な環境（上=空色 / 下=作業台 + 細長い窓 3 枚） ----
+// R = reflect(-V, N) をこの「部屋」に投げて色を拾う。研磨が進むほど写り込みが鋭くなる。
+vec3 envSample(vec3 R, float smoothness){
+  float h = clamp(R.y, -1.0, 1.0);
+  vec3 sky    = vec3(0.34, 0.47, 0.70);   // 上方の明るい空色
+  vec3 horiz  = vec3(0.11, 0.15, 0.24);
+  vec3 bench  = vec3(0.028, 0.036, 0.055); // 下方の暗い作業台
+  vec3 c = mix(horiz, sky, smoothstep(-0.05, 0.85, h));
+  c = mix(c, bench, smoothstep(-0.02, -0.55, h));
+  c *= 0.62;
+
+  // 窓（横に細長い光源）。smoothness が上がるほど輪郭が締まる
+  float az = atan(R.z, R.x);
+  float k = mix(0.42, 1.7, smoothness);
+  float w1 = pow(exp(-pow((h - 0.58) / 0.13, 2.0)) * exp(-pow((az - 0.85) / 0.95, 2.0)), k);
+  float w2 = pow(exp(-pow((h - 0.24) / 0.075, 2.0)) * exp(-pow((az + 2.05) / 0.62, 2.0)), k);
+  float w3 = pow(exp(-pow((h + 0.06) / 0.055, 2.0)) * exp(-pow((az - 2.75) / 0.45, 2.0)), k);
+  vec3 winCol = vec3(0.90, 0.945, 1.0);   // 少し冷たい白（暖色が飽和して橙に転ばないように）
+  c += winCol * (w1 * 1.15 + w2 * 0.72 + w3 * 0.46);
+  return c;
+}
 
 void main(){
   vec3 N = normalize(vNormal);
@@ -100,7 +124,6 @@ void main(){
   vec3 t2 = cross(cA, t1);
 
   // ---- 内部の絹（ルチル針・60度 3 方向） ----
-  // 60 度ずつ 3 方向に走るルチル針。線として見えるよう最大値をとる
   vec2 q = vec2(dot(vLocal, t1), dot(vLocal, t2));
   float hAx = dot(vLocal, cA);
   float silk = 0.0;
@@ -112,9 +135,9 @@ void main(){
   }
 
   // ---- 本体色（深度による内側の濃い青 + 疑似サブサーフェス） ----
-  vec3 body = mix(uDepthColor, uBaseColor, 0.10 + 0.55 * ndv * ndv) * 0.82;
-  float sss = pow(clamp(dot(-N, L) * 0.5 + 0.5, 0.0, 1.0), 2.2);
-  body += uBaseColor * sss * 0.40 * (0.30 + 0.70 * smoothness);
+  vec3 body = mix(uDepthColor, uBaseColor, 0.06 + 0.52 * ndv * ndv) * 0.94;
+  float sss = pow(clamp(dot(-N, L) * 0.5 + 0.5, 0.0, 1.0), 2.4);
+  body += uBaseColor * sss * 0.34 * (0.30 + 0.70 * smoothness);
   body += mix(uBaseColor, vec3(1.0), 0.35) * silk * 0.016 * (0.25 + 0.75 * smoothness);
 
   // 窓からは内部がよく見える
@@ -122,8 +145,8 @@ void main(){
   body = mix(body, inner, win * (1.0 - grind) * 0.75);
 
   // ---- 表面の皮（原石の殻 / 研削後のすりガラス） ----
-  vec3 roughCrust = mix(vec3(0.030, 0.042, 0.072), uBaseColor * 0.16, 0.55);
-  vec3 frostCrust = mix(vec3(0.34, 0.40, 0.50), uBaseColor * 0.75, 0.35);
+  vec3 roughCrust = mix(vec3(0.030, 0.042, 0.078), uBaseColor * 0.26, 0.60);
+  vec3 frostCrust = mix(vec3(0.36, 0.42, 0.52), uBaseColor * 0.78, 0.35);
   vec3 crustCol = mix(roughCrust, frostCrust, grind);
   float frost = (1.0 - smoothness);
   vec3 col = mix(body, crustCol, frost * mix(0.86, 0.72, grind) * (1.0 - win * 0.9));
@@ -131,7 +154,7 @@ void main(){
   // ---- ライティング ----
   float ndl  = clamp(dot(N, L), 0.0, 1.0);
   float ndl2 = clamp(dot(N, L2), 0.0, 1.0);
-  col *= (0.12 + 0.95 * ndl + 0.26 * ndl2);
+  col *= (0.20 + 0.92 * ndl + 0.30 * ndl2);
 
   vec3 H  = normalize(L + V);
   vec3 H2 = normalize(L2 + V);
@@ -140,8 +163,19 @@ void main(){
   spec += pow(max(dot(N, H2), 0.0), shin) * mix(0.018, 0.75, smoothness * smoothness);
   col += vec3(1.0, 0.99, 0.96) * spec;
 
+  // ---- 環境反射（つるつる感の核心） ----
+  vec3 R = reflect(-V, N);
+  vec3 env = envSample(R, smoothness);
+  float schlick = 0.04 + 0.96 * pow(1.0 - ndv, 5.0);
+  float refl = mix(0.035, 1.0, smoothness) * (0.32 + 0.95 * schlick);
+  col += env * refl * 1.12;
+
   // フレネルの縁光
-  col += mix(uBaseColor, vec3(1.0), 0.45) * pow(1.0 - ndv, 5.0) * (0.05 + 0.45 * smoothness);
+  col += mix(uBaseColor, vec3(1.0), 0.45) * pow(1.0 - ndv, 5.0) * (0.06 + 0.40 * smoothness);
+
+  // リムライト（石の輪郭を背景から起こす）
+  float rim = pow(1.0 - ndv, 2.6) * smoothstep(-0.35, 0.75, dot(N, normalize(uRimDir)));
+  col += vec3(0.46, 0.62, 0.95) * rim * (0.18 + 0.42 * smoothness);
 
   // ---- アステリズム（ルチル針による異方性反射。60 度ずつ 3 組 → 六条星） ----
   vec3 ht = H - N * dot(H, N);
@@ -151,9 +185,11 @@ void main(){
   vec3 w1 = perpOf(cAw);
   vec3 w2 = cross(cAw, w1);
 
+  float form  = clamp(uStarForm, 0.0, 1.0);
   float three = smoothstep(0.30, 0.62, uAlign);          // 光帯 1 本 → 3 本
   float wob   = (1.0 - clamp(uAlign, 0.0, 1.0)) * 0.42;  // 低 align では散らばって揺れる
-  float sharpB = mix(26.0, max(30.0, uSharpness * 22.0), clamp(uStarForm * (0.35 + 0.65 * smoothness), 0.0, 1.0));
+  // 原石期は太く滲んだ帯、完成に近づくほど細く鋭い光条
+  float sharpB = mix(34.0, max(38.0, uSharpness * 26.0), form * (0.30 + 0.70 * smoothness));
 
   float star = 0.0;
   for (int k = 0; k < 3; k++){
@@ -170,20 +206,32 @@ void main(){
     float kk = sqrt(max(0.0, 1.0 - fl * fl)) * sqrt(max(0.0, 1.0 - fv * fv)) - fl * fv;
     star += w * pow(max(kk, 0.0), sharpB);
   }
-  star *= exp(-hl * mix(1.5, 3.4, smoothness));
+  // 中心から離れるほど細く淡く（六条が「石の中で光る」ように強く減衰させる）
+  star *= exp(-hl * mix(4.0, 7.0, smoothness) * mix(1.15, 1.0, form));
   star *= 0.55 + 0.75 * uSilkDensity;
-  star *= mix(0.055, 1.0, clamp(smoothness + win * 0.75, 0.0, 1.0));
-  star *= 0.18 + 0.82 * clamp(uAlign, 0.0, 1.0);
-  // 星の中心（＝鏡面反射点）の核
-  star += exp(-hl * mix(9.0, 22.0, smoothness)) * 0.55 * mix(0.05, 1.0, smoothness) * clamp(uAlign, 0.0, 1.0);
-  col += vec3(0.80, 0.90, 1.0) * star * uStarBoost;
+  // 原石期でも 1 本の帯がはっきり見える強さを残す
+  star *= mix(0.22, 1.0, clamp(smoothness + win * 0.75, 0.0, 1.0));
+  star *= 0.22 + 0.78 * clamp(uAlign, 0.0, 1.0);
+  star *= smoothstep(0.05, 0.45, ndv);       // 縁では消える（ドームを覆わない）
+
+  // 星の中心核（＝鏡面反射点）: 小さく鋭く明るく
+  float core = exp(-hl * mix(16.0, 40.0, smoothness))
+             * mix(0.10, 1.0, smoothness) * clamp(uAlign, 0.0, 1.0)
+             * smoothstep(0.05, 0.45, ndv);
+
+  vec3 starCol = mix(vec3(0.58, 0.76, 1.0), vec3(0.90, 0.95, 1.0), form);
+  col += starCol * star * uStarBoost;
+  col += mix(starCol, vec3(1.0), 0.6) * core * uStarBoost * 0.55;
 
   // ---- 誘い（文字なしの導線） ----
   float hd = dot(normalize(vLocal), normalize(uHintDir));
-  float hint = smoothstep(0.80, 0.985, hd) * uHintStrength * (0.45 + 0.55 * sin(uTime * 2.3));
-  col += (uBaseColor * 0.9 + vec3(0.25, 0.45, 0.85)) * hint * 0.55;
+  float hpat = smoothstep(0.80, 0.985, hd);
+  float hint = hpat * uHintStrength * (0.40 + 0.60 * sin(uTime * 2.3)) * (1.0 - grind);
+  col += mix(vec3(0.26, 0.52, 1.0), vec3(0.72, 0.86, 1.0), hpat) * hint * 0.95;
 
-  col += vec3(1.0, 0.70, 0.34) * vProt * (1.0 - grind) * uProtGlow
+  // 出っ張りの発光: その工程の上限まで削れたら消える
+  float protRes = vProt * clamp(1.0 - grind / max(0.05, uGrindCap), 0.0, 1.0);
+  col += vec3(1.0, 0.70, 0.34) * protRes * uProtGlow
        * (0.55 + 0.45 * sin(uTime * 4.2 + vProt * 9.0));
 
   col += uBaseColor * uPulse * (1.0 - pol) * 0.35
@@ -192,8 +240,11 @@ void main(){
   col += mix(uBaseColor, vec3(1.0), 0.3) * uGlow * (0.06 + 0.55 * fres);
 
   col *= uExposure;
-  col = col / (col + vec3(0.85));           // トーンマップ
+  col = col / (col + vec3(0.92));           // トーンマップ（星が白飛びしないよう少し粘る）
   col = pow(col, vec3(1.0 / 2.2));
+  // トーンマップで抜けた青みを戻す（サファイアの深い色）
+  float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+  col = clamp(mix(vec3(lum), clamp(col, 0.0, 1.0), 1.18), 0.0, 1.0);
   gl_FragColor = vec4(col, 1.0);
 }
 `;
@@ -208,6 +259,7 @@ export function createStoneMaterial() {
       uCAxis: { value: new THREE.Vector3(0, 1, 0) },
       uLightDir: { value: new THREE.Vector3(0.26, 0.78, 0.95).normalize() },
       uLightDir2: { value: new THREE.Vector3(-0.7, 0.2, 0.5).normalize() },
+      uRimDir: { value: new THREE.Vector3(-0.55, 0.62, -0.85).normalize() },
       uHintDir: { value: new THREE.Vector3(1, 0, 0) },
       uTime: { value: 0 },
       uSilkDensity: { value: 0.8 },
@@ -217,10 +269,11 @@ export function createStoneMaterial() {
       uStarForm: { value: 0 },
       uStarBoost: { value: 1.0 },
       uProtGlow: { value: 0 },
+      uGrindCap: { value: 1 },
       uPulse: { value: 0 },
       uGlow: { value: 0 },
       uHintStrength: { value: 0 },
-      uExposure: { value: 1.15 }
+      uExposure: { value: 1.24 }
     }
   });
 }

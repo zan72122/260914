@@ -11,6 +11,8 @@ export default {
     g.locked = false;
     g.sealT = 0;
     g.machines.dopTarget = 0.88;
+    g.stone.material.uniforms.uGrindCap.value = 1.0;
+    g.stone.grindCap = 1.0;
     g.audio.blip(330, 0.35, 'sine', 0.10);
   },
 
@@ -26,6 +28,8 @@ export default {
     g.machines.dopPulse = beat;
     u.uGlow.value = approach(u.uGlow.value, 0.10 + 0.22 * beat + 0.30 * g.press, dt, 10);
     u.uStarBoost.value = approach(u.uStarBoost.value, 1.45, dt, 3);
+    // 薄皮ヒント（窓を開けたい誘い）はここで役目を終える
+    u.uHintStrength.value = approach(u.uHintStrength.value, 0, dt, 2.5);
 
     // 石が受け皿へ沈み込む
     const cw = g.stone.worldCAxis(_v);

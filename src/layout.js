@@ -8,7 +8,8 @@ export const LAYOUTS = {
     dist: 12.0,
     look: new THREE.Vector3(0, 0.35, 0),
     stone: new THREE.Vector3(0, 1.35, 0),      // 中央より少し上
-    rig: new THREE.Vector3(0.05, -1.35, 0.15), // 機械は下
+    from: new THREE.Vector3(0, -1, 0.26),      // ドップが来る方向（画面の下・少し手前）
+    rigFrom: new THREE.Vector3(0.34, -1, 0.10),// 砥石は真下より少し横にずらして受け皿と重ねない
     ped: new THREE.Vector3(0, -1.30, 0),
     shelf: new THREE.Vector3(0, -2.12, 1.9),
     shelfRotY: 0
@@ -17,7 +18,8 @@ export const LAYOUTS = {
     dist: 8.2,
     look: new THREE.Vector3(0.1, 0.10, 0),
     stone: new THREE.Vector3(-0.55, 0.35, 0),  // ほぼ中央
-    rig: new THREE.Vector3(2.55, -0.30, 0.15), // 機械は右
+    from: new THREE.Vector3(1, 0, 0.24),       // ドップが来る方向（画面の右・少し手前）
+    rigFrom: new THREE.Vector3(1, -0.42, 0.12),// 砥石は右やや下から当たる
     ped: new THREE.Vector3(0, -1.30, 0),
     shelf: new THREE.Vector3(-3.9, -1.55, 1.4),
     shelfRotY: 0
@@ -58,9 +60,10 @@ export class Layout {
     this.camera.updateProjectionMatrix();
 
     stone.group.position.copy(c.stone);
-    machines.rig.position.copy(c.rig);
-    machines.pad.position.copy(c.rig);
+    machines.fromDir.copy(c.from).normalize();
+    machines.rigFrom.copy(c.rigFrom).normalize();
     machines.pedestal.position.copy(c.stone).add(c.ped);
+    machines.spot.position.set(c.stone.x, machines.table.position.y + 0.26, c.stone.z + 0.6);
     machines.shelf.position.copy(c.shelf);
     machines.shelf.rotation.y = c.shelfRotY;
   }

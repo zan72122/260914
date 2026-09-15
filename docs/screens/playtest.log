@@ -1,53 +1,60 @@
 === 縦 (390x844) ===
-  > stage 0 到達  {"stage":0,"align":0.03646813815241437,"grindAvg":0,"polishAvg":0,"windowAvg":0,"maxProtrusion":1,"protHigh":1,"seed":1979811594}
+  > stage 0 到達  {"stage":0,"align":-0.44929626118680394,"grindAvg":0,"polishAvg":0,"windowAvg":0,"maxProtrusion":1,"protHigh":1,"seed":2555008106,"collection":0}
     screenshot: docs/screens/portrait/stage0.png
-  窓を開けた: {"stage":0,"align":-0.19583300772275472,"grindAvg":0,"polishAvg":0,"windowAvg":0.08360217783566068,"maxProtrusion":1,"protHigh":1,"seed":1979811594}
-  > stage 1 到達  {"stage":1,"align":0.9507053353546813,"grindAvg":0,"polishAvg":0,"windowAvg":0.13630748211305224,"maxProtrusion":1,"protHigh":1,"seed":1979811594}
+  窓を開けた: {"stage":1,"align":0.973571766909731,"grindAvg":0,"polishAvg":0,"windowAvg":0.12053343584884585,"maxProtrusion":1,"protHigh":1,"seed":2555008106,"collection":0}
+  > stage 1 到達  {"stage":1,"align":0.968509244219127,"grindAvg":0,"polishAvg":0,"windowAvg":0.12053343584884585,"maxProtrusion":1,"protHigh":1,"seed":2555008106,"collection":0}
     screenshot: docs/screens/portrait/stage1.png
-  > stage 2 到達  {"stage":2,"align":0.9540571614978756,"grindAvg":0.37653525993292536,"polishAvg":0.37653525993292536,"windowAvg":0.13630748211305224,"maxProtrusion":1,"protHigh":1,"seed":1979811594}
+  > stage 2 到達  {"stage":2,"align":0.9551568375919639,"grindAvg":0.392755348779382,"polishAvg":0.392755348779382,"windowAvg":0.12053343584884585,"maxProtrusion":1,"protHigh":1,"seed":2555008106,"collection":0}
     screenshot: docs/screens/portrait/stage2.png
   [縦→横→縦 切替] 状態保持: OK
-    before={"stage":2,"align":0.9540571614978756,"grindAvg":0.37653525993292536,"polishAvg":0.37653525993292536,"windowAvg":0.13630748211305224,"maxProtrusion":1,"protHigh":1,"seed":1979811594}
-    land  ={"stage":2,"align":0.9639299129384648,"grindAvg":0.37653525993292536,"polishAvg":0.37653525993292536,"windowAvg":0.13630748211305224,"maxProtrusion":1,"protHigh":1,"seed":1979811594}
-    after ={"stage":2,"align":0.9540571614978756,"grindAvg":0.37653525993292536,"polishAvg":0.37653525993292536,"windowAvg":0.13630748211305224,"maxProtrusion":1,"protHigh":1,"seed":1979811594}
-  > stage 3 到達  {"stage":3,"align":0.9540571614978756,"grindAvg":0.9064858290089899,"polishAvg":0.37653525993292536,"windowAvg":0.13630748211305224,"maxProtrusion":0.29368671249419265,"protHigh":0.234375,"seed":1979811594}
+    before={"stage":2,"align":0.9551568375919639,"grindAvg":0.392755348779382,"polishAvg":0.392755348779382,"windowAvg":0.12053343584884585,"maxProtrusion":1,"protHigh":1,"seed":2555008106,"collection":0}
+    land  ={"stage":2,"align":0.9646816856457676,"grindAvg":0.392755348779382,"polishAvg":0.392755348779382,"windowAvg":0.12053343584884585,"maxProtrusion":1,"protHigh":1,"seed":2555008106,"collection":0}
+    after ={"stage":2,"align":0.9551568375919639,"grindAvg":0.392755348779382,"polishAvg":0.392755348779382,"windowAvg":0.12053343584884585,"maxProtrusion":1,"protHigh":1,"seed":2555008106,"collection":0}
+  > stage 3 到達  {"stage":3,"align":0.9551568375919639,"grindAvg":0.560663313499239,"polishAvg":0.392755348779382,"windowAvg":0.12053343584884585,"maxProtrusion":0.26164387138259115,"protHigh":0.21875,"seed":2555008106,"collection":0}
     screenshot: docs/screens/portrait/stage3.png
-  > stage 4 到達  {"stage":4,"align":0.9540571614978756,"grindAvg":0.9765507974128971,"polishAvg":0.37653525993292536,"windowAvg":0.13630748211305224,"maxProtrusion":0.09508343678659159,"protHigh":0.0625,"seed":1979811594}
+  > stage 4 到達  {"stage":4,"align":0.9551568375919639,"grindAvg":0.9701427579715454,"polishAvg":0.392755348779382,"windowAvg":0.12053343584884585,"maxProtrusion":0.06370889347465436,"protHigh":0.015625,"seed":2555008106,"collection":0}
     screenshot: docs/screens/portrait/stage4.png
-  > stage 5 到達  {"stage":5,"align":0.9503589210993666,"grindAvg":0.9765507974128971,"polishAvg":0.9852696604159163,"windowAvg":0.13630748211305224,"maxProtrusion":0.09508343678659159,"protHigh":0.0625,"seed":1979811594}
+  > stage 5 到達  {"stage":5,"align":0.9435653077975124,"grindAvg":0.97289813808475,"polishAvg":0.9863949960497008,"windowAvg":0.12053343584884585,"maxProtrusion":0.05782951153054228,"protHigh":0.015625,"seed":2555008106,"collection":1}
     screenshot: docs/screens/portrait/stage5.png
-  完成後: {"stage":5,"align":0.40952630634232046,"grindAvg":0.9765507974128971,"polishAvg":0.9852696604159163,"windowAvg":0.13630748211305224,"maxProtrusion":0.09508343678659159,"protHigh":0.0625,"seed":1979811594}
+  完成後: {"stage":5,"align":0.8146278626048709,"grindAvg":1,"polishAvg":1,"windowAvg":0.12053343584884585,"maxProtrusion":0,"protHigh":0.015625,"seed":2555008106,"collection":1}
+  [リロード復元] OK
+    before={"stage":5,"align":0.8146278626048709,"grindAvg":1,"polishAvg":1,"windowAvg":0.12053343584884585,"maxProtrusion":0,"protHigh":0.015625,"seed":2555008106,"collection":1}
+    after ={"stage":5,"align":0.9181222143365317,"grindAvg":1,"polishAvg":1,"windowAvg":0.12053581140714342,"maxProtrusion":0,"protHigh":0.015625,"seed":2555008106,"collection":1}
+  [再プレイ] 新しい原石の出現: OK {"x":388.39991310548885,"y":610.7731902047922}
+  [再プレイ] OK (stage=0 新 seed=true 棚=1 個)
+    {"stage":0,"align":-0.015985901780512943,"grindAvg":0,"polishAvg":0,"windowAvg":0.005007395403557401,"maxProtrusion":1,"protHigh":1,"seed":1634937359,"collection":1}
 === 横 (844x390) ===
-  > stage 0 到達  {"stage":0,"align":0.31358338075647796,"grindAvg":0,"polishAvg":0,"windowAvg":0,"maxProtrusion":1,"protHigh":1,"seed":307256135}
+  > stage 0 到達  {"stage":0,"align":-0.7315797736896587,"grindAvg":0,"polishAvg":0,"windowAvg":0,"maxProtrusion":1,"protHigh":1,"seed":3569863111,"collection":0}
     screenshot: docs/screens/landscape/stage0.png
-  窓を開けた: {"stage":0,"align":0.08873030564387885,"grindAvg":0,"polishAvg":0,"windowAvg":0.07079926685264445,"maxProtrusion":1,"protHigh":1,"seed":307256135}
-  > stage 1 到達  {"stage":1,"align":0.9545271928482009,"grindAvg":0,"polishAvg":0,"windowAvg":0.07464506674336806,"maxProtrusion":1,"protHigh":1,"seed":307256135}
+  窓を開けた: {"stage":0,"align":-0.9414307861817355,"grindAvg":0,"polishAvg":0,"windowAvg":0.06821575767528815,"maxProtrusion":1,"protHigh":1,"seed":3569863111,"collection":0}
+  > stage 1 到達  {"stage":1,"align":0.949537125173975,"grindAvg":0,"polishAvg":0,"windowAvg":0.08998213963492263,"maxProtrusion":1,"protHigh":1,"seed":3569863111,"collection":0}
     screenshot: docs/screens/landscape/stage1.png
-  > stage 2 到達  {"stage":2,"align":0.9537262272503907,"grindAvg":0.3939036615162637,"polishAvg":0.3939036615162637,"windowAvg":0.07464506674336806,"maxProtrusion":1,"protHigh":1,"seed":307256135}
+  > stage 2 到達  {"stage":2,"align":0.9535424663973577,"grindAvg":0.3768940079086575,"polishAvg":0.3768940079086575,"windowAvg":0.08998213963492263,"maxProtrusion":1,"protHigh":1,"seed":3569863111,"collection":0}
     screenshot: docs/screens/landscape/stage2.png
-  > stage 3 到達  {"stage":3,"align":0.9537262272503907,"grindAvg":0.903468722003749,"polishAvg":0.3939036615162637,"windowAvg":0.07464506674336806,"maxProtrusion":0.38371711597977765,"protHigh":0.265625,"seed":307256135}
+  ...{"stage":2,"align":0.9535424663973577,"grindAvg":0.710074931245366,"polishAvg":0.3768940079086575,"windowAvg":0.08998213963492263,"maxProtrusion":0.38570092762670205,"protHigh":0.3125,"seed":3569863111,"collection":0}
+  > stage 3 到達  {"stage":3,"align":0.9535424663973577,"grindAvg":0.7133562956629009,"polishAvg":0.3768940079086575,"windowAvg":0.08998213963492263,"maxProtrusion":0.3492050516989923,"protHigh":0.265625,"seed":3569863111,"collection":0}
     screenshot: docs/screens/landscape/stage3.png
-  ...{"stage":3,"align":0.9537262272503907,"grindAvg":0.9058017325976203,"polishAvg":0.3939036615162637,"windowAvg":0.07464506674336806,"maxProtrusion":0.37774172747597135,"protHigh":0.265625,"seed":307256135}
-  > stage 4 到達  {"stage":4,"align":0.9537262272503907,"grindAvg":0.9710439676823823,"polishAvg":0.41864902094317036,"windowAvg":0.07464506674336806,"maxProtrusion":0.18954127491350903,"protHigh":0.109375,"seed":307256135}
+  > stage 4 到達  {"stage":4,"align":0.9535424663973577,"grindAvg":0.9701431627603604,"polishAvg":0.3768940079086575,"windowAvg":0.08998213963492263,"maxProtrusion":0.3501048684120178,"protHigh":0.265625,"seed":3569863111,"collection":0}
     screenshot: docs/screens/landscape/stage4.png
-  > stage 5 到達  {"stage":5,"align":0.9492556169191569,"grindAvg":0.9710439676823823,"polishAvg":0.985026424598956,"windowAvg":0.07464506674336806,"maxProtrusion":0.18954127491350903,"protHigh":0.109375,"seed":307256135}
+  > stage 5 到達  {"stage":5,"align":0.9388431765088215,"grindAvg":0.9795900526373224,"polishAvg":0.9900794959795112,"windowAvg":0.08998213963492263,"maxProtrusion":0.2393295168876648,"protHigh":0.1875,"seed":3569863111,"collection":1}
     screenshot: docs/screens/landscape/stage5.png
-  ...{"stage":5,"align":0.9217414080697492,"grindAvg":0.9710439676823823,"polishAvg":0.985026424598956,"windowAvg":0.07464506674336806,"maxProtrusion":0.18954127491350903,"protHigh":0.109375,"seed":307256135}
-  完成後: {"stage":5,"align":0.5141563963815365,"grindAvg":0.9710439676823823,"polishAvg":0.985026424598956,"windowAvg":0.07464506674336806,"maxProtrusion":0.18954127491350903,"protHigh":0.109375,"seed":307256135}
+  ...{"stage":5,"align":0.8915055320708795,"grindAvg":1,"polishAvg":1,"windowAvg":0.08998213963492263,"maxProtrusion":0,"protHigh":0.015625,"seed":3569863111,"collection":1}
+  完成後: {"stage":5,"align":0.8411564833601666,"grindAvg":1,"polishAvg":1,"windowAvg":0.08998213963492263,"maxProtrusion":0,"protHigh":0.015625,"seed":3569863111,"collection":1}
 
 === まとめ ===
 [portrait] 到達ステージ: 0 → 1 → 2 → 3 → 4 → 5
-  stage0: {"stage":0,"align":0.03646813815241437,"grindAvg":0,"polishAvg":0,"windowAvg":0,"maxProtrusion":1,"protHigh":1,"seed":1979811594}
-  stage1: {"stage":1,"align":0.9507053353546813,"grindAvg":0,"polishAvg":0,"windowAvg":0.13630748211305224,"maxProtrusion":1,"protHigh":1,"seed":1979811594}
-  stage2: {"stage":2,"align":0.9540571614978756,"grindAvg":0.37653525993292536,"polishAvg":0.37653525993292536,"windowAvg":0.13630748211305224,"maxProtrusion":1,"protHigh":1,"seed":1979811594}
-  stage3: {"stage":3,"align":0.9540571614978756,"grindAvg":0.9064858290089899,"polishAvg":0.37653525993292536,"windowAvg":0.13630748211305224,"maxProtrusion":0.29368671249419265,"protHigh":0.234375,"seed":1979811594}
-  stage4: {"stage":4,"align":0.9540571614978756,"grindAvg":0.9765507974128971,"polishAvg":0.37653525993292536,"windowAvg":0.13630748211305224,"maxProtrusion":0.09508343678659159,"protHigh":0.0625,"seed":1979811594}
-  stage5: {"stage":5,"align":0.9503589210993666,"grindAvg":0.9765507974128971,"polishAvg":0.9852696604159163,"windowAvg":0.13630748211305224,"maxProtrusion":0.09508343678659159,"protHigh":0.0625,"seed":1979811594}
+  stage0: {"stage":0,"align":-0.44929626118680394,"grindAvg":0,"polishAvg":0,"windowAvg":0,"maxProtrusion":1,"protHigh":1,"seed":2555008106,"collection":0}
+  stage1: {"stage":1,"align":0.968509244219127,"grindAvg":0,"polishAvg":0,"windowAvg":0.12053343584884585,"maxProtrusion":1,"protHigh":1,"seed":2555008106,"collection":0}
+  stage2: {"stage":2,"align":0.9551568375919639,"grindAvg":0.392755348779382,"polishAvg":0.392755348779382,"windowAvg":0.12053343584884585,"maxProtrusion":1,"protHigh":1,"seed":2555008106,"collection":0}
+  stage3: {"stage":3,"align":0.9551568375919639,"grindAvg":0.560663313499239,"polishAvg":0.392755348779382,"windowAvg":0.12053343584884585,"maxProtrusion":0.26164387138259115,"protHigh":0.21875,"seed":2555008106,"collection":0}
+  stage4: {"stage":4,"align":0.9551568375919639,"grindAvg":0.9701427579715454,"polishAvg":0.392755348779382,"windowAvg":0.12053343584884585,"maxProtrusion":0.06370889347465436,"protHigh":0.015625,"seed":2555008106,"collection":0}
+  stage5: {"stage":5,"align":0.9435653077975124,"grindAvg":0.97289813808475,"polishAvg":0.9863949960497008,"windowAvg":0.12053343584884585,"maxProtrusion":0.05782951153054228,"protHigh":0.015625,"seed":2555008106,"collection":1}
 [landscape] 到達ステージ: 0 → 1 → 2 → 3 → 4 → 5
-  stage0: {"stage":0,"align":0.31358338075647796,"grindAvg":0,"polishAvg":0,"windowAvg":0,"maxProtrusion":1,"protHigh":1,"seed":307256135}
-  stage1: {"stage":1,"align":0.9545271928482009,"grindAvg":0,"polishAvg":0,"windowAvg":0.07464506674336806,"maxProtrusion":1,"protHigh":1,"seed":307256135}
-  stage2: {"stage":2,"align":0.9537262272503907,"grindAvg":0.3939036615162637,"polishAvg":0.3939036615162637,"windowAvg":0.07464506674336806,"maxProtrusion":1,"protHigh":1,"seed":307256135}
-  stage3: {"stage":3,"align":0.9537262272503907,"grindAvg":0.903468722003749,"polishAvg":0.3939036615162637,"windowAvg":0.07464506674336806,"maxProtrusion":0.38371711597977765,"protHigh":0.265625,"seed":307256135}
-  stage4: {"stage":4,"align":0.9537262272503907,"grindAvg":0.9710439676823823,"polishAvg":0.41864902094317036,"windowAvg":0.07464506674336806,"maxProtrusion":0.18954127491350903,"protHigh":0.109375,"seed":307256135}
-  stage5: {"stage":5,"align":0.9492556169191569,"grindAvg":0.9710439676823823,"polishAvg":0.985026424598956,"windowAvg":0.07464506674336806,"maxProtrusion":0.18954127491350903,"protHigh":0.109375,"seed":307256135}
-RESULT: OK (縦横とも Stage 0〜5 を一周)
+  stage0: {"stage":0,"align":-0.7315797736896587,"grindAvg":0,"polishAvg":0,"windowAvg":0,"maxProtrusion":1,"protHigh":1,"seed":3569863111,"collection":0}
+  stage1: {"stage":1,"align":0.949537125173975,"grindAvg":0,"polishAvg":0,"windowAvg":0.08998213963492263,"maxProtrusion":1,"protHigh":1,"seed":3569863111,"collection":0}
+  stage2: {"stage":2,"align":0.9535424663973577,"grindAvg":0.3768940079086575,"polishAvg":0.3768940079086575,"windowAvg":0.08998213963492263,"maxProtrusion":1,"protHigh":1,"seed":3569863111,"collection":0}
+  stage3: {"stage":3,"align":0.9535424663973577,"grindAvg":0.7133562956629009,"polishAvg":0.3768940079086575,"windowAvg":0.08998213963492263,"maxProtrusion":0.3492050516989923,"protHigh":0.265625,"seed":3569863111,"collection":0}
+  stage4: {"stage":4,"align":0.9535424663973577,"grindAvg":0.9701431627603604,"polishAvg":0.3768940079086575,"windowAvg":0.08998213963492263,"maxProtrusion":0.3501048684120178,"protHigh":0.265625,"seed":3569863111,"collection":0}
+  stage5: {"stage":5,"align":0.9388431765088215,"grindAvg":0.9795900526373224,"polishAvg":0.9900794959795112,"windowAvg":0.08998213963492263,"maxProtrusion":0.2393295168876648,"protHigh":0.1875,"seed":3569863111,"collection":1}
+[portrait] リロード復元: OK / 再プレイ: OK
+RESULT: OK (縦横とも Stage 0〜5 を一周 / リロード復元・再プレイも OK)

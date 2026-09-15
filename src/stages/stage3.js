@@ -9,6 +9,9 @@ const _p = new THREE.Vector3();
 export default {
   enter(g) {
     g.machines.wheelSpin = 17;
+    // ここから上限が外れ、こすった所が 1.0 まで丸くなる
+    g.stone.grindCap = 1.0;
+    g.stone.material.uniforms.uGrindCap.value = 1.0;
     g.stone.spinSpeed = 0.95;
     g.waterT = 0;
     g.grindNoise = 0;
@@ -43,7 +46,7 @@ export default {
     // 円を描くと連続して塗れる。丸める工程なので全体も少しずつ丸くなる。
     // 仕上げに近づくほど「全体が丸くなる」成分を強めて、最後の角が必ず取れるようにする
     const gv = g.stone.stats().grindAvg;
-    const r = rubPaint(g, m, 'grind', 0.52, 0.24, 0.0011 * (1 + 2.6 * gv * gv * gv * gv), 0.5);
+    const r = rubPaint(g, m, 'grind', 0.52, 0.30, 0.0013 * (1 + 2.6 * gv * gv * gv * gv), 0.5);
     if (r.added > 0) {
       g.grindNoise = Math.min(1, g.grindNoise + r.added * 1.2);
       g.emitAt(r.hit.local, 'water', 2, 0.9);
