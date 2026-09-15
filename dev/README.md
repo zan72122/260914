@@ -59,6 +59,7 @@ node dev/shot.mjs --scene=intro --device=iphone-portrait \
 | `--out` | `<scene>-<device>-<gesture>` | output folder name under `dev/out/` |
 | `--contact` | off | also write `contact.png`, the whole sequence as one grid |
 | `--devoverlay` | off | render with `?dev=1` |
+| `--complete` | off | mark every debris as already collected before recording, to review the scene's completion camera move and the hand-off to the next scene |
 
 Output: `dev/out/<name>/000.png …`, `state.json` (the gesture plus a full
 `game.state()` dump per frame — this is how you check "did it accelerate?"

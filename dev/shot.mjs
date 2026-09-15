@@ -93,6 +93,13 @@ async function main() {
   // settle one frame, then take control of time
   await page.evaluate(() => { window.game.pause(); window.game.step(0.25); });
 
+  if (a.complete) {
+    // preview the completion camera move without playing the whole scene
+    await page.evaluate(() => {
+      const sc = window.game._g.scene;
+      sc.debris.forEach((d) => { d.dormant = false; d.state = 'in-cup'; });
+    });
+  }
   const state0 = await page.evaluate(() => window.game.state());
   const tgt = resolveTarget(state0, target);
   const start = startPoint(state0, tgt);

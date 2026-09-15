@@ -87,8 +87,11 @@ export class Vacuum {
     const axn = this.aheadX / an, ayn = this.aheadY / an;
     const drag = clamp(sp / 900, 0, 1);
 
-    const sx = input.x + axn * L.ahead * drag;
-    const sy = input.y - L.up + ayn * L.ahead * drag * 0.5;
+    // the head leads the finger, but must never leave the screen (landscape is
+    // only ~390px tall: a finger near the top edge would push it out of view)
+    const m = 30;
+    const sx = clamp(input.x + axn * L.ahead * drag, m, cam.w - m);
+    const sy = clamp(input.y - L.up + ayn * L.ahead * drag * 0.5, m, cam.h - m);
     cam.toWorld(sx, sy, TMP);
     const ntx = TMP.x, nty = TMP.y;
     cam.toWorld(input.x, input.y + L.bodyBack * 0.42, TMP2);
