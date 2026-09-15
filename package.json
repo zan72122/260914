@@ -1,0 +1,31 @@
+{
+  "name": "hoshi-o-okosu",
+  "version": "1.0.0",
+  "description": "星を起こす — スターサファイア研磨あそび",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "playtest": "npm run build && NODE_PATH=/opt/node22/lib/node_modules PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node scripts/playtest.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zan72122/260914.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/zan72122/260914/issues"
+  },
+  "homepage": "https://github.com/zan72122/260914#readme",
+  "dependencies": {
+    "three": "^0.186.0",
+    "vite": "^8.3.0"
+  },
+  "private": true,
+  "type": "module"
+}
