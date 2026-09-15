@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>tane</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<!-- Offline art defs. Mirrors art/t1.svg .. art/t4.svg; when the page is served over
+     http(s), js/tile.js re-fetches art/*.svg so those files stay the single source. -->
+<svg id="art-defs" aria-hidden="true" focusable="false"><defs>
+<symbol> body to swap art. -->
+  <symbol id="t1" viewBox="0 0 1000 1000">
+    <!-- hole geometry: consumed by tile.js to build a mask (window shows tiles stacked beneath) -->
+    <g data-hole="window">
+      <rect x="182" y="162" width="316" height="286" rx="10"/>
+    </g>
+    <!-- zoom stage 1 framing: pot close-up -->
+    <rect data-zoom-frame="1" x="520" y="470" width="360" height="360" fill="none"/>
+
+    <g data-hole-target="">
+      <g data-layer="bg">
+        <rect x="0" y="0" width="1000" height="1000" fill="#f3ecdc"/>
+        <rect x="0" y="700" width="1000" height="300" fill="#e7dcc4"/>
+        <path d="M0 700 H1000" stroke="#4a463d" stroke-width="4" fill="none"/>
+        <path d="M60 240 q40 -60 90 -30" stroke="#cfc3a6" stroke-width="5" fill="none" stroke-linecap="round"/>
+        <path d="M70 300 q50 -50 100 -20" stroke="#cfc3a6" stroke-width="5" fill="none" stroke-linecap="round"/>
+      </g>
+    </g>
+
+    <g data-layer="window">
+      <rect x="150" y="130" width="380" height="350" rx="14" fill="none" stroke="#4a463d" stroke-width="12"/>
+      <rect x="150" y="130" width="380" height="350" rx="14" fill="none" stroke="#8d7f63" stroke-width="3"/>
+      <path d="M340 162 V448" stroke="#4a463d" stroke-width="8"/>
+      <path d="M182 305 H498" stroke="#4a463d" stroke-width="8"/>
+      <rect x="132" y="470" width="416" height="26" rx="8" fill="#ded0b2" stroke="#4a463d" stroke-width="6"/>
+    </g>
+
+    <g data-layer="table">
+      <rect x="420" y="700" width="520" height="24" rx="8" fill="#dcc9a4" stroke="#4a463d" stroke-width="6"/>
+      <path d="M470 724 V900 M890 724 V900" stroke="#4a463d" stroke-width="10" stroke-linecap="round"/>
+    </g>
+
+    <g data-layer="pot" data-portal="pot">
+      <path d="M600 560 h200 l-26 130 h-148 z" fill="#cfd8dc" stroke="#4a463d" stroke-width="8" stroke-linejoin="round"/>
+      <rect x="586" y="534" width="228" height="34" rx="12" fill="#b9c6cc" stroke="#4a463d" stroke-width="8"/>
+      <path d="M604 566 h192 l-8 40 h-176 z" fill="#8b6f4e" data-layer="soil"/>
+      <circle cx="700" cy="586" r="12" fill="#6b5433" stroke="#4a463d" stroke-width="4" data-layer="seed"/>
+    </g>
+
+    <g data-layer="sprout" opacity="0">
+      <path d="M700 586 q-6 -60 -46 -86" stroke="#5c8a45" stroke-width="10" fill="none" stroke-linecap="round"/>
+      <path d="M676 536 q-46 -14 -58 -50 q44 -4 60 34 z" fill="#8fbf6a" stroke="#4a463d" stroke-width="5"/>
+    </g>
+  </symbol>
+<symbol id="t2" viewBox="0 0 1000 1000">
+    <g data-layer="bg">
+      <rect x="0" y="0" width="1000" height="1000" fill="#e8eef2"/>
+      <path d="M0 860 H1000" stroke="#c3cdd4" stroke-width="4" fill="none"/>
+    </g>
+    <g data-layer="cloud">
+      <path d="M250 430 q-90 0 -90 -80 q0 -74 82 -84 q22 -96 128 -96 q92 0 122 78 q28 -22 66 -22 q96 0 106 100 q86 10 86 86 q0 78 -96 78 z"
+            fill="#cfd8de" stroke="#4a463d" stroke-width="10" stroke-linejoin="round"/>
+      <path d="M300 360 q60 -34 120 -6" stroke="#9aa9b3" stroke-width="8" fill="none" stroke-linecap="round"/>
+    </g>
+    <g data-layer="rain">
+      <path d="M300 500 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
+      <path d="M470 560 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
+      <path d="M640 520 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
+      <path d="M380 720 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
+      <path d="M560 780 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
+      <!-- drops cut by the tile edge -->
+      <path d="M300 960 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
+      <path d="M500 975 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
+      <path d="M700 955 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
+    </g>
+  </symbol>
+<symbol id="t3" viewBox="0 0 1000 1000">
+    <g data-layer="bg">
+      <rect x="0" y="0" width="1000" height="1000" fill="#fdf4dc"/>
+    </g>
+    <g data-layer="beams" opacity="0.85">
+      <path d="M140 0 L420 0 L120 1000 L-160 1000 z" fill="#f7e2a4"/>
+      <path d="M460 0 L700 0 L400 1000 L160 1000 z" fill="#fbecc0"/>
+      <path d="M740 0 L960 0 L660 1000 L440 1000 z" fill="#f7e2a4"/>
+    </g>
+    <g data-layer="sun">
+      <circle cx="700" cy="230" r="120" fill="#f6c95c" stroke="#4a463d" stroke-width="10"/>
+      <g stroke="#4a463d" stroke-width="8" stroke-linecap="round">
+        <path d="M700 60 V6 M700 454 V400 M530 230 H476 M924 230 H870"/>
+        <path d="M580 110 L542 72 M820 350 L858 388 M820 110 L858 72 M580 350 L542 388"/>
+      </g>
+    </g>
+  </symbol>
+<symbol id="t4" viewBox="0 0 1000 1000">
+    <g data-layer="bg">
+      <rect x="0" y="0" width="1000" height="1000" fill="#eef3e2"/>
+      <path d="M0 720 q250 -40 500 0 q250 40 500 0 V1000 H0 z" fill="#d9e4c2" stroke="#4a463d" stroke-width="6"/>
+    </g>
+    <g data-layer="bed">
+      <g stroke="#4a463d" stroke-width="8" fill="none" stroke-linecap="round">
+        <path d="M180 900 V770"/><path d="M360 920 V790"/><path d="M540 900 V780"/><path d="M760 930 V800"/>
+      </g>
+      <circle cx="180" cy="750" r="42" fill="#e9a3b4" stroke="#4a463d" stroke-width="7"/>
+      <circle cx="360" cy="770" r="38" fill="#f2cf76" stroke="#4a463d" stroke-width="7"/>
+      <circle cx="540" cy="760" r="40" fill="#c7a6e0" stroke="#4a463d" stroke-width="7"/>
+      <circle cx="760" cy="780" r="36" fill="#e9a3b4" stroke="#4a463d" stroke-width="7"/>
+    </g>
+    <g data-layer="trail">
+      <path d="M240 560 q120 -120 240 -40 q120 80 240 -40 q80 -80 300 -60"
+            fill="none" stroke="#8d7f63" stroke-width="8" stroke-linecap="round" stroke-dasharray="4 34"/>
+    </g>
+    <g data-layer="butterfly">
+      <path d="M300 500 C250 424 186 442 206 494 C218 528 268 532 300 500 Z" fill="#f0b27a" stroke="#4a463d" stroke-width="7" stroke-linejoin="round"/>
+      <path d="M300 500 C350 424 414 442 394 494 C382 528 332 532 300 500 Z" fill="#f4cf9e" stroke="#4a463d" stroke-width="7" stroke-linejoin="round"/>
+      <ellipse cx="300" cy="498" rx="11" ry="36" fill="#6f6250" stroke="#4a463d" stroke-width="5"/>
+      <path d="M296 466 q-22 -30 -44 -38 M304 466 q22 -30 44 -38" fill="none" stroke="#4a463d" stroke-width="5" stroke-linecap="round"/>
+    </g>
+  </symbol>
+</defs></svg>
+
+<div id="stage">
+  <div id="board">
+    <div class="cell" data-r="0" data-c="0"></div>
+    <div class="cell" data-r="0" data-c="1"></div>
+    <div class="cell" data-r="1" data-c="0"></div>
+    <div class="cell" data-r="1" data-c="1"></div>
+    <div id="tiles"></div>
+  </div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

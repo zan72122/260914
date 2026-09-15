@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <!-- T3 sun: slanted light beams, aligned with the window of T1 when stacked beneath it. -->
+  <symbol id="t3" viewBox="0 0 1000 1000">
+    <g data-layer="bg">
+      <rect x="0" y="0" width="1000" height="1000" fill="#fdf4dc"/>
+    </g>
+    <g data-layer="beams" opacity="0.85">
+      <path d="M140 0 L420 0 L120 1000 L-160 1000 z" fill="#f7e2a4"/>
+      <path d="M460 0 L700 0 L400 1000 L160 1000 z" fill="#fbecc0"/>
+      <path d="M740 0 L960 0 L660 1000 L440 1000 z" fill="#f7e2a4"/>
+    </g>
+    <g data-layer="sun">
+      <circle cx="700" cy="230" r="120" fill="#f6c95c" stroke="#4a463d" stroke-width="10"/>
+      <g stroke="#4a463d" stroke-width="8" stroke-linecap="round">
+        <path d="M700 60 V6 M700 454 V400 M530 230 H476 M924 230 H870"/>
+        <path d="M580 110 L542 72 M820 350 L858 388 M820 110 L858 72 M580 350 L542 388"/>
+      </g>
+    </g>
+  </symbol>
+  <use href="#t3" width="1000" height="1000"/>
+</svg>

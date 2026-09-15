@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <!-- T1 room: window (hole) + table + pot + seed. Replace the <symbol> body to swap art. -->
+  <symbol id="t1" viewBox="0 0 1000 1000">
+    <!-- hole geometry: consumed by tile.js to build a mask (window shows tiles stacked beneath) -->
+    <g data-hole="window">
+      <rect x="182" y="162" width="316" height="286" rx="10"/>
+    </g>
+    <!-- zoom stage 1 framing: pot close-up -->
+    <rect data-zoom-frame="1" x="520" y="470" width="360" height="360" fill="none"/>
+
+    <g data-hole-target="">
+      <g data-layer="bg">
+        <rect x="0" y="0" width="1000" height="1000" fill="#f3ecdc"/>
+        <rect x="0" y="700" width="1000" height="300" fill="#e7dcc4"/>
+        <path d="M0 700 H1000" stroke="#4a463d" stroke-width="4" fill="none"/>
+        <path d="M60 240 q40 -60 90 -30" stroke="#cfc3a6" stroke-width="5" fill="none" stroke-linecap="round"/>
+        <path d="M70 300 q50 -50 100 -20" stroke="#cfc3a6" stroke-width="5" fill="none" stroke-linecap="round"/>
+      </g>
+    </g>
+
+    <g data-layer="window">
+      <rect x="150" y="130" width="380" height="350" rx="14" fill="none" stroke="#4a463d" stroke-width="12"/>
+      <rect x="150" y="130" width="380" height="350" rx="14" fill="none" stroke="#8d7f63" stroke-width="3"/>
+      <path d="M340 162 V448" stroke="#4a463d" stroke-width="8"/>
+      <path d="M182 305 H498" stroke="#4a463d" stroke-width="8"/>
+      <rect x="132" y="470" width="416" height="26" rx="8" fill="#ded0b2" stroke="#4a463d" stroke-width="6"/>
+    </g>
+
+    <g data-layer="table">
+      <rect x="420" y="700" width="520" height="24" rx="8" fill="#dcc9a4" stroke="#4a463d" stroke-width="6"/>
+      <path d="M470 724 V900 M890 724 V900" stroke="#4a463d" stroke-width="10" stroke-linecap="round"/>
+    </g>
+
+    <g data-layer="pot" data-portal="pot">
+      <path d="M600 560 h200 l-26 130 h-148 z" fill="#cfd8dc" stroke="#4a463d" stroke-width="8" stroke-linejoin="round"/>
+      <rect x="586" y="534" width="228" height="34" rx="12" fill="#b9c6cc" stroke="#4a463d" stroke-width="8"/>
+      <path d="M604 566 h192 l-8 40 h-176 z" fill="#8b6f4e" data-layer="soil"/>
+      <circle cx="700" cy="586" r="12" fill="#6b5433" stroke="#4a463d" stroke-width="4" data-layer="seed"/>
+    </g>
+
+    <g data-layer="sprout" opacity="0">
+      <path d="M700 586 q-6 -60 -46 -86" stroke="#5c8a45" stroke-width="10" fill="none" stroke-linecap="round"/>
+      <path d="M676 536 q-46 -14 -58 -50 q44 -4 60 34 z" fill="#8fbf6a" stroke="#4a463d" stroke-width="5"/>
+    </g>
+  </symbol>
+  <use href="#t1" width="1000" height="1000"/>
+</svg>

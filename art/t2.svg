@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <!-- T2 rain cloud: drops are cut off by the bottom edge (invites a tile below). -->
+  <symbol id="t2" viewBox="0 0 1000 1000">
+    <g data-layer="bg">
+      <rect x="0" y="0" width="1000" height="1000" fill="#e8eef2"/>
+      <path d="M0 860 H1000" stroke="#c3cdd4" stroke-width="4" fill="none"/>
+    </g>
+    <g data-layer="cloud">
+      <path d="M250 430 q-90 0 -90 -80 q0 -74 82 -84 q22 -96 128 -96 q92 0 122 78 q28 -22 66 -22 q96 0 106 100 q86 10 86 86 q0 78 -96 78 z"
+            fill="#cfd8de" stroke="#4a463d" stroke-width="10" stroke-linejoin="round"/>
+      <path d="M300 360 q60 -34 120 -6" stroke="#9aa9b3" stroke-width="8" fill="none" stroke-linecap="round"/>
+    </g>
+    <g data-layer="rain">
+      <path d="M300 500 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
+      <path d="M470 560 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
+      <path d="M640 520 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
+      <path d="M380 720 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
+      <path d="M560 780 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
+      <!-- drops cut by the tile edge -->
+      <path d="M300 960 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
+      <path d="M500 975 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
+      <path d="M700 955 q-14 32 0 46 q14 -14 0 -46 z" fill="#7fb4d6" stroke="#4a463d" stroke-width="5"/>
+    </g>
+  </symbol>
+  <use href="#t2" width="1000" height="1000"/>
+</svg>
