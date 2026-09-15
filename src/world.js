@@ -252,14 +252,14 @@ export class World {
     }
     const treeGeo = mergeGeometries(branchGeos, false);
     const treeMat = new THREE.MeshStandardMaterial({ color: 0x1a1620, roughness: 1 });
-    const COUNT = 30;
+    const COUNT = 34;
     const trees = new THREE.InstancedMesh(treeGeo, treeMat, COUNT);
     trees.castShadow = true;
     const d = new THREE.Object3D();
     for (let i = 0; i < COUNT; i++) {
       const t = 0.02 + (i / COUNT) * 0.98;
       const side = i % 2 ? 1 : -1;
-      const lat = side * (8.5 + Math.random() * 14);
+      const lat = side * (15.5 + Math.random() * 13);
       const p = this.offsetPoint(t + (Math.random() - 0.5) * 0.02, lat);
       d.position.set(p.x, 0, p.z);
       d.rotation.set(0, Math.random() * 6.28, 0);
