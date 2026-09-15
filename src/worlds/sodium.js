@@ -42,10 +42,10 @@ const STREET_Y = 0;            // world y of the street stage centre
 const NEED_TAPS = 3;           // §2.3 three sprinkles is "done"
 const MAX_TAPS = 20;           // but up to twenty are welcome
 const LAMP_N = 5;
-const CHAIN_AFTER = 3;         // 3 lamps lit -> the rest chain-light
+const CHAIN_AFTER = 4;         // 4 lamps lit by hand -> the last one chains (§review H)
 
-const T_LIFT = 0.50;           // s after the 3rd sprinkle: one cube lifts and starts to glow
-const T_RISE = 1.20;           // s after the 3rd sprinkle: the camera starts to rise
+const T_LIFT = 0.45;           // s after the 3rd sprinkle: one cube lifts and starts to glow
+const T_RISE = 0.95;           // a 0.5s beat after the cube lifts: it is seen leaving first
 const RISE_DUR = 2.00;
 const FLY_DUR = 2.55;          // cube: table -> window -> inside the first lamp
 const TINT_DUR = 0.70;         // how long the whole screen takes to turn yellow
@@ -150,10 +150,10 @@ export default {
         win: { x: Math.min(hx * 0.56, 236), y: TABLE_Y - 210, hw: Math.min(hx * 0.30, 96), hh: 74 },
         salt: { x: 0, y: TABLE_Y - 60, spread: Math.min(hx * 0.40, 104) },
         spacing: Math.min(hx * 0.34, 152),
-        lampBaseY: 165,
-        lampTopY: -140,
+        lampBaseY: 178,
+        lampTopY: -105,
         hoodH: 34,
-        roadY: 150
+        roadY: 168
       };
       L.hoodHalf = Math.min(L.spacing * 0.36, 34);
       L.poleW = Math.max(9, L.spacing * 0.14);
@@ -757,30 +757,43 @@ export default {
 
     function drawSteam(g, hop) {
       const p = L.potato;
-      const y0 = p.y - p.ry;                        // fixed: the hop must not move the gradient
+      const y0 = p.y - p.ry * 0.92;                 // fixed: the hop must not move the gradient
       const bucket = Math.round(steam * 4);
-      const hgt = p.ry * (1.5 + 1.6 * steam);
-      const base = (0.10 + 0.20 * steam) * A;
+      const hgt = p.ry * (2.1 + 1.7 * steam);
+      const base = (0.24 + 0.34 * steam) * A;       // §2.3: a freshly boiled potato always steams
       g.save();
       g.translate(0, -hop);
       g.lineCap = 'round';
-      g.lineWidth = p.rx * (0.12 + 0.05 * steam);
       g.strokeStyle = cachedLinear(g, 'na-steam' + bucket, 0, y0, 0, y0 - hgt, [
-        [0, withAlpha('#fff6e2', base)],
-        [0.45, withAlpha('#fff6e2', base * 0.55)],
-        [1, withAlpha('#fff6e2', 0)]
+        [0, withAlpha('#fff4e0', base)],
+        [0.40, withAlpha('#fff4e0', base * 0.62)],
+        [1, withAlpha('#fff4e0', 0)]
       ]);
-      for (let i = 0; i < 3; i++) {
-        const x0 = p.x + (i - 1) * p.rx * 0.52;
-        const amp = p.rx * (0.16 + 0.10 * steam);
+      for (let i = 0; i < 4; i++) {
+        const x0 = p.x + (i - 1.5) * p.rx * 0.40;
+        const amp = p.rx * (0.15 + 0.11 * steam);
+        g.lineWidth = p.rx * (0.13 + 0.06 * steam) * (i === 1 || i === 2 ? 1.15 : 0.82);
         g.beginPath();
         for (let k = 0; k <= 12; k++) {
           const u = k / 12;
-          const x = x0 + Math.sin(t * 1.5 + u * 3.4 + i * 2.1) * amp * u;
+          const x = x0 + Math.sin(t * 1.5 + u * 3.4 + i * 1.9) * amp * u;
           const y = y0 - u * hgt;
           if (k === 0) g.moveTo(x, y); else g.lineTo(x, y);
         }
         g.stroke();
+      }
+      // slow puffs climbing the wisps: steam reads as steam even in a still frame
+      const puffs = 6;
+      for (let i = 0; i < puffs; i++) {
+        const u = ((t * (0.16 + 0.10 * steam) + i / puffs) % 1);
+        const lane = i % 4;
+        const x0 = p.x + (lane - 1.5) * p.rx * 0.40;
+        const x = x0 + Math.sin(t * 1.5 + u * 3.4 + lane * 1.9) * p.rx * (0.15 + 0.11 * steam) * u;
+        const y = y0 - u * hgt;
+        const rr = p.rx * (0.08 + 0.13 * u) * (0.8 + 0.4 * steam);
+        const a = base * 0.85 * Math.sin(Math.min(1, u * 1.15) * Math.PI);
+        g.fillStyle = withAlpha('#fff4e0', a);
+        ellipse(g, x, y, rr, rr * 0.86); g.fill();
       }
       g.restore();
     }
@@ -893,6 +906,13 @@ export default {
         g.restore();
       }
 
+      // an unlit pole's FOOT breathes as well, so the whole pole reads as touchable
+      if (!l.lit) {
+        const footPulse = 0.12 + 0.10 * (0.5 + 0.5 * Math.sin(t * 1.9 + l.ph + 0.9))
+          + Math.sin(l.nudge * Math.PI) * 0.26;
+        glowCircle(g, x, L.lampBaseY + 2, hh * 1.5, DEF.flameColor, footPulse * 0.55 * A);
+      }
+
       // pole + foot
       const poleCol = l.lit ? lerpColor('#252b40', '#6a5330', on * 0.8) : '#252b40';
       g.fillStyle = withAlpha(poleCol, A);
@@ -960,9 +980,9 @@ export default {
 
       draw(g) {
         const w = engine.width, h = engine.height;
-        // fade in out of the flame flood during the 1.2s overlap; opaque once it is over
-        // (a test jump with transition:'none' leaves handoff.progress at 0 forever)
-        A = handoff && engine.scenes.busy ? clamp(handoff.progress * 1.25) : 1;
+        // fade in out of the flame flood during the 1.2s overlap (scene.js hands us
+        // progress === 1 straight away when there is no overlap)
+        A = handoff ? clamp(handoff.progress * 1.25) : 1;
 
         // after finish() the hearth owns the camera again: keep only the colour alive
         if (finished) {
@@ -1067,7 +1087,7 @@ export default {
         tiltStage = 2;
         riseT = RISE_DUR;
         // drop any camera tween still in flight, then snap to the street
-        if (cam._tweens) cam._tweens.length = 0;
+        cam.stopTweens();
         cam.tiltTo(6, 0);
         cam.x = 0; cam.y = STREET_Y;
         chainT = -1;
