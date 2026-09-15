@@ -215,15 +215,18 @@ function AUTOPILOT(cfg) {
     // Nothing is getting closer: stop dead and let the airflow work. That is
     // the press-and-hold the whole game is built on, and it is also the only
     // way to win the deep nook under the sofa, where the head cannot reach.
+    // Nothing is getting closer: stop dead and let the airflow work. Hold
+    // longer when the air IS reaching the thing (the mother bunny under the
+    // sofa is won by patience alone), but always move on eventually — a piece
+    // merely trembling at 0.1 will not let go on this visit, and the room has
+    // other things in it. Coming back to it later, thinner, is what wins.
     if (stall > 0.8 && t > holdUntil) holdUntil = t + (inFlow ? 4500 : 2200);
     if (t < holdUntil) {
       window.game.input.pointer(F.x, F.y, true);
-      // Give up only when the airflow is NOT reaching it: if it is, holding
-      // still is the winning move and the only question is how long.
-      if (!inFlow && stall > 5.5 && targetId) { avoid[targetId] = t + 9000; stall = 0; bestErr = 1e9; }
+      if (stall > 5.5 && targetId) { avoid[targetId] = t + (inFlow ? 5000 : 9000); stall = 0; bestErr = 1e9; }
       return;
     }
-    if (!inFlow && sinceTarget > 22 && targetId) { avoid[targetId] = t + 12000; sinceTarget = 0; }
+    if (sinceTarget > 22 && targetId) { avoid[targetId] = t + (inFlow ? 6000 : 12000); sinceTarget = 0; }
 
     if (err > 0.012) {
       const step = Math.min(1, (dt * 2.6) / Math.max(0.08, err)) * 0.55;
