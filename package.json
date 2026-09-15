@@ -1,0 +1,15 @@
+{
+  "name": "pakatto-omurice",
+  "version": "1.0.0",
+  "private": true,
+  "description": "パカッ！とろとろオムライス — iPhone/iPad Safari 向け 一本指ブラウザゲーム（ビルド不要 / 依存ゼロ）",
+  "type": "module",
+  "scripts": {
+    "serve": "python3 -m http.server 8080",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0"
+  }
+}
