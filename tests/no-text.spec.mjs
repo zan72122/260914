@@ -54,9 +54,13 @@ test.describe('no text', () => {
     await startGame(page);
 
     for (const element of available) {
-      await enterWorld(page, element);
-      await playUntilComplete(page, element, { attempts: 4, timeout: 60_000 });
-      await waitReturnToHearth(page, 30_000);
+      try {
+        await enterWorld(page, element);
+        await playUntilComplete(page, element, { attempts: 4, timeout: 60_000 });
+        await waitReturnToHearth(page, 30_000);
+      } catch (err) {
+        throw new Error(`full playthrough stopped in world "${element}".\n${err.message}`);
+      }
       const calls = await textCalls(page);
       expect(
         calls.total,

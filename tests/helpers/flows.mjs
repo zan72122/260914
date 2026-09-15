@@ -27,6 +27,9 @@ import * as G from './gestures.mjs';
 
 const { drag, trace, circle, sloppyTap, tap, longPress, hit, waitIdle, waitForGame, sleep } = G;
 
+/** hit() with the world named in the failure message. */
+const h = (page, id, world, opts = {}) => hit(page, id, { context: `world "${world}"`, ...opts });
+
 /** Load the app, fix the RNG, clear progress and land on the hearth. */
 export async function startGame(page, { seed = 12345, reset = true } = {}) {
   await page.goto('/');
@@ -42,11 +45,24 @@ export async function startGame(page, { seed = 12345, reset = true } = {}) {
  * (DESIGN.md §1.4 — a plain tap must work too; see `enterWorldByTap`.)
  */
 export async function enterWorld(page, elementId) {
-  const dish = await hit(page, `dish:${elementId}`);
-  const flame = await hit(page, 'flame');
+  const dish = await hit(page, `dish:${elementId}`, { context: `entering world "${elementId}"` });
+  const flame = await hit(page, 'flame', { context: `entering world "${elementId}"` });
   await drag(page, { x: dish.x, y: dish.y }, { x: flame.x, y: flame.y }, { steps: 28, jitter: 12, ms: 900 });
   await waitIdle(page, 30_000);
-  await page.waitForFunction((id) => window.__game.sceneId === id, elementId, { timeout: 30_000 });
+  await expectSceneBecomes(page, elementId);
+}
+
+/** Wait for a scene id, failing with a message that names what we got instead. */
+async function expectSceneBecomes(page, elementId, timeout = 30_000) {
+  try {
+    await page.waitForFunction((id) => window.__game.sceneId === id, elementId, { timeout });
+  } catch {
+    const now = await page.evaluate(() => window.__game.sceneId).catch(() => '<unavailable>');
+    throw new Error(
+      `world "${elementId}" was never entered: sceneId is still "${now}" after ${timeout}ms ` +
+        `(the dish -> flame drag did not start the transition).`
+    );
+  }
 }
 
 /** Alternative entry: a 4-year-old taps before they drag. */
@@ -54,7 +70,7 @@ export async function enterWorldByTap(page, elementId) {
   const dish = await hit(page, `dish:${elementId}`);
   await sloppyTap(page, dish.x, dish.y);
   await waitIdle(page, 30_000);
-  await page.waitForFunction((id) => window.__game.sceneId === id, elementId, { timeout: 30_000 });
+  await expectSceneBecomes(page, elementId);
 }
 
 const phaseOf = (page) => page.evaluate(() => (window.__game.state || {}).phase);
@@ -74,8 +90,8 @@ export async function waitComplete(page, timeout = 60_000) {
 
 /** lithium: drag the pellet but let go 40px short of the slot -> magnetic snap. */
 export async function playLithium(page) {
-  const frag = await hit(page, 'fragment');
-  const slot = await hit(page, 'slot');
+  const frag = await h(page, 'fragment', 'lithium');
+  const slot = await h(page, 'slot', 'lithium');
   const dx = slot.x - frag.x;
   const dy = slot.y - frag.y;
   const len = Math.hypot(dx, dy) || 1;
@@ -86,8 +102,8 @@ export async function playLithium(page) {
 
 /** copper: trace the ideal path while wandering up to ~60px off it. */
 export async function playCopper(page) {
-  const start = await hit(page, 'trace:start');
-  const end = await hit(page, 'trace:end');
+  const start = await h(page, 'trace:start', 'copper');
+  const end = await h(page, 'trace:end', 'copper');
   const path = await page.evaluate(() => {
     const st = window.__game.state || {};
     return Array.isArray(st.tracePath) ? st.tracePath : null;
@@ -100,7 +116,7 @@ export async function playCopper(page) {
 export async function playSodium(page) {
   let target = null;
   try {
-    target = await hit(page, 'tap', { timeout: 5_000 });
+    target = await h(page, 'tap', 'sodium', { timeout: 5_000 });
   } catch {
     const box = page.viewportSize();
     target = { x: box.width / 2, y: box.height * 0.35, r: 0 };
@@ -114,7 +130,7 @@ export async function playSodium(page) {
     if (await isComplete(page)) return;
     let lamp;
     try {
-      lamp = await hit(page, 'lamp:', { timeout: 6_000 });
+      lamp = await h(page, 'lamp:', 'sodium', { timeout: 6_000 });
     } catch {
       break;
     }
@@ -125,12 +141,12 @@ export async function playSodium(page) {
 
 /** strontium: load, a too-short 250ms press (must NOT fire), then 900ms (must fire). */
 export async function playStrontium(page) {
-  const seed = await hit(page, 'seed');
-  const tube = await hit(page, 'tube');
+  const seed = await h(page, 'seed', 'strontium');
+  const tube = await h(page, 'tube', 'strontium');
   await drag(page, { x: seed.x, y: seed.y }, { x: tube.x, y: tube.y }, { steps: 20, jitter: 10, ms: 700 });
   await sleep(600);
 
-  const t2 = await hit(page, 'tube');
+  const t2 = await h(page, 'tube', 'strontium');
   await longPress(page, t2.x, t2.y, 250); // below the 300ms threshold: a dud
   await sleep(500);
   const firedTooEarly = await page.evaluate(() => Number((window.__game.state || {}).shots || 0));
@@ -142,7 +158,7 @@ export async function playStrontium(page) {
 
 /** barium: stir in circles, wandering radius, two direction reversals. */
 export async function playBarium(page) {
-  const c = await hit(page, 'circle:center');
+  const c = await h(page, 'circle:center', 'barium');
   const vp = page.viewportSize();
   const radius = Math.min(vp.width, vp.height) * 0.22;
   await circle(page, { x: c.x, y: c.y }, {
@@ -174,7 +190,11 @@ export async function playUntilComplete(page, elementId, { attempts = 4, timeout
   const started = Date.now();
   for (let i = 0; i < attempts; i++) {
     if (await isComplete(page)) break;
-    await PLAY[elementId](page);
+    try {
+      await PLAY[elementId](page);
+    } catch (err) {
+      throw new Error(`world "${elementId}": its gesture flow failed on attempt ${i + 1}.\n${err.message}`);
+    }
     try {
       await waitComplete(page, Math.max(4_000, Math.min(20_000, timeout - (Date.now() - started))));
       break;
@@ -182,7 +202,15 @@ export async function playUntilComplete(page, elementId, { attempts = 4, timeout
       /* try once more — the world never "fails", it just waits */
     }
   }
-  await waitComplete(page, Math.max(5_000, timeout - (Date.now() - started)));
+  try {
+    await waitComplete(page, Math.max(5_000, timeout - (Date.now() - started)));
+  } catch {
+    const phase = await phaseOf(page).catch(() => '<unavailable>');
+    throw new Error(
+      `world "${elementId}" never reached state.phase === 'complete' ` +
+        `(last phase: ${String(phase)}) after ${attempts} gesture attempts in ${Date.now() - started}ms.`
+    );
+  }
 }
 
 /** After completion the world returns to the hearth on its own (§1.7). */

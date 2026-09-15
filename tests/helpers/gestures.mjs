@@ -283,17 +283,36 @@ export async function hitPoints(page) {
  * Waits for it to appear (worlds publish hit points asynchronously).
  * Returns {id,x,y,r}.
  */
-export async function hit(page, id, { timeout = 20_000 } = {}) {
-  const handle = await page.waitForFunction(
-    (want) => {
-      const g = window.__game;
-      if (!g || !g.hitPoints) return null;
-      const pts = g.hitPoints() || [];
-      return pts.find((p) => p.id === want) || pts.find((p) => String(p.id).startsWith(want)) || null;
-    },
-    id,
-    { timeout }
-  );
+export async function hit(page, id, { timeout = 20_000, context = '' } = {}) {
+  let handle;
+  try {
+    handle = await page.waitForFunction(
+      (want) => {
+        const g = window.__game;
+        if (!g || !g.hitPoints) return null;
+        const pts = g.hitPoints() || [];
+        return pts.find((p) => p.id === want) || pts.find((p) => String(p.id).startsWith(want)) || null;
+      },
+      id,
+      { timeout }
+    );
+  } catch (err) {
+    // Name the world and the missing id: while the worlds are being written,
+    // this is by far the most common failure and must be self-explanatory.
+    const seen = await page
+      .evaluate(() => ({
+        scene: window.__game && window.__game.sceneId,
+        ids: (window.__game && window.__game.hitPoints ? window.__game.hitPoints() : []).map((p) => p.id),
+      }))
+      .catch(() => ({ scene: '<unavailable>', ids: [] }));
+    throw new Error(
+      `${context ? context + ': ' : ''}hitPoint "${id}" never appeared within ${timeout}ms.\n` +
+        `  scene   : ${seen.scene}\n` +
+        `  exposed : ${seen.ids.length ? seen.ids.join(', ') : '(none)'}\n` +
+        `  expected: an id equal to "${id}" or starting with it ` +
+        `(see the id table at the top of tests/helpers/flows.mjs).`
+    );
+  }
   const value = await handle.jsonValue();
   await handle.dispose();
   return /** @type {HitPoint} */ (value);
