@@ -300,28 +300,57 @@ export class World {
     this.scene.add(poles);
 
     this.lamps = [];
-    const headGeo = new THREE.ConeGeometry(0.34, 0.5, 8);
+    // A lamp is a dark shade with a warm mouth, a soft additive glow and a very
+    // faint cone. Nothing here is opaque enough to hide a house behind it.
+    const shadeGeo = new THREE.ConeGeometry(0.36, 0.44, 10);
+    const mouthGeo = new THREE.CircleGeometry(0.32, 14);
+    const coneGeo = new THREE.ConeGeometry(2.7, 4.5, 18, 1, true);
     for (const L of lampSpec) {
       const mat = new THREE.MeshStandardMaterial({
-        color: L.on ? 0xffe6bd : 0x3a3a48, roughness: 0.4,
+        color: 0x2b2b38, roughness: 0.6, metalness: 0.35,
         emissive: new THREE.Color(0xffc070), emissiveIntensity: 0
       });
-      const head = new THREE.Mesh(headGeo, mat);
-      head.position.set(L.x, 4.78, L.z);
-      head.rotation.x = Math.PI;
+      const head = new THREE.Mesh(shadeGeo, mat);
+      head.position.set(L.x, 4.9, L.z);
       this.scene.add(head);
       if (L.on) {
+        const mouthMat = new THREE.MeshBasicMaterial({
+          color: 0xffd9a0, transparent: true, opacity: 0.85, depthWrite: false,
+          blending: THREE.AdditiveBlending, fog: false
+        });
+        const mouth = new THREE.Mesh(mouthGeo, mouthMat);
+        mouth.rotation.x = Math.PI / 2;
+        mouth.position.set(L.x, 4.66, L.z);
+        this.scene.add(mouth);
         const halo = new THREE.Sprite(new THREE.SpriteMaterial({
           map: T.glowTexture(), color: 0xffb968, transparent: true, depthWrite: false,
-          blending: THREE.AdditiveBlending, opacity: 0.3
+          blending: THREE.AdditiveBlending, opacity: 0.4
         }));
-        halo.scale.set(4.5, 4.5, 1);
-        halo.position.set(L.x, 4.7, L.z);
+        halo.scale.set(3.4, 3.4, 1);
+        halo.position.set(L.x, 4.66, L.z);
         this.scene.add(halo);
+        const coneMat = new THREE.MeshBasicMaterial({
+          color: 0xffb46a, transparent: true, opacity: 0.055, depthWrite: false,
+          side: THREE.DoubleSide, blending: THREE.AdditiveBlending
+        });
+        const cone = new THREE.Mesh(coneGeo, coneMat);
+        cone.position.set(L.x, 2.42, L.z);
+        cone.renderOrder = 1;
+        this.scene.add(cone);
+        // the pool of light the lamp puts on the pavement
+        const poolMat = new THREE.MeshBasicMaterial({
+          map: T.glowTexture(), color: 0xffa858, transparent: true, opacity: 0.22,
+          depthWrite: false, blending: THREE.AdditiveBlending
+        });
+        const pool = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), poolMat);
+        pool.rotation.x = -Math.PI / 2;
+        pool.position.set(L.x, 0.16, L.z);
+        pool.renderOrder = 1;
+        this.scene.add(pool);
         const pl = new THREE.PointLight(0xffb060, 5.0, 16, 2);
         pl.position.set(L.x, 4.5, L.z);
         this.scene.add(pl);
-        this.lamps.push({ mat, halo, light: pl, flick: rand() * 10 });
+        this.lamps.push({ mat, mouthMat, halo, coneMat, poolMat, light: pl, pos: new THREE.Vector3(L.x, 4.7, L.z), flick: rand() * 10 });
       } else {
         this.lamps.push({ mat, halo: null, light: null, flick: rand() * 10, off: true });
       }
@@ -502,9 +531,19 @@ export class World {
         if (L.off) continue;
         L.flick += dt;
         const f = 0.78 + 0.22 * Math.sin(L.flick * 2.3) + 0.08 * Math.sin(L.flick * 17.7);
-        L.mat.emissiveIntensity = 1.6 * f;
-        if (L.halo) L.halo.material.opacity = 0.3 * f;
-        if (L.light) L.light.intensity = 5.0 * f;
+        // fade the glow out when the camera walks right past the pole, so a
+        // lamp can never wash out or block the house being framed
+        let near = 1;
+        if (camera) {
+          const d = camera.position.distanceTo(L.pos);
+          near = Math.max(0, Math.min(1, (d - 3.2) / 5.0));
+        }
+        L.mat.emissiveIntensity = 0.5 * f * near;
+        L.mouthMat.opacity = 0.85 * f * near;
+        L.halo.material.opacity = 0.4 * f * near;
+        L.coneMat.opacity = 0.055 * f * near;
+        L.poolMat.opacity = 0.22 * f;
+        L.light.intensity = 5.0 * f;
       }
     }
   }
