@@ -32,8 +32,10 @@ export class FollowCamera {
     this.focusWeight = weight;
   }
 
-  panTo(point, dur = 2.2) {
-    this.pan = { point: point.clone(), t: 0, dur };
+  /** lookOnly: turn the head toward something far away (the moon) without
+   *  flying the camera out there. */
+  panTo(point, dur = 2.2, lookOnly = false) {
+    this.pan = { point: point.clone(), t: 0, dur, lookOnly };
   }
 
   update(dt, girl) {
@@ -86,13 +88,15 @@ export class FollowCamera {
       const k = Math.min(1, this.pan.t / this.pan.dur);
       const e = Math.sin(k * Math.PI);
       const pd = this.pan.point;
-      _b.copy(gp).sub(pd); _b.y = 0;
-      if (_b.lengthSq() < 1) _b.set(0, 0, 1);
-      _b.normalize();
-      const panPos = pd.clone().addScaledVector(_b, this.portrait ? 13 : 11.5);
-      panPos.y = this.portrait ? 6.2 : 5.4;
-      lookTarget.lerp(pd, e);
-      desired.lerp(panPos, e);
+      lookTarget.lerp(pd, e * (this.pan.lookOnly ? 0.85 : 1));
+      if (!this.pan.lookOnly) {
+        _b.copy(gp).sub(pd); _b.y = 0;
+        if (_b.lengthSq() < 1) _b.set(0, 0, 1);
+        _b.normalize();
+        const panPos = pd.clone().addScaledVector(_b, this.portrait ? 13 : 11.5);
+        panPos.y = this.portrait ? 6.2 : 5.4;
+        desired.lerp(panPos, e);
+      }
       if (k >= 1) this.pan = null;
     }
 

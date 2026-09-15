@@ -451,7 +451,7 @@ export class Chain {
       if (girl.path && this.endingT > 34) girl.path = null;   // never strand her
       if (!girl.path && girl.anim !== 'sit' && this.endingT > 1) {
         girl.speedScale = 1;
-        girl.heading = home.facing;
+        girl.heading = Math.atan2(cam.pos.x - girl.pos.x, cam.pos.z - girl.pos.z);
         playAnim(girl, 'sit', 1.0);
         girl.bucketHaloTarget = 0.6;
         girl.candyCount = 90; girl.candyMesh.count = 90;
@@ -460,7 +460,7 @@ export class Chain {
         cam.zoom = 0.85;
         cam.eyeScale = 0.75;
         // a beat looking up at the big smiling moon
-        this.after(1.4, () => cam.panTo(world.moon.position.clone(), 3.4));
+        this.after(0.7, () => cam.panTo(world.moon.position.clone(), 2.3, true));
         this.ctx.sparkles.ring(girl.pos.clone().setY(0.6), 30, 1.2, 0xffd88a);
       }
       if (girl.anim === 'sit') this.seatedT += dt;
