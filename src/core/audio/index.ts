@@ -5,7 +5,7 @@ import { Bgm } from './bgm';
 export { AudioEngine } from './context';
 export { Sfx, MAX_VOICES } from './sfx';
 export type { SfxName } from './sfx';
-export { Bgm, buildLoop, midiToHz, makeRng, PENTATONIC } from './bgm';
+export { Bgm, buildLoop, midiToHz, makeRng, PENTATONIC, BGM_GATHER, BGM_BALLPIT } from './bgm';
 export type { BgmVoiceOptions } from './bgm';
 
 /** One audio stack for the whole app. */

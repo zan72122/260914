@@ -1,9 +1,11 @@
 /** Scene base class: enter -> update/onHand -> exit, and "am I done yet". */
 import type { Container } from 'pixi.js';
-import type { HandEvent } from './input';
+import type { Hand, HandEvent } from './input';
 import type { Audio } from './audio';
 import type { KidSheet } from '../art/kidSheet';
+import type { PropTextures } from '../art/props';
 import type { Viewport } from './viewport';
+import { PAPER } from '../art/palette';
 
 export interface SceneContext {
   /** Layer the scene should add its display objects to. */
@@ -11,12 +13,19 @@ export interface SceneContext {
   viewport: Viewport;
   audio: Audio;
   sheet: KidSheet;
+  props: PropTextures;
 }
 
 export abstract class Scene {
   protected ctx!: SceneContext;
   /** Seconds since `enter`. */
   protected age = 0;
+
+  /** Stable identifier, used by the e2e debug hooks. Never rendered. */
+  readonly name: string = 'scene';
+
+  /** Paper tint for this scene; the director crossfades the backdrop to it. */
+  readonly tint: number = PAPER;
 
   /** Called once when the scene becomes active. */
   enter(ctx: SceneContext): void {
@@ -32,6 +41,9 @@ export abstract class Scene {
   /** Every pointer down/move/up, as a world-space Hand. */
   onHand(_ev: HandEvent): void {}
 
+  /** Continuous per-frame forces from every finger currently held down. */
+  applyHands(_hands: Iterable<Hand>, _dt: number): void {}
+
   /** The world should nudge the player after a while of no input. */
   onIdleHint(): void {}
 
@@ -42,6 +54,19 @@ export abstract class Scene {
   isDone(): boolean {
     return false;
   }
+
+  /** 0..1 progress through the scene's own goal. Debug/e2e only. */
+  progress(): number {
+    return 0;
+  }
+
+  /** Test hook: how many kids this scene simulates. */
+  debugKidCount(): number {
+    return 0;
+  }
+
+  /** Skips straight to the run-off ending (debug hook + auto-advance). */
+  finishNow(): void {}
 
   /** Called once when the scene is retired; must release everything. */
   exit(): void {}

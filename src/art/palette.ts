@@ -20,6 +20,20 @@ export const HAIRS = [0x5a4632, 0x7a5c3c, 0x8f6b45, 0x3f342a] as const;
 /** Per-scene paper tints from the plan (sky, grass, peach, lilac). */
 export const SCENE_TINTS = [0xdff0fb, 0xe4f5dc, 0xfde4e4, 0xece4f7] as const;
 
+/** Six pastel ball colours for the ball pit (matched to the shirt palette). */
+export const BALLS = [0xffb3ba, 0xb3e1ff, 0xfff0a8, 0xc3eeb0, 0xd6c6f2, 0xffd3a8] as const;
+
+/** Confetti dots: the same pastels, used as tiny burst specks. */
+export const CONFETTI = BALLS;
+
+/** Ball-pit basin fill — a pale pool of water-blue under the balls. */
+export const PIT_FILL = 0xd8eef8;
+/** Ball-pit rim colour (a warm crayon ring around the pit). */
+export const PIT_RIM = 0xf3b6a0;
+
+/** The finger ring: warm peach-pink, clearly visible on cream paper. */
+export const FINGER_RING = 0xff8fa3;
+
 export const LINE_WIDTH = 4;
 
 export function hexToCss(hex: number): string {

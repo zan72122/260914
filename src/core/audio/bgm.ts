@@ -19,6 +19,15 @@ export interface BgmVoiceOptions {
   seed?: number;
 }
 
+/**
+ * Two distinct scene loops, in different keys and tempos so the crossfade at a
+ * scene change is audible as "somewhere new" rather than as the same tune.
+ *   - gather:  G major pentatonic, unhurried.
+ *   - ballpit: D major pentatonic, noticeably bouncier.
+ */
+export const BGM_GATHER: BgmVoiceOptions = { root: 67, tempo: 92, steps: 16, seed: 11 };
+export const BGM_BALLPIT: BgmVoiceOptions = { root: 62, tempo: 132, steps: 16, seed: 29 };
+
 export function midiToHz(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12);
 }

@@ -5,7 +5,16 @@
 import { POSE_FRAMES } from '../art/kidSheet';
 import type { PoseName } from '../art/kidSheet';
 
-export type KidState = 'idle' | 'walk' | 'run' | 'laugh' | 'jump' | 'fall' | 'clap' | 'sleep';
+export type KidState =
+  | 'idle'
+  | 'walk'
+  | 'run'
+  | 'laugh'
+  | 'jump'
+  | 'fall'
+  | 'clap'
+  | 'sleep'
+  | 'wave';
 
 /** Which atlas pose renders a given state ('fall' reuses the jump drawing). */
 export const STATE_POSE: Record<KidState, PoseName> = {
@@ -17,6 +26,7 @@ export const STATE_POSE: Record<KidState, PoseName> = {
   fall: 'jump',
   clap: 'clap',
   sleep: 'sleep',
+  wave: 'wave',
 };
 
 /** Frames per second of the pose animation, per state. */
@@ -29,6 +39,7 @@ const STATE_FPS: Record<KidState, number> = {
   fall: 6,
   clap: 8,
   sleep: 1.5,
+  wave: 4,
 };
 
 /** How long a transient state lasts, in seconds (0 = until told otherwise). */
@@ -41,6 +52,8 @@ const STATE_DURATION: Record<KidState, number> = {
   fall: 0.9,
   clap: 1.4,
   sleep: 0,
+  // Waving is a steady state: the inviting kid keeps waving until answered.
+  wave: 0,
 };
 
 /** Transient states resolve back to this. Nobody ever ends sad or stuck. */
@@ -57,6 +70,8 @@ export function canTransition(from: KidState, to: KidState): boolean {
   if (from === to) return true;
   // A sleeping kid wakes only into idle (no teleporting into a run).
   if (from === 'sleep') return to === 'idle';
+  // A waver keeps waving unless something explicitly changes the state; the
+  // crowd's speed-driven pose sync must not silently cancel it (see `locked`).
   // Falling has to finish; it resolves into a laugh on its own.
   if (from === 'fall') return to === 'fall' || to === 'laugh';
   return true;
@@ -102,6 +117,18 @@ export class Kid {
   wanderPhase = 0;
   /** True when the kid stepped this frame (used for footstep audio). */
   stepped = false;
+  /**
+   * When true the crowd's speed->pose sync leaves this kid alone. Scenes use
+   * it for kids that are doing something scripted (waving, clapping, bobbing
+   * in the ball pit) and must not fall back to idle/walk.
+   */
+  locked = false;
+  /**
+   * When true the crowd simulation does not move this kid at all: the scene is
+   * animating it by hand (a kid in mid-flight into the ball pit, or bobbing
+   * among the balls). Separation ignores frozen kids too.
+   */
+  frozen = false;
 
   setState(next: KidState, force = false): boolean {
     if (!force && !canTransition(this.state, next)) return false;

@@ -109,10 +109,11 @@ export class Crowd {
   bounds: CrowdBounds;
 
   constructor(opts: CrowdOptions = {}) {
-    this.separationRadius = opts.separationRadius ?? 46;
+    // Scales with KID_WORLD_H (150 units): kids keep the same visual spacing.
+    this.separationRadius = opts.separationRadius ?? 62;
     this.separationForce = opts.separationForce ?? 900;
-    this.followForce = opts.followForce ?? 260;
-    this.maxSpeed = opts.maxSpeed ?? 150;
+    this.followForce = opts.followForce ?? 340;
+    this.maxSpeed = opts.maxSpeed ?? 190;
     this.damping = opts.damping ?? 2.4;
     this.bounds = opts.bounds ?? { left: -600, top: -600, right: 600, bottom: 600 };
     this.hash = new SpatialHash(Math.max(24, this.separationRadius * 1.5));
@@ -167,9 +168,12 @@ export class Crowd {
     const sf = this.separationForce;
     for (let i = 0; i < kids.length; i++) {
       const a = kids[i];
+      if (a.frozen) continue;
       this.hash.forEachNear(a.x, a.y, (j) => {
         if (j <= i) return;
-        separate(a, kids[j], sr, sf, dt);
+        const b = kids[j];
+        if (b.frozen) return;
+        separate(a, b, sr, sf, dt);
       });
     }
 
@@ -178,6 +182,10 @@ export class Crowd {
     const b = this.bounds;
     for (let i = 0; i < kids.length; i++) {
       const k = kids[i];
+      if (k.frozen) {
+        k.update(dt);
+        continue;
+      }
       if (k.hasTarget && k.state !== 'sleep') {
         const dx = k.targetX - k.x;
         const dy = k.targetY - k.y;
@@ -224,7 +232,7 @@ export class Crowd {
       }
 
       // Steady states follow the actual speed, so the pose always matches.
-      if (k.stateTimer === 0 && k.state !== 'sleep') {
+      if (k.stateTimer === 0 && k.state !== 'sleep' && !k.locked) {
         const s = Math.sqrt(k.vx * k.vx + k.vy * k.vy);
         if (s > maxSpeed * 1.1) k.setState('run');
         else if (s > 8) k.setState('walk');

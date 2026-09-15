@@ -14,7 +14,7 @@ import { HAIRS, LINE, SHADOW, SHADOW_ALPHA, SHIRTS, SKINS } from './palette';
 import { crayonArc, crayonBlob, crayonDot, crayonLine, seededRandom, softShadow } from './crayon';
 import type { Ctx2D } from './crayon';
 
-export type PoseName = 'idle' | 'walk' | 'run' | 'laugh' | 'jump' | 'clap' | 'sleep';
+export type PoseName = 'idle' | 'walk' | 'run' | 'laugh' | 'jump' | 'clap' | 'sleep' | 'wave';
 
 /** Frame counts per pose, in atlas order. */
 export const POSE_FRAMES: Record<PoseName, number> = {
@@ -25,9 +25,19 @@ export const POSE_FRAMES: Record<PoseName, number> = {
   jump: 1,
   clap: 2,
   sleep: 1,
+  wave: 2, // arm up / arm down — the one kid who invites the others over
 };
 
-export const POSE_ORDER: PoseName[] = ['idle', 'walk', 'run', 'laugh', 'jump', 'clap', 'sleep'];
+export const POSE_ORDER: PoseName[] = [
+  'idle',
+  'walk',
+  'run',
+  'laugh',
+  'jump',
+  'clap',
+  'sleep',
+  'wave',
+];
 
 /** Total frames in one variant row. */
 export const FRAMES_PER_VARIANT = POSE_ORDER.reduce((n, p) => n + POSE_FRAMES[p], 0);
@@ -37,8 +47,19 @@ export const VARIANTS = SHIRTS.length;
 
 export const FRAME_W = 96;
 export const FRAME_H = 128;
-/** World-space height of a kid (2.5 heads tall silhouette). */
-export const KID_WORLD_H = 110;
+/**
+ * World-space height of a kid (2.5 heads tall silhouette).
+ *
+ * Phone sizing policy: the square safe zone (SAFE = 1000 units) still has to
+ * fit whole in both orientations, so the world->screen scale on a phone is
+ * fixed at min(w, h) / 1000 = 0.39 on a 390-wide iPhone. Rather than shrink
+ * the safe zone (which would break the "same composition in portrait and
+ * landscape" guarantee), a kid is simply drawn bigger *in world units*:
+ * 150 units = 15% of the safe zone, which lands at 150 * 0.39 = 58.5 CSS px
+ * on an iPhone 390 screen and ~154 px on an iPad. Crowd spacing scales with
+ * it (see Crowd.separationRadius), so density is unchanged.
+ */
+export const KID_WORLD_H = 150;
 
 export interface FrameKey {
   variant: number;
@@ -86,6 +107,8 @@ interface PoseParams {
   lying: boolean;
   /** Mouth openness of the (always present) smile. */
   smile: number;
+  /** Raised-arm angle for the waving pose (0 = not waving). */
+  wave: number;
 }
 
 /** Deterministic pose parameters for a given pose/frame. */
@@ -100,6 +123,7 @@ export function poseParams(pose: PoseName, frame: number): PoseParams {
     clapAmount: 0,
     lying: false,
     smile: 1,
+    wave: 0,
   };
   switch (pose) {
     case 'idle':
@@ -136,6 +160,13 @@ export function poseParams(pose: PoseName, frame: number): PoseParams {
     case 'clap':
       base.clapAmount = frame === 0 ? 0.15 : 0.95;
       base.squash = frame === 0 ? 0 : 0.03;
+      break;
+    case 'wave':
+      // One arm swings overhead between two angles; the body bobs with it.
+      base.wave = frame === 0 ? 1.15 : 1.75;
+      base.squash = frame === 0 ? 0.02 : -0.02;
+      base.lift = frame === 0 ? 0 : 1.5;
+      base.smile = 1.2;
       break;
     case 'sleep':
       base.lying = true;
@@ -210,7 +241,11 @@ export function drawKidFrame(
     const sy = bodyCY - 3;
     let ex: number;
     let ey: number;
-    if (p.clapAmount > 0) {
+    if (p.wave > 0 && side === 1) {
+      // The waving arm reaches up and out; the other arm behaves normally.
+      ex = sx + Math.cos(-p.wave) * armLen * 1.15;
+      ey = sy + Math.sin(-p.wave) * armLen * 1.15;
+    } else if (p.clapAmount > 0) {
       const inward = p.clapAmount;
       ex = sx + side * armLen * (1 - inward) + -side * armLen * inward * 0.75;
       ey = sy + 6 - inward * 8;

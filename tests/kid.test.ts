@@ -88,7 +88,7 @@ describe('sprite atlas indexing', () => {
   it('lays poses out contiguously', () => {
     expect(poseColumn('idle')).toBe(0);
     expect(poseColumn('walk')).toBe(2);
-    expect(FRAMES_PER_VARIANT).toBe(16);
+    expect(FRAMES_PER_VARIANT).toBe(18); // 16 + the 2-frame wave pose
   });
 
   it('wraps frame and variant indices into range', () => {

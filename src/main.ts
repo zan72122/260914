@@ -1,5 +1,5 @@
 /**
- * Boot: Pixi application, viewport, input, audio, spritesheet, director.
+ * Boot: Pixi application, viewport, input, audio, art, director.
  * Nothing on screen is ever text — see scripts/no-text-check.mjs and the e2e
  * suite, which both enforce that.
  */
@@ -8,9 +8,12 @@ import { Viewport } from './core/viewport';
 import { InputManager } from './core/input';
 import { Audio } from './core/audio';
 import { buildKidSheet } from './art/kidSheet';
+import { buildProps } from './art/props';
 import { Director } from './core/director';
+import { Backdrop } from './core/backdrop';
 import { PAPER } from './art/palette';
-import createPlayground, { PlaygroundScene } from './scenes/00_playground';
+import createGather from './scenes/01_gather';
+import createBallpit from './scenes/04_ballpit';
 
 async function boot(): Promise<void> {
   const host = document.getElementById('app') ?? document.body;
@@ -29,6 +32,11 @@ async function boot(): Promise<void> {
   const viewport = new Viewport(window.innerWidth, window.innerHeight);
   viewport.attach();
 
+  // Paper first, then the world. The paper is in screen space so it never
+  // moves with the camera; its tint crossfades between scenes.
+  const backdrop = new Backdrop(PAPER);
+  app.stage.addChild(backdrop.view);
+
   // The root is centred on the safe zone; scenes work in world coordinates.
   const root = new Container();
   app.stage.addChild(root);
@@ -36,6 +44,7 @@ async function boot(): Promise<void> {
     const l = viewport.layout;
     root.scale.set(l.scale);
     root.position.set(l.offsetX, l.offsetY);
+    backdrop.resize(l.screenWidth, l.screenHeight);
   };
   viewport.onChange(applyLayout);
   applyLayout();
@@ -45,8 +54,16 @@ async function boot(): Promise<void> {
 
   const audio = new Audio();
   const sheet = buildKidSheet();
+  const props = buildProps();
 
-  const director = new Director([createPlayground], { viewport, audio, sheet });
+  // Phase 1 vertical slice: gather -> ball pit -> (wraps around).
+  const director = new Director([createGather, createBallpit], {
+    viewport,
+    audio,
+    sheet,
+    props,
+  });
+  director.onSceneTint = (tint) => backdrop.fadeTo(tint);
   root.addChild(director.world);
   director.start();
 
@@ -58,12 +75,13 @@ async function boot(): Promise<void> {
   app.ticker.add((ticker) => {
     const dt = Math.min(0.05, ticker.deltaMS / 1000);
     input.update(dt);
-    const scene = director.current;
-    if (scene instanceof PlaygroundScene) scene.applyHands(input.hands.values(), dt);
+    director.applyHands(input.hands.values(), dt);
     director.update(dt);
+    backdrop.update(dt);
   });
 
-  // Debug hooks for the e2e "zero text" checks. Not visible, not interactive.
+  // Debug hooks for the e2e "zero text" checks and the scene tests.
+  // Not visible, not interactive, and never used by the game itself.
   const countText = (node: Container): number => {
     let n = 0;
     // Any Pixi object that carries a `text` property is a Text/BitmapText.
@@ -75,8 +93,19 @@ async function boot(): Promise<void> {
     ready: true,
     app,
     textCount: () => countText(app.stage),
-    kidCount: () =>
-      director.current instanceof PlaygroundScene ? director.current.debugKidCount() : 0,
+    kidCount: () => director.current?.debugKidCount() ?? 0,
+    sceneName: () => director.current?.name ?? '',
+    sceneIndex: () => director.sceneIndex,
+    sceneProgress: () => director.current?.progress() ?? 0,
+    scenePhase: () => {
+      const s = director.current as { debugPhase?: () => string } | null;
+      return s?.debugPhase?.() ?? '';
+    },
+    panning: () => director.panning,
+    advanceScene: () => director.advanceScene(),
+    finishScene: () => director.current?.finishNow(),
+    idleHint: () => director.current?.onIdleHint(),
+    autoAdvance: () => director.current?.onAutoAdvance(),
     fps: () => app.ticker.FPS,
   };
 }
