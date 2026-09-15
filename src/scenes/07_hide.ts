@@ -24,6 +24,8 @@ import type { Hand, HandEvent } from '../core/input';
 import { Crowd } from '../crowd/crowd';
 import { wander } from '../crowd/behaviors';
 import { SAFE } from '../core/viewport';
+import { KID_WORLD_H } from '../art/kidSheet';
+import { BUSH_H } from '../art/geometry';
 import { SCENE_TINTS } from '../art/palette';
 import { BGM_HIDE } from '../core/audio';
 import { allExited } from './gatherLogic';
@@ -42,6 +44,21 @@ import {
 
 /** How many kids hide behind each bush. */
 const PER_BUSH = 4;
+/** Painted half-height of the foliage, measured from the bush's centre. */
+const LEAF_HALF = BUSH_H * 0.42;
+/**
+ * How far above a kid's own y the top of their head is drawn.
+ *
+ * A kid's y is the bottom of their atlas cell, and the drawing does not fill
+ * that cell: the ground line sits a little above the bottom edge and the head
+ * tops out at about 0.6 of the cell. In world units that is KID_WORLD_H * 0.6,
+ * which is what actually matters when deciding what a bush covers.
+ */
+const HEAD_TOP = KID_WORLD_H * 0.6;
+/** Feet this far below the bush's centre: shoes and socks show underneath. */
+const FEET_OUT_Y = LEAF_HALF + 34;
+/** The one kid per bush who is too tall: the top of their head clears the leaves. */
+const HEAD_OUT_Y = HEAD_TOP - LEAF_HALF - 45;
 const RUN_TIMEOUT = 4;
 /** Seconds between bushes when the scene finds them itself. */
 const AUTO_INTERVAL = 0.8;
@@ -106,9 +123,15 @@ export class HideScene extends CrowdScene {
       k.hasTarget = false;
       k.setState('idle', true);
       k.x = BUSH_SPOTS[b][0] + (j - (PER_BUSH - 1) / 2) * 44;
-      // Feet below the bush, head safely behind it — except for one kid per
-      // bush who is a bit too tall and gives the game away.
-      k.y = BUSH_SPOTS[b][1] + (j === 1 ? 28 : 78) + (j % 2) * 6;
+      // The signifier of the whole scene (§4 row 7): feet sticking out from
+      // under the bush, and one head too many showing over the top of it.
+      //
+      // The sprite's anchor is at the feet, the kid is KID_WORLD_H tall, and
+      // the painted foliage of the bush runs from about -0.42 to +0.42 of
+      // BUSH_H around its centre. So: put three kids' feet a shoe below the
+      // bottom of the leaves, and stand the fourth far enough forward that the
+      // top of their head clears the top of them.
+      k.y = BUSH_SPOTS[b][1] + (j === 1 ? HEAD_OUT_Y : FEET_OUT_Y) + (j % 2) * 6;
     }
 
     this.fitToViewport();
