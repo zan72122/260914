@@ -1,25 +1,32 @@
 # Dev harness
 
-Nothing here ships. `index.html` does not reference anything in `dev/`.
+Nothing here ships. `index.html` loads `src/` only; it never references `dev/`.
 
-## Run the game
+The point of all of it: **enter any moment directly, watch it frame by frame,
+reproduce it with normal input, fix it, and re-verify under identical
+conditions** — without playing the game from the start.
 
 ```sh
-node dev/serve.mjs          # or: npm run serve   -> http://localhost:8080
+node dev/serve.mjs       # http://localhost:8080  (npm run serve)
 ```
 
-Open `http://localhost:8080/index.html`.
+Everything that drives a browser uses the preinstalled Chromium at
+`PLAYWRIGHT_BROWSERS_PATH` (default `/opt/pw-browsers`); `dev/shot.mjs` picks the
+newest `chromium-*/chrome-linux/chrome` it finds, because the revision bundled
+with the npm package does not match. **Never run `playwright install`.**
 
-### URL params
+---
+
+## URL params
 
 | param    | meaning |
 |----------|---------|
-| `scene`  | jump straight to a scene id (`intro`, `kitchen`) |
+| `scene`  | jump straight to a scene id: `intro kitchen paper toy thread sand sofa carpet` |
 | `seed`   | deterministic RNG (default 1337) |
-| `dev=1`  | overlay: debris id + state + sampled field strength, nozzle cross-hair, fps, pointer/gesture state, cup count. Invisible without the param. |
+| `dev=1`  | overlay: per-debris id + state + sampled field strength, nozzle cross-hair, fps, pointer/gesture state, cup + transit counts |
 | `speed`  | time scale (`0.25` for slow motion) |
 | `pose`   | informational only; the real pose comes from the viewport |
-| `mute=1` | never start WebAudio (used by the screenshot harness) |
+| `mute=1` | never start WebAudio (the screenshot harness always passes this) |
 
 ## `window.game`
 
@@ -30,16 +37,28 @@ game.input.replay(frames)     // [{t(ms), x, y, down}], consumed by the simulati
 game.pause(); game.step(0.1); game.resume()
 game.goto('kitchen')
 game.setSpeed(0.25); game.dev(true)
+game._g                       // the Game itself: .scene .vacuum .camera .loop  (dev only)
 ```
 
-`state().scene.debris[i]` carries `id, type, state, x, y, s` (the field strength
-that debris last sampled) plus `nx, ny`, its position in normalized screen
-coords — that is what lets a gesture aim at a debris by id.
+`state().scene.debris[i]` carries:
+
+| field | meaning |
+|-------|---------|
+| `id` `type` `state` | `bunny#3`, `bunny`, `idle/reacting/pulled/captured/transit/in-cup` |
+| `x, y` | world position of the centre |
+| `ax, ay` | the piece's own **aim point** — the part of it the mouth has to reach (a strand's tip, a grit trail's nearest live grain, a sand pile's tallest cell). Defaults to the centre. |
+| `nx, ny` | the AIM point in normalized screen coords — this is what lets a gesture aim at a debris by id |
+| `s` | the field strength that debris last sampled |
+| `decor` `dormant` | excluded from completion / currently hidden under something |
+
+Plus whatever the type adds (`lift`, `flee`, `reel`, `clog`, `dig`, `frac`, …).
 
 Because `step()` advances both the simulation and the replay clock, a scripted
 run is bit-identical between machines for a given seed.
 
-## Frame sequences and contact sheets
+---
+
+## `dev/shot.mjs` — frame sequences and contact sheets
 
 ```sh
 node dev/shot.mjs --scene=intro --device=iphone-portrait \
@@ -51,36 +70,175 @@ node dev/shot.mjs --scene=intro --device=iphone-portrait \
 | `--scene` | `intro` | scene id |
 | `--device` | `iphone-portrait` | `iphone-portrait` 390x844, `iphone-landscape` 844x390, `ipad-portrait` 820x1180, `ipad-landscape` 1180x820 (DPR capped at 2, as in the game) |
 | `--gesture` | `approach-slow` | `approach-slow`, `approach-fast`, `hold`, `rub`, `circle`, `pass-by`, `idle` |
+| `--path` | — | waypoint gesture; overrides `--gesture` (see below) |
+| `--seg` | 700 | ms of travel between `--path` waypoints |
+| `--hold` | 0 | ms the finger dwells at each `--path` waypoint |
+| `--release` | off | lift the finger at the end of a `--path` |
 | `--frames` | 24 | number of PNGs |
 | `--every` | 100 | milliseconds of **simulated** time between frames |
-| `--skip` | 0 | simulated ms to run before the first frame (to land on the interesting window) |
-| `--target` | `auto` | `auto`, an exact debris id (`bunny#1`), or a type (`crumb`). Resolved at runtime from `game.state()`; the finger destination is offset by the nozzle lead so the head lands on the target. |
+| `--skip` | 0 | simulated ms to run before the first frame |
+| `--target` | `auto` | `auto`, an exact debris id (`bunny#1`), or a type (`crumb`). Resolved at runtime from `game.state()`; the finger destination is offset so the **mouth** lands on the target's aim point. |
+| `--exec` | — | JavaScript run in the page before the first frame, with `game`, `scene` and `vac` in scope |
+| `--complete` | off | finish the scene instantly: calls `scene.devFinish()` if the scene has one, otherwise marks every debris collected. Use it to review the completion camera move and the hand-off to the next scene. |
 | `--seed` | 1337 | |
 | `--out` | `<scene>-<device>-<gesture>` | output folder name under `dev/out/` |
 | `--contact` | off | also write `contact.png`, the whole sequence as one grid |
 | `--devoverlay` | off | render with `?dev=1` |
-| `--complete` | off | mark every debris as already collected before recording, to review the scene's completion camera move and the hand-off to the next scene |
 
-Output: `dev/out/<name>/000.png …`, `state.json` (the gesture plus a full
-`game.state()` dump per frame — this is how you check "did it accelerate?"
-without squinting at pixels), and optionally `contact.png` / `contact.html`.
+Output: `dev/out/<name>/000.png …`, `state.json` (the gesture, the resolved
+target, the `--exec` source, and a full `game.state()` dump per frame — this is
+how you check "did it accelerate?" without squinting at pixels), and optionally
+`contact.png` / `contact.html`.
 
-Run the standard review matrix (both scenes x 4 devices x 3 gestures):
+### `--path`: waypoint gestures
 
-```sh
-node dev/sheets.mjs          # or: npm run sheets ; --quick for iphone-portrait only
+```
+--path=x,y;x,y,holdMs;x,y,holdMs,segMs;@<selector>
 ```
 
-## Chromium
+Coordinates are normalized screen coords (0..1) so the same path means the same
+thing on every device. The finger goes down on the first waypoint and stays
+down. Per-waypoint `holdMs` (dwell there) and `segMs` (time to travel to it)
+override `--hold` / `--seg`.
 
-Uses the preinstalled browser at `PLAYWRIGHT_BROWSERS_PATH` (default
-`/opt/pw-browsers`); `dev/shot.mjs` picks the newest `chromium-*/chrome-linux/chrome`
-it finds, because the revision bundled with the npm package does not match.
-**Never run `playwright install`.**
+A waypoint written `@<selector>` (`@auto`, `@crumb`, `@bunny#3`) resolves to
+wherever the finger has to be for the **mouth** to land on that debris, using the
+same resolution as `--target`; `@crumb,1500` dwells there for 1.5 s.
 
-## Gestures
+```sh
+# go under the sofa, sweep the cavity, and hold in the deep corner
+node dev/shot.mjs --scene=sofa --device=iphone-portrait --frames=16 --every=200 --contact \
+  --path="0.50,0.84;0.50,0.62;0.50,0.46;0.50,0.36,1800;0.44,0.32;0.58,0.32,1600" --seg=1100
+```
+
+### Gestures
 
 `dev/gestures.mjs` builds each named gesture from a `from` point (by default
 wherever the scene parks the vacuum) and a `to` point (the finger destination).
-Frames are 25ms apart in normalized coords, so the same gesture is meaningful on
-every device. Add a new one by adding a key to `GESTURES`.
+Frames are 25 ms apart in normalized coords. Add a new one by adding a key to
+`GESTURES`, or build one inline with `makePath()`.
+
+The lead offsets come **from the vacuum itself** (`LEAD` and `MOUTH_OFFSET` are
+exported from `src/vacuum/vacuum.js`), so target-resolving gestures put the
+MOUTH — not the middle of the head — on the target:
+
+```
+fingerY = targetY + LEAD[pose].up + MOUTH_OFFSET * camera.zoom
+```
+
+`mouthLeadPx(state)` returns that offset in screen px for a given state dump.
+
+---
+
+## `dev/playthrough.mjs` — the whole game, end to end
+
+```sh
+node dev/playthrough.mjs                                  # all four devices
+node dev/playthrough.mjs --device=ipad-portrait
+node dev/playthrough.mjs --devices=iphone-portrait,ipad-landscape --seed=7
+node dev/playthrough.mjs --from=sand --budget=100         # start mid-chain while debugging
+```
+
+Injects an autopilot that drives `window.game.input.pointer` — one finger,
+nothing else — through the whole chain
+`intro → kitchen → paper → toy → thread → sand → sofa → carpet → intro`,
+in real time, and records per scene:
+
+* wall-clock completion time
+* min / median fps, measured on the real rAF clock (not simulated)
+* every page error and console error
+* `dev/out/playthrough-<device>/000.png …` at every hand-over, plus `contact.png`
+* `result.json` per device, `dev/out/playthrough.json` for all of them
+
+The autopilot is a **closed loop on the mouth**: it reads where the mouth
+actually is on screen, compares that with the aim point of the nearest live
+debris, and moves the finger by the error — so it never needs to know about lead
+offsets, hose lag or camera moves. When the error stops shrinking it stops dead
+and holds (which is what winds the motor up, and the only way to reach the deep
+nook under the sofa). It rubs in `carpet` (the brush roll) and rasters the rug if
+the room is clear but the pile is not combed.
+
+Exit code is non-zero if any device fails to finish or hits a page error, so it
+doubles as the integration test. `--budget=<s>` is the per-scene give-up time;
+on a give-up the report lists the ids, positions and states of what is left.
+
+| flag | default | meaning |
+|------|---------|---------|
+| `--device` / `--devices` | all four | |
+| `--seed` | 1337 | |
+| `--budget` | 150 | seconds per scene before giving up |
+| `--from` | `intro` | start the chain at this scene |
+| `--shots` | 30 | maximum screenshots per device |
+
+---
+
+## Reproduce one moment
+
+The recipe, in order. Say a tester reports "on iPad landscape the yarn round the
+chair leg never lets go".
+
+1. **Enter the moment directly.** Scene + seed pins the world:
+   `?scene=thread&seed=1337&dev=1`.
+2. **Get there with real input.** Either aim at the piece by id, or walk a path:
+
+   ```sh
+   node dev/shot.mjs --scene=thread --device=ipad-landscape --seed=1337 \
+        --target=yarn --gesture=approach-slow --frames=20 --every=120 --contact --devoverlay
+   ```
+
+   ```sh
+   node dev/shot.mjs --scene=thread --device=ipad-landscape --seed=1337 \
+        --path="0.14,0.80;@yarn,2500" --seg=1600 --frames=20 --every=120 --contact
+   ```
+3. **Skip the boring part.** `--skip=1800` runs 1.8 s of simulated time before
+   the first frame, so frame 0 is the instant you care about.
+4. **Force the awkward setup** with `--exec`, which runs in the page with
+   `game`, `scene` and `vac` in scope:
+
+   ```sh
+   # the same snag, but with the strand already half reeled in
+   --exec="scene.debris[2].c = scene.debris[2].len * 0.5"
+
+   # what does it look like when the intake is plugged?
+   --exec="vac.clog = 1"
+
+   # the finale, without playing the rug
+   node dev/shot.mjs --scene=carpet --complete --frames=14 --every=200 --contact
+   ```
+5. **Read the numbers, not the pixels.** `dev/out/<name>/state.json` has a full
+   `game.state()` per frame. The per-frame `scene.debris[i]` entries are what
+   prove anticipation: `s` should climb monotonically on an approach, `lift` /
+   `flee` / `reel` / `dig` should move before the state changes to `pulled`.
+
+   ```sh
+   node -e "const s=require('./dev/out/thread-ipad-landscape-path/state.json');
+     console.table(s.states.map(f=>({t:f.t, ...f.scene.debris.find(d=>d.type==='yarn')})))"
+   ```
+6. **Fix, re-run the identical command, diff the contact sheets.** Same seed,
+   same device, same path ⇒ same run.
+7. **Then re-run the chain**: `node dev/playthrough.mjs --from=thread`.
+
+---
+
+## Other scripts
+
+`dev/sheets.mjs` runs the standard review matrix — every scene x 4 devices, with
+the gestures that matter for each — and writes one contact sheet per
+combination. `--quick` restricts it to iphone-portrait, `--scene=<id>` to one
+scene.
+
+The per-scene scripts below predate `--path` / `--exec` and are kept because
+their canned paths and probes are still the fastest way into their scene. They
+all share `launch()` and `DEVICES` with `shot.mjs`, so they pick up the same
+Chromium.
+
+| script | what it does |
+|--------|--------------|
+| `dev/sofa-shot.mjs` | named travel paths under the sofa (`enter deep sock mother leave passby`) |
+| `dev/sofa-fps.mjs` | frame-time histogram for the dark scene |
+| `dev/toy-shots.mjs` | shove-a-toy sequences and nest reveals |
+| `dev/carpet-run.mjs` | combing runs and the finale (`--finale`) |
+| `dev/carpet-perf.mjs` | pile render cost |
+| `dev/sand-play.mjs`, `dev/sand-buried.mjs`, `dev/sand-rotate.mjs`, `dev/sand-bench.mjs` | crater digging, surfacing the buried three, orientation change, pile perf |
+| `dev/thread-perf.mjs` | strand reel cost |
+| `dev/paper-probe.mjs` | per-corner lift/flee numbers for one scrap |
