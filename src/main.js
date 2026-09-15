@@ -10,7 +10,11 @@ import { Chain } from './chain.js';
 import { Fireflies, Leaves, CandyDrops, Sparkles, Bats, Fireworks } from './particles.js';
 import * as A from './audio.js';
 
-const DEBUG = new URLSearchParams(location.search).has('debug');
+const QS = new URLSearchParams(location.search);
+const DEBUG = QS.has('debug');
+// Optional time multiplier, used by the automated walkthrough so a full
+// five-house run fits in a test budget on a software rasteriser.
+const TIME_SCALE = Math.max(0.25, Math.min(4, parseFloat(QS.get('speed')) || 1));
 
 // ---------------------------------------------------------------- manifest
 (function manifest() {
@@ -110,7 +114,7 @@ chain.start();
 function addProxy(parent, radius, tag, extra) {
   const m = new THREE.Mesh(new THREE.SphereGeometry(radius, 8, 6), new THREE.MeshBasicMaterial());
   m.visible = false;
-  m.userData = Object.assign({ pick: tag }, extra || {});
+  m.userData = Object.assign({ pick: tag, isProxy: true }, extra || {});
   parent.add(m);
   return m;
 }
@@ -160,6 +164,16 @@ raycaster.far = 400;
 const ndc = new THREE.Vector2();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
+/** true when the hit sits under something that is currently hidden */
+function hiddenAncestor(obj) {
+  let o = obj;
+  while (o) {
+    if (o.visible === false && !(o.userData && o.userData.isProxy)) return true;
+    o = o.parent;
+  }
+  return false;
+}
+
 function ownerOf(obj) {
   let o = obj;
   while (o) {
@@ -184,10 +198,24 @@ function handleTap(nx, ny) {
 
   const targets = [girl.root, ...world.pickables];
   const hits = raycaster.intersectObjects(targets, true);
+
+  // collect owners front-to-back, then let whatever the world is currently
+  // inviting win the tie: small fingers should not be punished for being close
+  const owners = [];
   for (const hit of hits) {
     if (hit.object === world.sky) continue;
-    const own = ownerOf(hit.object);
-    if (!own) continue;
+    if (hiddenAncestor(hit.object)) continue;
+    const o = ownerOf(hit.object);
+    if (o) owners.push(o);
+  }
+  const want = chain.expected();
+  if (want) {
+    const i = owners.findIndex(o => o.type === want.type &&
+      (want.house === undefined || o.house === want.house));
+    if (i > 0) { const [w] = owners.splice(i, 1); owners.unshift(w); }
+  }
+
+  for (const own of owners) {
     if (own.type === 'toy') { own.toy.tap(ctx); return own; }
     if (own.type === 'bucket') { chain.tapBucket(); return own; }
     if (own.type === 'girl') { chain.tapGirl(); return own; }
@@ -250,7 +278,7 @@ let frames = 0, fpsT = 0, fps = 60, lastCalls = 0, lastTris = 0;
 
 function animate() {
   const now = performance.now();
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const dt = Math.min(0.1, (now - last) / 1000) * TIME_SCALE;
   last = now;
   elapsed += dt;
   const t = elapsed;
@@ -329,7 +357,8 @@ const api = {
     return api.tapScreen(p.x, p.y);
   },
   tapNdc(nx, ny) { return simplify(handleTap(nx, ny)); },
-  debug: DEBUG
+  debug: DEBUG,
+  timeScale: TIME_SCALE
 };
 function simplify(r) {
   if (!r) return null;

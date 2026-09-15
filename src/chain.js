@@ -84,8 +84,8 @@ export class Chain {
         h.bellTarget = 1;
         h.bellShake = 1;
         girl.lookAt = h.doorbell.getWorldPosition(new THREE.Vector3());
-        cam.setFocus(h.doorbell.getWorldPosition(new THREE.Vector3()), 0.55);
-        cam.zoom = 0.72;
+        cam.setFocus(h.doorbell.getWorldPosition(new THREE.Vector3()), 0.45);
+        cam.zoom = 0.9;
         fireflies.flowTo(h.doorbell.getWorldPosition(new THREE.Vector3()));
         this.ctx.sparkles.burst(h.doorbell.getWorldPosition(new THREE.Vector3()), 10, 0xffd27a, 0.5, 0.2);
         break;
@@ -113,8 +113,8 @@ export class Chain {
         girl.lookAt = h.doorWorld.clone();
         girl.ringGlow = 1;
         this.ctx.sparkles.ring(girl.pos.clone().setY(0.7), 28, 1.0, 0xfff0b0);
-        cam.setFocus(girlWorldPoint(this.ctx.girl, 'head'), 0.3);
-        cam.zoom = 0.66;
+        cam.setFocus(h.doorWorld, 0.3);
+        cam.zoom = 0.82;
         this.ctx.fireflies.flowTo(girl.pos.clone().setY(1.2));
         break;
       }
@@ -122,8 +122,8 @@ export class Chain {
         this.busy = false;
         girl.bucketHaloTarget = 1;
         if (h.resident) h.resident.userData.candy.visible = true;
-        cam.setFocus(girlWorldPoint(this.ctx.girl, 'bucket'), 0.35);
-        cam.zoom = 0.62;
+        cam.setFocus(h.doorWorld, 0.3);
+        cam.zoom = 0.78;
         this.ctx.fireflies.flowTo(girlWorldPoint(this.ctx.girl, 'bucket'));
         break;
       }
@@ -426,8 +426,6 @@ export class Chain {
     }
 
     // keep the framed focus current for moving targets
-    if (this.state === 'REVEAL') cam.setFocus(girl.pos.clone().setY(1.3), 0.28);
-    if (this.state === 'BUCKET') cam.setFocus(girlWorldPoint(girl, 'bucket'), 0.3);
 
     // ------------------------------------------------------------ ending
     if (this.state === 'ENDING') {
@@ -490,4 +488,15 @@ export class Chain {
   }
 
   noteInput() { this.idle = 0; }
+
+  /** what the world is currently inviting a tap on - taps near it win ties */
+  expected() {
+    switch (this.state) {
+      case 'FIND': return { type: 'house', house: this.houseIndex };
+      case 'BELL': return { type: 'doorbell', house: this.houseIndex };
+      case 'REVEAL': return { type: 'girl' };
+      case 'BUCKET': return { type: 'bucket' };
+      default: return null;
+    }
+  }
 }

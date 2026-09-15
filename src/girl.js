@@ -333,7 +333,7 @@ export function updateGirl(g, dt, t) {
       if (g.pathI >= g.path.length) { g.path = null; }
     } else {
       _tmp.normalize();
-      const sp = 2.6;
+      const sp = 3.0;
       g.speed += (sp - g.speed) * Math.min(1, dt * 4);
       g.pos.addScaledVector(_tmp, g.speed * dt);
       const want = Math.atan2(_tmp.x, _tmp.z);
@@ -406,7 +406,7 @@ export function updateGirl(g, dt, t) {
   g.root.rotation.y = g.heading + spin;
 
   // --- walk / idle animation ---
-  const sp = g.speed / 2.6;
+  const sp = g.speed / 3.0;
   g.walkPhase += dt * (4.0 + sp * 5.0) * (0.25 + sp);
   if (g.anim !== 'sit') {
     const swing = Math.sin(g.walkPhase) * 0.72 * sp;

@@ -112,9 +112,6 @@ export function makeJackOLantern(scale = 1, variant = 0) {
   halo.scale.set(2.6, 2.6, 1);
   g.add(halo);
 
-  const light = new THREE.PointLight(0xff8c2a, 0, 5.5, 2);
-  light.position.set(0, 0.1, 0.15);
-  g.add(light);
 
   g.scale.setScalar(scale);
   g.userData.kind = 'lantern';
@@ -122,7 +119,6 @@ export function makeJackOLantern(scale = 1, variant = 0) {
   g.userData.carve = carve;
   g.userData.body = body;
   g.userData.halo = halo;
-  g.userData.light = light;
   g.userData.variant = variant;
   g.userData.lit = 0;
   g.userData.target = 0;
@@ -140,7 +136,6 @@ export function updateLantern(g, dt, t) {
   ud.faceMat.opacity = Math.min(1, v * 1.15);
   ud.body.material.emissiveIntensity = v * 0.55;
   ud.halo.material.opacity = v * 0.55;
-  ud.light.intensity = v * 3.4;
   ud.carve.material.opacity = 0.9 - ud.lit * 0.55;
 }
 
@@ -337,6 +332,7 @@ export function createHouse(opts) {
   doorGlow.position.set(0, 1.05, D / 2 + 0.02);
   root.add(doorGlow);
   const doorLight = new THREE.PointLight(0xffb060, 0, 7, 2);
+  doorLight.visible = false;
   doorLight.position.set(0, 1.4, D / 2 - 0.4);
   root.add(doorLight);
 
@@ -378,7 +374,8 @@ export function createHouse(opts) {
   porchHalo.scale.set(3.2, 3.2, 1);
   porchHalo.position.copy(porchLamp.position);
   root.add(porchHalo);
-  const porchLight = new THREE.PointLight(0xffa94e, 0, 12, 2);
+  const porchLight = new THREE.PointLight(0xffa94e, 0, 13, 2);
+  porchLight.visible = false;
   porchLight.position.set(0, 2.3, D / 2 + 1.4);
   root.add(porchLight);
 
@@ -404,7 +401,7 @@ export function createHouse(opts) {
   }
 
   // porch approach spot in world space (in front of the steps)
-  const local = new THREE.Vector3(0.25, 0, D / 2 + 3.0);
+  const local = new THREE.Vector3(-0.55, 0, D / 2 + 2.9);
   const porchSpot = local.clone().applyEuler(new THREE.Euler(0, facing, 0)).add(position);
   porchSpot.y = 0;
 
@@ -448,7 +445,9 @@ export function updateHouse(h, dt, t) {
 
   h.porchLampMat.emissiveIntensity = v * 2.4;
   h.porchHalo.material.opacity = v * 0.5;
-  h.porchLight.intensity = v * 9.0;
+  // only lit houses carry a real light, to keep the shader light count tiny
+  h.porchLight.visible = h.litTarget > 0.5;
+  h.porchLight.intensity = v * 11.0;
   h.winMat.emissiveIntensity = v * 0.5 + h.windowFlash * 1.6;
   h.windowFlash = Math.max(0, h.windowFlash - dt * 2.2);
 
@@ -458,7 +457,8 @@ export function updateHouse(h, dt, t) {
   h.doorOpen += (h.doorTarget - h.doorOpen) * Math.min(1, dt * 2.2);
   h.doorPivot.rotation.y = h.doorOpen * 1.5;
   h.doorGlow.material.opacity = h.doorOpen * 0.55;
-  h.doorLight.intensity = h.doorOpen * 7.0;
+  h.doorLight.visible = h.doorTarget > 0.5 || h.doorOpen > 0.02;
+  h.doorLight.intensity = h.doorOpen * 8.0;
 
   // doorbell
   h.bellGlow += (h.bellTarget - h.bellGlow) * Math.min(1, dt * 3.5);

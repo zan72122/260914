@@ -38,7 +38,6 @@ export function toyPumpkin(pos, scale = 1) {
     const hue = [0xffc25e, 0x9dff7a, 0x7ac8ff, 0xff8ab0][t.tapCount % 4];
     g.userData.faceMat.color.setHex(hue);
     g.userData.halo.material.color.setHex(hue);
-    g.userData.light.color.setHex(hue);
     g.userData.target = 1;
     t.pop = 1;
     ctx.sparkles.burst(g.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, 0.3, 0)), 16, hue, 1.2);
