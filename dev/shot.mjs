@@ -11,9 +11,9 @@
  * /opt/pw-browsers). Never run `playwright install`.
  */
 import { chromium } from 'playwright';
-import { mkdir, writeFile, rm, readdir } from 'node:fs/promises';
+import { mkdir, writeFile, rm } from 'node:fs/promises';
 import { existsSync, readdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startServer } from './serve.mjs';
 import { makeGesture, resolveTarget, gestureNames } from './gestures.mjs';

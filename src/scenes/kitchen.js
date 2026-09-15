@@ -1,8 +1,7 @@
 import { Scene } from './scene.js';
 import { Crumb, resolveCrumbs } from '../debris/crumb.js';
-import { State } from '../debris/base.js';
 import { makeTileFloor, paintMotif, paintStain } from '../floors/tile.js';
-import { TAU, clamp, smoothstep } from '../core/math.js';
+import { TAU, clamp } from '../core/math.js';
 
 /**
  * Scene 2 — glossy kitchen tile.
@@ -37,11 +36,11 @@ export class KitchenScene extends Scene {
       this.spill = { x: s.x, y: s.y, r: 96 };
       this.exitCam = { x: w * 0.26, y: -h * 0.40, zoom: this.scale * 1.06, tilt: 0.3 };
     } else {
-      this.startPointer = { x: 0.26, y: 0.78 };
+      this.startPointer = { x: 0.13, y: 0.86 };
       this.floor = makeTileFloor({ x0: -w * 0.9, y0: -h * 1.2, x1: w * 1.3, y1: h * 1.1 }, rng, { tile: 96 });
       this.counter = { x0: -w * 0.9, y0: -h * 1.2, x1: w * 1.3, y1: -h * 0.34 };
       this.exitGap = this._p(1.02, 0.28);
-      const s = this._p(0.34, 0.46);
+      const s = this._p(0.40, 0.42);
       this.spill = { x: s.x, y: s.y, r: 92 };
       this.exitCam = { x: w * 0.52, y: -h * 0.08, zoom: this.scale * 1.06, tilt: 0.2 };
     }
@@ -58,13 +57,18 @@ export class KitchenScene extends Scene {
       const c = new Crumb(this.spill.x + Math.cos(a) * rr, this.spill.y + Math.sin(a) * rr * 0.8, rng);
       this.debris.push(c);
     }
-    // a few grains that already rolled loose
+    // a few grains that already rolled loose (never within reach of the
+    // parked nozzle, or they would vanish before the player touched anything)
+    const park = this._p(this.startPointer.x, this.startPointer.y - 70 / this.scale / this.vh);
     for (let i = 0; i < 7; i++) {
-      const p = portrait
-        ? this._p(rng.range(0.15, 0.85), rng.range(0.55, 0.82))
-        : this._p(rng.range(0.12, 0.6), rng.range(0.6, 0.9));
-      const c = new Crumb(p.x, p.y, rng, 'rice');
-      this.debris.push(c);
+      let p = null;
+      for (let tries = 0; tries < 24; tries++) {
+        p = portrait
+          ? this._p(rng.range(0.15, 0.85), rng.range(0.52, 0.80))
+          : this._p(rng.range(0.20, 0.72), rng.range(0.55, 0.88));
+        if (Math.hypot(p.x - park.x, p.y - park.y) > 150) break;
+      }
+      this.debris.push(new Crumb(p.x, p.y, rng, 'rice'));
     }
     // decor trail leading off-screen toward the next room (does not gate completion)
     const g = this.exitGap;

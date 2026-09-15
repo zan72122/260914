@@ -2,7 +2,7 @@ import { Scene } from './scene.js';
 import { DustBunny } from '../debris/dustBunny.js';
 import { State } from '../debris/base.js';
 import { makeWoodFloor } from '../floors/wood.js';
-import { TAU, clamp, smoothstep } from '../core/math.js';
+import { TAU, clamp } from '../core/math.js';
 
 /**
  * Scene 1 — wood floor, dust bunnies.
@@ -54,13 +54,13 @@ export class IntroScene extends Scene {
       this.floor = makeWoodFloor({ x0: -w * 0.9, y0: -h * 1.1, x1: w * 1.35, y1: h * 1.1 }, rng, { plankW: 78, horizontal: true });
       this.leg = this._p(0.615, 0.135);
       this._spawn([
-        [0.22, 0.335, 23, false],
-        [0.40, 0.505, 20, false],
-        [0.545, 0.255, 21, false],
-        [0.71, 0.44, 18, false],
+        [0.250, 0.330, 23, false],
+        [0.405, 0.330, 20, false],
+        [0.560, 0.560, 21, false],
+        [0.705, 0.375, 18, false],
       ]);
-      this.rollIn = this._makeBunny(0.50, 0.73, 21);
-      this.rollIn.entryFrom = this._p(-0.35, 0.80);
+      this.rollIn = this._makeBunny(0.49, 0.80, 21);
+      this.rollIn.entryFrom = this._p(-0.35, 0.86);
       this.peeker = this._makeBunny(0.665, 0.175, 17);
       this.peeker.peekFrom = this._p(0.60, 0.14);
       this.exitCam = { x: w * 0.55, y: -h * 0.05, zoom: this.scale * 1.04, tilt: 0.24 };

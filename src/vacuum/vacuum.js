@@ -1,4 +1,4 @@
-import { clamp, lerp, smoothstep, spring2, splineAt, splinePath, TAU, noise1 } from '../core/math.js';
+import { clamp, lerp, smoothstep, spring2, splineAt, splinePath, TAU } from '../core/math.js';
 
 const TMP = { x: 0, y: 0 };
 const TMP2 = { x: 0, y: 0 };

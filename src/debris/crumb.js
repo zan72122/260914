@@ -1,5 +1,5 @@
 import { Debris, State } from './base.js';
-import { clamp, smoothstep, TAU, noise1 } from '../core/math.js';
+import { smoothstep, TAU, noise1 } from '../core/math.js';
 
 const TMPF = { fx: 0, fy: 0, strength: 0, inCapture: false, dist: 0 };
 

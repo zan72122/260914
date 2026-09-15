@@ -1,5 +1,5 @@
 import { Floor } from './floor.js';
-import { TAU, clamp } from '../core/math.js';
+import { TAU } from '../core/math.js';
 
 /** Warm wooden planks running along the "away" axis. */
 export function makeWoodFloor(rect, rng, opts = {}) {
