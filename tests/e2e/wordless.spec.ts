@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { SHOT_DIR, VIEWPORTS, bootGame, expectWordless, gotoScene } from './helpers';
+import { SCENE_ORDER, SHOT_DIR, VIEWPORTS, bootGame, expectWordless, jumpToScene } from './helpers';
 
 /**
  * The charter checks (§2 of the plan): every scene, on every device, must show
@@ -10,6 +10,8 @@ for (const vp of VIEWPORTS) {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
     test('boots wordless and reacts to every touch', async ({ page }) => {
+      // Ten scenes, each visited and touched: this one test is a slow walk.
+      test.setTimeout(150_000);
       const consoleErrors: string[] = [];
       page.on('pageerror', (e) => consoleErrors.push(String(e)));
       await bootGame(page);
@@ -35,11 +37,15 @@ for (const vp of VIEWPORTS) {
       await page.waitForTimeout(400);
       await expectWordless(page);
 
-      // ...and the second scene has to be just as wordless as the first.
-      await gotoScene(page, 'ballpit');
-      await page.mouse.click(cx, cy);
-      await page.waitForTimeout(400);
-      await expectWordless(page);
+      // ...and so does every other scene in the game: each one is visited,
+      // touched, and checked for text, buttons and Pixi text objects.
+      for (const name of SCENE_ORDER.slice(1)) {
+        await jumpToScene(page, name);
+        await page.mouse.click(cx, cy);
+        await page.waitForTimeout(250);
+        await expectWordless(page);
+        expect(await page.evaluate(() => window.__kids!.kidCount())).toBeGreaterThan(15);
+      }
       expect(consoleErrors).toEqual([]);
     });
   });
@@ -93,7 +99,8 @@ test.describe('rotation', () => {
 test.describe('transitions', () => {
   test.use({ viewport: { width: 1024, height: 1366 } });
 
-  test('runs the two scenes in order and wraps around, with no blackout', async ({ page }) => {
+  test('runs the ten scenes in order and wraps around, with no blackout', async ({ page }) => {
+    test.setTimeout(120_000);
     await bootGame(page);
     expect(await page.evaluate(() => window.__kids!.sceneName())).toBe('gather');
     // End scene 1 the way the game does: the crowd runs off to the right and
@@ -106,13 +113,19 @@ test.describe('transitions', () => {
     await expectWordless(page);
     await page.waitForTimeout(1400);
     expect(await page.evaluate(() => window.__kids!.panning())).toBe(false);
-    expect(await page.evaluate(() => window.__kids!.sceneName())).toBe('ballpit');
+    expect(await page.evaluate(() => window.__kids!.sceneName())).toBe('march');
     expect(await page.evaluate(() => window.__kids!.sceneIndex())).toBe(1);
 
-    await page.evaluate(() => window.__kids!.advanceScene());
-    await page.waitForTimeout(2200);
+    // ...and on through the rest of the running order, all the way round to
+    // scene 1 again. Nothing cuts to black anywhere along the way.
+    for (let i = 2; i <= SCENE_ORDER.length; i++) {
+      await page.evaluate(() => window.__kids!.advanceScene());
+      await page.waitForTimeout(2200);
+      const want = SCENE_ORDER[i % SCENE_ORDER.length];
+      expect(await page.evaluate(() => window.__kids!.sceneName())).toBe(want);
+      expect(await page.evaluate(() => window.__kids!.sceneIndex())).toBe(i % SCENE_ORDER.length);
+    }
     expect(await page.evaluate(() => window.__kids!.sceneName())).toBe('gather');
-    expect(await page.evaluate(() => window.__kids!.sceneIndex())).toBe(0);
     await expectWordless(page);
   });
 });

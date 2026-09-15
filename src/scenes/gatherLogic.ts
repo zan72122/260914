@@ -10,8 +10,18 @@ export interface Point {
   y: number;
 }
 
-/** Everyone must be this close to the waving kid for the crowd to count as gathered. */
-export const CLUSTER_RADIUS = 330;
+/**
+ * Everyone must be this close to the waving kid for the crowd to count as
+ * gathered.
+ *
+ * It has to be comfortably wider than the ring of slots the crowd settles
+ * into (the outermost is about 280 units out), because the separation force
+ * keeps jostling the outside of a 44-strong group. At 330 the last two or
+ * three kids could hover on the line for half a minute and the scene stalled;
+ * at 400 a formed group is unambiguously a formed group, and it still looks
+ * exactly the same — the crowd packs itself to about 220 units across.
+ */
+export const CLUSTER_RADIUS = 400;
 
 /** How many of `kids` are inside `radius` of (cx, cy). */
 export function gatheredCount(kids: readonly Point[], cx: number, cy: number, radius: number): number {

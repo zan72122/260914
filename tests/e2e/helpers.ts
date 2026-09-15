@@ -1,5 +1,8 @@
 import { expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { SCENE_ORDER } from '../../src/scenes/order';
+
+export { SCENE_ORDER };
 
 /** Device viewports from the plan: iPhone, iPad portrait, iPad landscape. */
 export const VIEWPORTS = [
@@ -7,6 +10,33 @@ export const VIEWPORTS = [
   { name: 'ipad-1024x1366-portrait', width: 1024, height: 1366 },
   { name: 'ipad-1366x1024-landscape', width: 1366, height: 1024 },
 ] as const;
+
+/**
+ * The two devices every scene is photographed on, plus the third that only
+ * some of them are: the plan asks for iPhone portrait and iPad landscape
+ * everywhere, and iPad portrait on at least three scenes.
+ */
+export const PHONE = VIEWPORTS[0];
+export const PAD_PORTRAIT = VIEWPORTS[1];
+export const PAD_LANDSCAPE = VIEWPORTS[2];
+
+export interface Geom {
+  width: number;
+  height: number;
+  cx: number;
+  cy: number;
+  /** World -> screen scale: the short axis is exactly 1000 world units. */
+  scale: number;
+}
+
+export function geom(width: number, height: number): Geom {
+  return { width, height, cx: width / 2, cy: height / 2, scale: Math.min(width, height) / 1000 };
+}
+
+/** World coordinates -> CSS pixels, the same mapping `core/viewport.ts` uses. */
+export function toScreen(g: Geom, wx: number, wy: number): [number, number] {
+  return [g.cx + wx * g.scale, g.cy + wy * g.scale];
+}
 
 export const SHOT_DIR = 'tests/e2e/__screenshots__';
 
@@ -21,6 +51,8 @@ export interface KidsHooks {
   panning: () => boolean;
   autoFired: () => boolean;
   advanceScene: () => void;
+  gotoScene: (index: number) => void;
+  sceneCount: () => number;
   finishScene: () => void;
   idleHint: () => void;
   autoAdvance: () => void;
@@ -63,6 +95,19 @@ export async function expectWordless(page: Page): Promise<void> {
   expect(await domTextNodes(page)).toEqual([]);
   expect(await page.evaluate(() => window.__kids!.textCount())).toBe(0);
   expect(await page.locator('button, a, input, select, textarea').count()).toBe(0);
+}
+
+/**
+ * Lands straight on a scene by name (debug hook, screenshots only). The game
+ * itself never does this; it is here so photographing scene 10 does not mean
+ * sitting through nine transitions first.
+ */
+export async function jumpToScene(page: Page, name: string): Promise<void> {
+  const index = SCENE_ORDER.indexOf(name as (typeof SCENE_ORDER)[number]);
+  expect(index).toBeGreaterThanOrEqual(0);
+  await page.evaluate((i) => window.__kids!.gotoScene(i), index);
+  await page.waitForTimeout(900);
+  expect(await page.evaluate(() => window.__kids!.sceneName())).toBe(name);
 }
 
 /** Walks the director forward until `name` is the live scene. */
