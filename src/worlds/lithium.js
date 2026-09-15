@@ -53,9 +53,10 @@ const WIRE = [
 ];
 const WIRE_BRANCH = [{ x: 56, y: -106 }, { x: 53, y: -124 }, { x: 48, y: -136 }];
 const IDLE_LIFT = 150;         // the pellet floats this far above the slot (~0.25*S)
+const BEACON_GAP = 700;        // ~3s apart at cruising speed
 const SECOND_ROVER_AHEAD = 2750; // how far ahead the next stopped rover waits (never interactive)
 const DRIVE_SPEED = 240;       // world units / s
-const DRIVE_BASE = 9.5;        // §G: the drive lasts long enough to stay a game, not a cutscene
+const DRIVE_BASE = 12;         // §G: the drive lasts long enough to stay a game, not a cutscene
 const DRIVE_PER_SURGE = 1.5;   //     every extra touch keeps the rover out a little longer
 const DRIVE_MAX = 18;          //     ...but never past this
 const RS = 1.28;               // rover scale (rover-local units -> world units)
@@ -129,6 +130,11 @@ export default {
     let fgBottom = GROUND_Y + 200;
     let secondX = ROVER_X0 + SECOND_ROVER_AHEAD;
     let secondVisible = false;
+    // §5-3: markers along the route that wake up red as the rover reaches them, so the
+    // world keeps changing even for a child who only watches.
+    let beacon0 = ROVER_X0 + 420;
+    let beaconLit = -1;
+    let beaconLitT = -99;
 
     const fadeIn = () => Math.max(handoff ? clamp(handoff.progress) : 1, clamp(t / 1.2));
 
@@ -262,6 +268,7 @@ export default {
       phase = 'complete';
       doneT = 0;
       secondX = rover.x + SECOND_ROVER_AHEAD;
+      beacon0 = rover.x + 420;
       rover.speed = 60;
       lampsOn = 0.001;
       flash = 1;
@@ -412,6 +419,18 @@ export default {
 
         if (phase === 'complete' || phase === 'leaving') {
           lampsOn = Math.min(1, lampsOn + dt * 6);
+
+          // the red light the pellet started keeps arriving somewhere new
+          for (let guard = 0; guard < 4 && rover.x > beacon0 + (beaconLit + 1) * BEACON_GAP; guard++) {
+            beaconLit++;
+            beaconLitT = t;
+            engine.audio.play('lamp_on');
+            const bs = cam.worldToScreen(beacon0 + beaconLit * BEACON_GAP, GROUND_Y - 96);
+            engine.particles.burst(bs.x, bs.y, 12, {
+              speed: [40, 150], life: [0.35, 0.9], r: [1.5, 3.5],
+              color: [DEF.flameColor, DEF.glowColor], drag: 0.9
+            });
+          }
           rover.tilt = lerp(rover.tilt, 0, damp(0.90, dt));
           const want = phase === 'leaving' ? 85 : DRIVE_SPEED * (1 + surge * 0.85);
           rover.speed = lerp(rover.speed, want, damp(0.94, dt));
@@ -492,6 +511,7 @@ export default {
         const vr = cam.viewRect;
         drawHills(g, vr, ambQ);
         drawGround(g, vr);
+        drawBeacons(g, vr);
         drawSecondRover(g, vr);
         drawRover(g);
         if (!inserted) drawPellet(g);
@@ -525,6 +545,7 @@ export default {
           inserted,
           driving: phase === 'complete' || phase === 'leaving',
           surges,
+          beaconsLit: beaconLit + 1,
           driveLimit: Math.round(driveLimit * 10) / 10,
           spoken,
           lampsOn: Math.round(lampsOn * 100) / 100,
@@ -534,19 +555,23 @@ export default {
         };
       },
 
-      /** §5.10 — ids the QA harness pokes. Both stay published after the insert so a
-       *  stray extra "4-year-old" gesture never lands on nothing. */
+      /** §5.10 / 新-6: ONLY what a finger can usefully touch right now. */
       hitPoints() {
+        // driving: the pellet is long gone (and far off-screen) — the rover is the target
+        if (phase === 'complete') {
+          const rs = cam.worldToScreen(rover.x, GROUND_Y - 90 * RS);
+          return [{ id: 'rover', x: rs.x, y: rs.y, r: S * 0.18 }];
+        }
+        // pulling back to the shelf: nothing left to touch
+        if (phase === 'leaving') return [];
+        // before/while the pellet goes in (incl. the 0.7s 'change' beat, so a repeated
+        // gesture from the harness or a child still lands on something real)
         const ss = slotScreen();
         const fs = inserted ? ss : fragScreen();
-        const rs = cam.worldToScreen(rover.x, GROUND_Y - 90 * RS);
-        const out = [
+        return [
           { id: 'fragment', x: fs.x, y: fs.y, r: inserted ? S * 0.10 : fragHitR() },
           { id: 'slot', x: ss.x, y: ss.y, r: S * 0.14 }
         ];
-        // §G: while it is running, the rover itself is touchable (a tap shoves it along)
-        if (phase === 'complete') out.push({ id: 'rover', x: rs.x, y: rs.y, r: S * 0.18 });
-        return out;
       },
 
       complete() {
@@ -681,6 +706,40 @@ export default {
         g.beginPath();
         g.ellipse(px - r * 0.22, py - r * 0.24, r * 0.48, r * 0.24, 0, 0, Math.PI * 2);
         g.fill();
+      }
+    }
+
+    /* ---------------------------------------------------------------- route beacons */
+    function drawBeacons(g, vr) {
+      if (phase !== 'complete' && phase !== 'leaving') return;
+      const i0 = Math.max(0, Math.floor((vr.x - beacon0 - 120) / BEACON_GAP));
+      const i1 = Math.floor((vr.x + vr.w + 120 - beacon0) / BEACON_GAP);
+      for (let i = i0; i <= i1; i++) {
+        const bx = beacon0 + i * BEACON_GAP;
+        if (bx < vr.x - 120 || bx > vr.x + vr.w + 120) continue;
+        const lit = i <= beaconLit;
+        const flare = lit && i === beaconLit ? clamp(1 - (t - beaconLitT) / 0.6) : 0;
+        const base = GROUND_Y - 12;
+
+        g.fillStyle = withAlpha('#2f1d22', 0.5);
+        g.beginPath(); g.ellipse(bx, base + 4, 26, 8, 0, 0, Math.PI * 2); g.fill();
+        fillRoundRect(g, bx - 8, base - 74, 16, 76, 8, lit ? '#6b5560' : '#453640');
+        fillRoundRect(g, bx - 20, base - 8, 40, 12, 6, lit ? '#6b5560' : '#453640');
+
+        if (lit) {
+          glowCircle(g, bx, base - 90, 46 + flare * 120, DEF.flameColor, 0.75 + flare * 0.9);
+          g.fillStyle = lerpColor(DEF.flameColor, '#fff1d8', 0.25 + flare * 0.5);
+        } else {
+          g.fillStyle = '#3a2b34';
+        }
+        g.beginPath(); g.arc(bx, base - 90, 16, 0, Math.PI * 2); g.fill();
+        if (lit) {
+          g.fillStyle = withAlpha('#ffffff', 0.55 + flare * 0.4);
+          g.beginPath(); g.arc(bx - 4, base - 95, 5.5, 0, Math.PI * 2); g.fill();
+        } else {
+          g.fillStyle = withAlpha('#7d6a72', 0.7);
+          g.beginPath(); g.arc(bx - 4, base - 95, 5, 0, Math.PI * 2); g.fill();
+        }
       }
     }
 
