@@ -7,13 +7,13 @@ import { MATERIAL_ELEMENT, MATERIAL_IDS } from './layout';
 
 /** 材料が炎から出た後も色を保つ時間（運搬中に色を見せるための意図的な乖離）。 */
 export const AFTERGLOW_MS = 3000;
-/** 仕事が動いている時間（火花が止まり、線がつながり、灯が点くまで）。 */
-export const JOB_RUN_MS = 1400;
-/** 直った状態を保つ時間。この後、次の困りを待つ。 */
+/** 直った状態を保つ時間。この後、材料が台に戻り、次の困りを待つ。 */
 export const DONE_HOLD_MS = 3000;
 /** 次の困りが起きるまでの幅（数十秒）。 */
 export const TROUBLE_DELAY_MIN_MS = 25000;
 export const TROUBLE_DELAY_MAX_MS = 40000;
+/** 同時に困っていられる場所の数の上限（常に 1〜2 箇所）。 */
+export const MAX_TROUBLES = 2;
 
 export type Phase = 'idle' | 'dragging' | 'delivering' | 'job_running';
 /**
@@ -23,6 +23,29 @@ export type Phase = 'idle' | 'dragging' | 'delivering' | 'job_running';
 export type JobStatus = 'waiting' | 'called' | 'job_running' | 'done' | 'cooldown';
 
 export type MaterialPlace = 'bench' | 'held' | `site:${JobId}`;
+
+export interface JobDef {
+  id: JobId;
+  element: ElementId;
+  /** 仕事が動いている時間（絵が最後まで進むまで） */
+  runMs: number;
+}
+
+/** 三つの仕事。すべて別の現象で、材料も受け口も別。 */
+export const JOB_DEFS: readonly JobDef[] = [
+  // 切れた配線に銅線を置く → 火花が止まり、電流が走り、作業灯が灯る
+  { id: 'wiring', element: 'copper', runMs: 1400 },
+  // 桟橋の発射台に薬剤を入れる → 赤い信号炎が上がり、沖が照らされ、救助船が近づく
+  { id: 'flare', element: 'strontium', runMs: 2600 },
+  // 電池工場の受け口に粉を入れる → 装置が動き、電池が出て、リモコンに入り、点火テストの火が飛ぶ
+  { id: 'battery', element: 'lithium', runMs: 2400 },
+];
+
+export const JOB_RUN_MS: Record<JobId, number> = {
+  wiring: JOB_DEFS[0].runMs,
+  flare: JOB_DEFS[1].runMs,
+  battery: JOB_DEFS[2].runMs,
+};
 
 export interface MaterialState {
   id: MaterialId;
@@ -42,10 +65,8 @@ export interface JobState {
   calledAt: number | null;
   /** 状態が変わってからの経過（ms） */
   elapsedMs: number;
-  /** 次の困りが起きる時刻（ms）。無ければ null */
-  nextTroubleAt: number | null;
-  /** 作業灯の明るさ 0..1（銅の仕事の結果） */
-  lampLit: number;
+  /** 仕事の絵の進み 0..1。done では 1 のまま */
+  progress: number;
 }
 
 export interface SpeechRequest {
@@ -99,6 +120,12 @@ export class World {
   heldPrism = false;
   pointer: Point | null = null;
   timeMs = 0;
+  /** 困りの循環を回すか（台だけを見るシナリオでは止める） */
+  troubleCycle = true;
+  /** 次の困りが起きる時刻（ms） */
+  nextTroubleAt = 0;
+  /** 困りが起きる順（seed で固定）。使ったものは後ろへ回す */
+  troubleOrder: JobId[] = [];
   /** 直近の入力拒否の理由 */
   rejectReason: string | undefined;
 
@@ -120,6 +147,7 @@ export class World {
     this.pointer = null;
     this.timeMs = 0;
     this.rejectReason = undefined;
+    this.troubleCycle = true;
     this.prismAt = 'bench';
     this.prismPos = { ...this.layout.prism };
     this.materials = MATERIAL_IDS.map((id) => ({
@@ -131,17 +159,20 @@ export class World {
       inFlame: false,
       afterglowMs: 0,
     }));
-    this.jobs = [
-      {
-        id: 'wiring',
-        element: 'copper',
-        status: 'waiting',
-        calledAt: null,
-        elapsedMs: 0,
-        nextTroubleAt: null,
-        lampLit: 0,
-      },
-    ];
+    this.jobs = JOB_DEFS.map((d) => ({
+      id: d.id,
+      element: d.element,
+      status: 'waiting' as JobStatus,
+      calledAt: null,
+      elapsedMs: 0,
+      progress: 0,
+    }));
+    // 困りの順は seed で固定する
+    this.troubleOrder = shuffle(
+      JOB_DEFS.map((d) => d.id),
+      this.rng,
+    );
+    this.nextTroubleAt = this.rng.range(TROUBLE_DELAY_MIN_MS, TROUBLE_DELAY_MAX_MS);
   }
 
   /** 画面の向き・大きさが変わったときの置き直し。同じ物を動かすだけ。 */
@@ -165,17 +196,23 @@ export class World {
     if (this.prismAt === 'bench') this.prismPos = { ...layout.prism };
   }
 
-  private sitePointOf(layout: Layout, place: MaterialPlace): Point {
-    switch (place) {
-      case 'site:wiring':
+  /** 仕事の受け口の場所。 */
+  static siteOf(layout: Layout, id: JobId): Point {
+    switch (id) {
+      case 'wiring':
         return layout.wireGap;
-      case 'site:flare':
+      case 'flare':
         return layout.flareLauncher;
-      case 'site:battery':
+      case 'battery':
         return layout.batteryFactory;
-      default:
-        return layout.prism;
     }
+  }
+
+  private sitePointOf(layout: Layout, place: MaterialPlace): Point {
+    if (place.startsWith('site:')) {
+      return World.siteOf(layout, place.slice(5) as JobId);
+    }
+    return layout.prism;
   }
 
   private sitePoint(place: MaterialPlace): Point {
@@ -188,9 +225,21 @@ export class World {
     return j;
   }
 
+  jobOfElement(element: ElementId): JobState {
+    const j = this.jobs.find((x) => x.element === element);
+    if (!j) throw new Error(`no job for element: ${element}`);
+    return j;
+  }
+
   material(id: MaterialId): MaterialState {
     const m = this.materials.find((x) => x.id === id);
     if (!m) throw new Error(`unknown material: ${id}`);
+    return m;
+  }
+
+  materialOfElement(element: ElementId): MaterialState {
+    const m = this.materials.find((x) => x.element === element);
+    if (!m) throw new Error(`no material for element: ${element}`);
     return m;
   }
 
@@ -202,21 +251,44 @@ export class World {
     return this.phase !== 'job_running';
   }
 
-  /** 困りを起こす（切れた配線が火花を出し、作業員が名前を呼ぶ）。 */
+  /** いま困っている場所の数（呼んでいる＋動いている）。 */
+  get troubleCount(): number {
+    return this.jobs.filter((j) => j.status === 'called' || j.status === 'job_running').length;
+  }
+
+  /** 困りを起こす。そこにいる人が手を振って名前を呼ぶ。 */
   raiseTrouble(id: JobId): void {
     const j = this.job(id);
     j.status = 'called';
     j.calledAt = this.timeMs;
     j.elapsedMs = 0;
-    j.nextTroubleAt = null;
-    j.lampLit = 0;
-    this.log.push({ t: this.timeMs, kind: 'job', msg: 'trouble', data: { job: j.id } });
+    j.progress = 0;
+    // 同じ場所が続けて困らないよう、順番の後ろへ回す
+    const at = this.troubleOrder.indexOf(id);
+    if (at >= 0) {
+      this.troubleOrder.splice(at, 1);
+      this.troubleOrder.push(id);
+    }
+    this.log.push({ t: this.timeMs, kind: 'job', msg: 'trouble', data: { job: j.id, element: j.element } });
     const kana = ELEMENT_KANA[j.element];
     this.speakOut({
       text: `${kana}〜`,
       label: `${ELEMENT_LABEL[j.element]}〜`,
       reason: 'call',
     });
+  }
+
+  /** 順番の先頭で、いま困っていない場所に困りを起こす。 */
+  private raiseNextTrouble(): boolean {
+    for (let i = 0; i < this.troubleOrder.length; i++) {
+      const id = this.troubleOrder[i];
+      const j = this.job(id);
+      if (j.status === 'waiting' || j.status === 'cooldown') {
+        this.raiseTrouble(id);
+        return true;
+      }
+    }
+    return false;
   }
 
   // ---- 入力（一本指のドラッグ一筆書き） ----
@@ -250,7 +322,7 @@ export class World {
       this.log.push({ t: this.timeMs, kind: 'input', msg: 'down', data: { grabbed: best.id, x: Math.round(x), y: Math.round(y) } });
       return;
     }
-    if (dPrism <= r * 1.2) {
+    if (!this.heldPrism && this.heldId === null && dPrism <= r * 1.2) {
       this.heldPrism = true;
       this.prismAt = 'held';
       this.prismPos = { x, y };
@@ -339,12 +411,30 @@ export class World {
     this.log.push({ t: this.timeMs, kind: 'flame', msg: 'exit', data: { material: m.id, element: m.element } });
   }
 
-  /** 落とした場所で仕事が動くか決める。動かなければ材料はその場に残る。 */
-  private dropAt(m: MaterialState, x: number, y: number): void {
+  /** 指を離した場所に受け口があるか。 */
+  private siteUnder(x: number, y: number): JobId | null {
     const r = this.layout.touchRadius * 1.5;
-    const j = this.job('wiring');
-    if (dist(x, y, this.layout.wireGap) <= r) {
-      m.at = 'site:wiring';
+    let best: JobId | null = null;
+    let bestD = Infinity;
+    for (const j of this.jobs) {
+      const d = dist(x, y, World.siteOf(this.layout, j.id));
+      if (d <= r && d < bestD) {
+        best = j.id;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * 落とした場所で仕事が動くか決める。
+   * どの材料もどの受け口に置けるが、違えば何も動かず、材料はその場に残り拾い直せる。
+   */
+  private dropAt(m: MaterialState, x: number, y: number): void {
+    const siteId = this.siteUnder(x, y);
+    if (siteId !== null) {
+      const j = this.job(siteId);
+      m.at = `site:${siteId}`;
       if (m.element !== j.element) {
         this.phase = 'idle';
         this.log.push({
@@ -355,7 +445,7 @@ export class World {
         });
         return;
       }
-      if (j.status !== 'called' && j.status !== 'waiting') {
+      if (j.status !== 'called') {
         this.phase = 'idle';
         this.log.push({
           t: this.timeMs,
@@ -367,6 +457,7 @@ export class World {
       }
       j.status = 'job_running';
       j.elapsedMs = 0;
+      j.progress = 0;
       this.phase = 'job_running';
       this.log.push({
         t: this.timeMs,
@@ -387,6 +478,20 @@ export class World {
     this.log.push({ t: this.timeMs, kind: 'deliver', msg: 'dropped', data: { material: m.id, at: 'bench' } });
   }
 
+  /** 使った材料は木箱から次の一つが出てくる（台の定位置に戻る）。 */
+  private returnMaterialsOf(jobId: JobId): void {
+    for (const m of this.materials) {
+      if (m.at === `site:${jobId}`) {
+        m.at = 'bench';
+        const slot = this.layout.materialSlots[m.id];
+        m.x = slot.x;
+        m.y = slot.y;
+        m.inFlame = false;
+        m.afterglowMs = 0;
+      }
+    }
+  }
+
   // ---- 時間 ----
 
   update(dtMs: number, timeMs: number): void {
@@ -402,12 +507,12 @@ export class World {
       j.elapsedMs += dtMs;
       switch (j.status) {
         case 'job_running': {
-          j.lampLit = Math.min(1, j.elapsedMs / JOB_RUN_MS);
-          if (j.elapsedMs >= JOB_RUN_MS) {
+          const runMs = JOB_RUN_MS[j.id];
+          j.progress = Math.min(1, j.elapsedMs / runMs);
+          if (j.elapsedMs >= runMs) {
             j.status = 'done';
             j.elapsedMs = 0;
-            j.lampLit = 1;
-            this.phase = 'idle';
+            j.progress = 1;
             this.log.push({ t: this.timeMs, kind: 'job', msg: 'done', data: { job: j.id } });
           }
           break;
@@ -416,14 +521,7 @@ export class World {
           if (j.elapsedMs >= DONE_HOLD_MS) {
             j.status = 'cooldown';
             j.elapsedMs = 0;
-            j.nextTroubleAt =
-              this.timeMs + this.rng.range(TROUBLE_DELAY_MIN_MS, TROUBLE_DELAY_MAX_MS);
-          }
-          break;
-        }
-        case 'cooldown': {
-          if (j.nextTroubleAt !== null && this.timeMs >= j.nextTroubleAt) {
-            this.raiseTrouble(j.id);
+            this.returnMaterialsOf(j.id);
           }
           break;
         }
@@ -431,14 +529,33 @@ export class World {
           break;
       }
     }
+    if (this.phase === 'job_running' && !this.jobs.some((j) => j.status === 'job_running')) {
+      this.phase = 'idle';
+    }
+    this.updateTroubles();
+  }
+
+  /** 常に 1〜2 箇所が困っている。直すと少し経って別の場所が困る。 */
+  private updateTroubles(): void {
+    if (!this.troubleCycle) return;
+    // 直った直後の見せ場（done）の間は、次の困りを起こさない
+    const celebrating = this.jobs.some((j) => j.status === 'done');
+    if (this.troubleCount === 0 && !celebrating) {
+      if (this.raiseNextTrouble()) {
+        this.nextTroubleAt = this.timeMs + this.rng.range(TROUBLE_DELAY_MIN_MS, TROUBLE_DELAY_MAX_MS);
+      }
+      return;
+    }
+    if (this.troubleCount >= MAX_TROUBLES) return;
+    if (this.timeMs >= this.nextTroubleAt) {
+      this.raiseNextTrouble();
+      this.nextTroubleAt = this.timeMs + this.rng.range(TROUBLE_DELAY_MIN_MS, TROUBLE_DELAY_MAX_MS);
+    }
   }
 
   get waitingFor(): string | null {
-    const j = this.jobs.find((x) => x.status === 'job_running');
-    if (j) return 'job_animation';
-    if (this.jobs.some((x) => x.status === 'cooldown' || x.status === 'done')) {
-      return 'next_trouble_timer';
-    }
+    if (this.jobs.some((x) => x.status === 'job_running')) return 'job_animation';
+    if (this.troubleCycle && this.troubleCount < MAX_TROUBLES) return 'next_trouble_timer';
     return null;
   }
 
@@ -460,4 +577,14 @@ export class World {
       waitingFor: this.waitingFor,
     };
   }
+}
+
+/** seed 依存の並べ替え（Fisher-Yates）。 */
+function shuffle<T>(items: T[], rng: Rng): T[] {
+  const a = items.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng.next() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }

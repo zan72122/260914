@@ -195,7 +195,7 @@ export class Game {
     this.seedOverride = n >>> 0;
   }
 
-  dump(section: 'materials' | 'jobs' | 'flame'): unknown {
+  dump(section: 'materials' | 'jobs' | 'flame' | 'layout'): unknown {
     switch (section) {
       case 'materials':
         return this.world.materials.map((m) => ({ ...m, x: Math.round(m.x), y: Math.round(m.y) }));
@@ -208,31 +208,60 @@ export class Game {
           rect: this.layout.flame,
           timeMs: this.clock.timeMs,
         };
+      case 'layout':
+        return {
+          orientation: this.layout.orientation,
+          unit: this.layout.unit,
+          touchRadius: this.layout.touchRadius,
+          width: this.layout.width,
+          height: this.layout.height,
+          bench: this.layout.bench,
+          workshop: this.layout.workshop,
+        };
       default:
         return null;
     }
   }
 
-  /** 検証が触る座標（世界の中の場所）。入力は必ず本来の経路（実ポインタ）を通す。 */
+  /** 検証が実ポインタを当てるための世界座標。状態の代入はできない。 */
   points(): Record<string, { x: number; y: number }> {
+    const m = (id: 'copper_scrap' | 'strontium_grains' | 'lithium_powder'): { x: number; y: number } => ({
+      x: this.world.material(id).x,
+      y: this.world.material(id).y,
+    });
+    const l = this.layout;
     return {
-      copper_scrap: { x: this.world.material('copper_scrap').x, y: this.world.material('copper_scrap').y },
-      strontium_grains: { x: this.world.material('strontium_grains').x, y: this.world.material('strontium_grains').y },
-      lithium_powder: { x: this.world.material('lithium_powder').x, y: this.world.material('lithium_powder').y },
-      flame: { x: this.layout.flame.x, y: this.layout.flame.y - this.layout.flame.h * 0.5 },
-      wireGap: { x: this.layout.wireGap.x, y: this.layout.wireGap.y },
-      workLamp: { x: this.layout.workLamp.x, y: this.layout.workLamp.y },
+      copper_scrap: m('copper_scrap'),
+      strontium_grains: m('strontium_grains'),
+      lithium_powder: m('lithium_powder'),
+      // 材料を炎に差し入れる位置（炎の下寄り。ここで持つと炎の芯の色が見える）
+      flame: { x: l.flame.x, y: l.flame.y - l.flame.h * 0.5 },
+      wireGap: { x: l.wireGap.x, y: l.wireGap.y },
+      flareLauncher: { x: l.flareLauncher.x, y: l.flareLauncher.y },
+      batteryFactory: { x: l.batteryFactory.x, y: l.batteryFactory.y },
+      batteryOutlet: { x: l.batteryOutlet.x, y: l.batteryOutlet.y },
+      workLamp: { x: l.workLamp.x, y: l.workLamp.y },
+      remote: { x: l.remote.x, y: l.remote.y },
+      remoteLamp: { x: l.remoteLamp.x, y: l.remoteLamp.y },
+      rescueLight: { x: l.rescueTo.x, y: l.rescueTo.y },
+      ship: { x: l.ship.x, y: l.ship.y },
+      prism: { x: this.world.prismPos.x, y: this.world.prismPos.y },
+      benchFree: { x: l.bench.x + l.bench.w * 0.7, y: l.bench.y + l.bench.h * 0.75 },
     };
   }
 
-  /** 炎領域（画面座標, CSS px）。スクリーンショットの色判定に使う。 */
+  /**
+   * 炎の芯の領域（画面座標, CSS px）。スクリーンショットの色判定に使う。
+   * 材料を持つ手より下の、層が重なって不透明になる根元を見るので、
+   * 材料の地の色が混ざらない。
+   */
   flameRect(): { x: number; y: number; width: number; height: number } {
     const f = this.layout.flame;
     return {
-      x: f.x - f.w * 0.3,
-      y: f.y - f.h * 0.8,
-      width: f.w * 0.6,
-      height: f.h * 0.55,
+      x: f.x - f.w * 0.12,
+      y: f.y - f.h * 0.22,
+      width: f.w * 0.24,
+      height: f.h * 0.17,
     };
   }
 }

@@ -1,6 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const iphone = devices['iPhone 13'];
+// iPad の横画面（同梱の Chromium で、viewport と実タッチだけを合わせる）
+const ipad = {
+  ...devices['iPad (gen 7) landscape'],
+};
 
 export default defineConfig({
   testDir: 'e2e',
@@ -18,14 +22,23 @@ export default defineConfig({
   projects: [
     {
       name: 'iphone',
+      testIgnore: /landscape\.spec\.ts/,
       use: {
         // Chromium 同梱のみ。iPhone の viewport・実タッチをそのまま使う。
         ...iphone,
         browserName: 'chromium',
         channel: undefined,
-        launchOptions: {
-          args: ['--enable-unsafe-swiftshader', '--disable-lcd-text'],
-        },
+        launchOptions: { args: ['--enable-unsafe-swiftshader', '--disable-lcd-text'] },
+      },
+    },
+    {
+      name: 'ipad-landscape',
+      testMatch: /landscape\.spec\.ts/,
+      use: {
+        ...ipad,
+        browserName: 'chromium',
+        channel: undefined,
+        launchOptions: { args: ['--enable-unsafe-swiftshader', '--disable-lcd-text'] },
       },
     },
   ],

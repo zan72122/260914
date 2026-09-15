@@ -1,21 +1,25 @@
 import { Game } from './game/Game';
-import type { ScenarioName } from './scenarios/scenarios';
+import { PRODUCTION_SCENARIO, type ScenarioName } from './scenarios/scenarios';
 
-const params = new URLSearchParams(location.search);
 const container = document.getElementById('app') as HTMLElement;
 container.style.width = '100%';
 container.style.height = '100%';
 
-const scenario = (params.get('scenario') ?? 'copper_called') as ScenarioName;
+function devParams(): { scenario: ScenarioName; captureSpeech: boolean } {
+  if (!import.meta.env.DEV) {
+    return { scenario: PRODUCTION_SCENARIO, captureSpeech: false };
+  }
+  const params = new URLSearchParams(location.search);
+  return {
+    scenario: (params.get('scenario') ?? PRODUCTION_SCENARIO) as ScenarioName,
+    // 検証では実発話せず、発話予定テキストを記録する（?speak=1 で実発話）
+    captureSpeech: !params.has('speak'),
+  };
+}
 
 async function boot(): Promise<Game> {
-  return Game.create({
-    container,
-    // 検証では実発話せず、発話予定テキストを記録する（?speak=1 で実発話）
-    captureSpeech: import.meta.env.DEV && !params.has('speak'),
-    clockMode: 'real',
-    scenario,
-  });
+  const { scenario, captureSpeech } = devParams();
+  return Game.create({ container, captureSpeech, clockMode: 'real', scenario });
 }
 
 /** 開発用入口（src/dev/devMain.ts）だけがこれを使う。本番ビルドには devMain が含まれない。 */

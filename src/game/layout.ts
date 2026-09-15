@@ -37,6 +37,8 @@ export interface Layout {
   orientation: Orientation;
   /** 指で触る物の基準寸法（画面に依らず指に合う大きさ） */
   touchRadius: number;
+  /** 奥の物を描くときの基準寸法。縦横で同じ見え方にするため工房の短辺から決める */
+  unit: number;
   /** 手前: 試し燃やし台 */
   bench: Rect;
   /** 奥: 工房と港 */
@@ -47,7 +49,7 @@ export interface Layout {
   crate: Rect;
   materialSlots: Record<MaterialId, Point>;
   prism: Point;
-  /** 切れた点火配線 */
+  /** 切れた点火配線（銅） */
   wireLeft: Point;
   wireGap: Point;
   wireRight: Point;
@@ -55,13 +57,34 @@ export interface Layout {
   workLamp: Point;
   /** 手を振る作業員 */
   worker: Point;
-  /** 窓の外の港（M0 は位置の確保のみ） */
+  /** 窓の外の港（ストロンチウム） */
   harbor: Rect;
+  /** 海面の高さ（画面座標） */
+  waterlineY: number;
+  /** 沖の小さな船 */
   ship: Point;
+  /** 桟橋の信号炎の発射台 */
   flareLauncher: Point;
-  /** 作業机のリモコンと電池工場の受け口（M0 は位置の確保のみ） */
-  remote: Point;
+  /** 桟橋の人 */
+  pierWorker: Point;
+  /** 救助船の光が入ってくる位置 */
+  rescueFrom: Point;
+  /** 救助船の光が近づいて止まる位置 */
+  rescueTo: Point;
+  /** 作業机（リチウム） */
+  desk: Rect;
+  /** 電池工場の受け口 */
   batteryFactory: Point;
+  /** 電池が出てくる口 */
+  batteryOutlet: Point;
+  /** 点火用リモコン（電池室） */
+  remote: Point;
+  /** リモコンのランプ */
+  remoteLamp: Point;
+  /** 机の人 */
+  deskWorker: Point;
+  /** 点火テストの小さな火 */
+  testFirework: Point;
 }
 
 /**
@@ -74,6 +97,10 @@ function benchPoint(bench: Rect, along: number, across: number): Point {
 
 function at(r: Rect, fx: number, fy: number): Point {
   return { x: r.x + r.w * fx, y: r.y + r.h * fy };
+}
+
+function sub(r: Rect, fx: number, fy: number, fw: number, fh: number): Rect {
+  return { x: r.x + r.w * fx, y: r.y + r.h * fy, w: r.w * fw, h: r.h * fh };
 }
 
 /**
@@ -93,6 +120,7 @@ export function computeLayout(width: number, height: number): Layout {
 
   const benchShort = Math.min(bench.w, bench.h);
   const touchRadius = Math.max(28, Math.min(width, height) * 0.075);
+  const unit = Math.max(10, Math.min(workshop.w, workshop.h) * 0.045);
 
   const burner = benchPoint(bench, 0.52, BENCH_SURFACE);
   // 炎は台の短辺にも、台の高さにも収まる大きさにする（縦横どちらでも画面から出ない）
@@ -103,11 +131,16 @@ export function computeLayout(width: number, height: number): Layout {
   const crateW = benchShort * 0.46;
   const crateH = benchShort * 0.3;
 
+  const harbor = sub(workshop, 0.55, 0.04, 0.44, 0.4);
+  const waterlineY = harbor.y + harbor.h * 0.55;
+  const desk = sub(workshop, 0.56, 0.72, 0.43, 0.24);
+
   return {
     width,
     height,
     orientation,
     touchRadius,
+    unit,
     bench,
     workshop,
     burner,
@@ -119,20 +152,28 @@ export function computeLayout(width: number, height: number): Layout {
       lithium_powder: benchPoint(bench, 0.33, BENCH_SURFACE + 0.02),
     },
     prism: benchPoint(bench, 0.86, BENCH_SURFACE + 0.06),
-    wireLeft: at(workshop, 0.09, 0.54),
-    wireGap: at(workshop, 0.24, 0.51),
-    wireRight: at(workshop, 0.39, 0.48),
-    workLamp: at(workshop, 0.3, 0.22),
-    worker: at(workshop, 0.36, 0.9),
-    harbor: {
-      x: workshop.x + workshop.w * 0.58,
-      y: workshop.y + workshop.h * 0.05,
-      w: workshop.w * 0.4,
-      h: workshop.h * 0.36,
+    wireLeft: at(workshop, 0.05, 0.54),
+    wireGap: at(workshop, 0.2, 0.51),
+    wireRight: at(workshop, 0.35, 0.48),
+    workLamp: at(workshop, 0.26, 0.22),
+    worker: at(workshop, 0.4, 0.9),
+    harbor,
+    waterlineY,
+    ship: { x: harbor.x + harbor.w * 0.72, y: waterlineY },
+    flareLauncher: { x: harbor.x + harbor.w * 0.14, y: harbor.y + harbor.h * 0.88 },
+    pierWorker: { x: harbor.x + harbor.w * 0.32, y: harbor.y + harbor.h * 0.86 },
+    rescueFrom: { x: harbor.x + harbor.w * 1.05, y: waterlineY - harbor.h * 0.04 },
+    rescueTo: {
+      // 窓の中に収まる位置まで近づく
+      x: Math.min(harbor.x + harbor.w * 0.91, harbor.x + harbor.w * 0.72 + unit * 3.2),
+      y: waterlineY - harbor.h * 0.04,
     },
-    ship: at(workshop, 0.82, 0.24),
-    flareLauncher: at(workshop, 0.62, 0.45),
-    remote: at(workshop, 0.72, 0.93),
-    batteryFactory: at(workshop, 0.9, 0.88),
+    desk,
+    batteryFactory: { x: desk.x + desk.w * 0.24, y: desk.y + desk.h * 0.42 },
+    batteryOutlet: { x: desk.x + desk.w * 0.24, y: desk.y + desk.h * 0.72 },
+    remote: { x: desk.x + desk.w * 0.74, y: desk.y + desk.h * 0.72 },
+    remoteLamp: { x: desk.x + desk.w * 0.74 + unit * 0.85, y: desk.y + desk.h * 0.72 - unit * 0.3 },
+    deskWorker: { x: desk.x + desk.w * 0.98, y: desk.y + desk.h * 1.25 },
+    testFirework: { x: desk.x + desk.w * 0.74, y: desk.y - desk.h * 0.35 },
   };
 }
