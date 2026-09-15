@@ -110,7 +110,7 @@ girl.onFootstep = () => A.sfxFootstep();
 // --------------------------------------------------------------- particles
 const fireflies = new Fireflies(scene, 120);
 const leaves = new Leaves(scene, 170);
-const sparkles = new Sparkles(scene, 360);
+const sparkles = new Sparkles(scene, 640);
 const candy = new CandyDrops(scene, 60);
 const bats = new Bats(scene, 28);
 const fireworks = new Fireworks(scene, sparkles);
@@ -134,14 +134,18 @@ function addProxy(parent, radius, tag, extra) {
   return m;
 }
 for (const h of world.houses) {
-  addProxy(h.doorbell, 0.36, 'doorbell', { house: h.index });
+  h.bellProxy = addProxy(h.doorbell, h.doorbell.userData.hitRadius, 'doorbell', { house: h.index });
   if (h.resident) addProxy(h.resident, 0.9, 'resident', { house: h.index }).position.y = 0.9;
 }
-const bucketProxy = addProxy(girl.bucket, 0.4, 'bucket');
-const girlProxy = addProxy(girl.rig, 0.62, 'girl');
+girl.bucket.userData.hitRadius = 1.05;
+const bucketProxy = addProxy(girl.bucket, girl.bucket.userData.hitRadius, 'bucket');
+const girlProxy = addProxy(girl.rig, 0.95, 'girl');
 girlProxy.position.y = 1.1;
 girl.root.userData.pick = 'girl';
 girl.bucket.userData.pick = 'bucket';
+// the chain swells whichever of these is currently the invited target
+ctx.proxies = { bucket: bucketProxy, girl: girlProxy };
+chain.sizeProxies(chain.state);
 
 // ------------------------------------------------------------------ compose
 const composer = new EffectComposer(renderer);
@@ -368,15 +372,32 @@ function simplify(r) {
   return { type: r.type, house: r.house, toy: r.toy ? r.toy.kind : undefined };
 }
 
-function projectPoint(p) {
+const _right = new THREE.Vector3();
+
+/**
+ * Screen position of a world point, plus - when the caller passes the object's
+ * world-space hit radius - how big that target actually is in pixels. That is
+ * the number that says whether a four-year-old can hit it.
+ */
+function projectPoint(p, hitRadius = 0) {
   camera.updateMatrixWorld(true);
   const v = p.clone().project(camera);
   const r = renderer.domElement.getBoundingClientRect();
-  return {
-    x: Math.round((r.left + (v.x * 0.5 + 0.5) * r.width) * 10) / 10,
-    y: Math.round((r.top + (-v.y * 0.5 + 0.5) * r.height) * 10) / 10,
+  const px = (v.x * 0.5 + 0.5) * r.width;
+  const py = (-v.y * 0.5 + 0.5) * r.height;
+  const out = {
+    x: Math.round((r.left + px) * 10) / 10,
+    y: Math.round((r.top + py) * 10) / 10,
     onScreen: v.x >= -1 && v.x <= 1 && v.y >= -1 && v.y <= 1 && v.z < 1
   };
+  if (hitRadius > 0) {
+    _right.setFromMatrixColumn(camera.matrixWorld, 0).setLength(hitRadius);
+    const e = p.clone().add(_right).project(camera);
+    const ex = (e.x * 0.5 + 0.5) * r.width;
+    const ey = (-e.y * 0.5 + 0.5) * r.height;
+    out.radius = Math.round(Math.hypot(ex - px, ey - py) * 10) / 10;
+  }
+  return out;
 }
 
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -418,7 +439,8 @@ const api = {
       target: invited ? {
         kind: (chain.expected() || {}).type || null,
         world: { x: r2(invited.x), y: r2(invited.y), z: r2(invited.z) },
-        screen: projectPoint(invited)
+        hitRadius: r2(chain.invitedHitRadius()),
+        screen: projectPoint(invited, chain.invitedHitRadius())
       } : null,
       girl: {
         x: r2(girl.pos.x), z: r2(girl.pos.z),
@@ -441,6 +463,8 @@ const api = {
         lastRejection: chain.lastRejection
       },
       wait: waiting,
+      attractor: { active: chain.attractor.active, level: r2(chain.attractor.level) },
+      endingPhase: chain.endingPhase,
       restartReady: chain.restartReady,
       paused,
       render: { calls: lastCalls, triangles: lastTris }
@@ -501,7 +525,7 @@ const api = {
   /** the screen position of whatever the world is inviting right now */
   targetScreen() {
     const p = chain.invitedPoint();
-    return p ? projectPoint(p) : null;
+    return p ? projectPoint(p, chain.invitedHitRadius()) : null;
   },
   tapScreen(px, py) {
     const [nx, ny] = screenToNdc(px, py);
