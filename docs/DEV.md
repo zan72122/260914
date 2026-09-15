@@ -173,3 +173,86 @@ M1 が本物の算出値を入れるときもこの一箇所を直せばよい�
   受け口の場所は `World.siteOf`、絵は `WorldView.updateWiring` / `updateFlare` / `updateBattery`。
 - 画面の配置: `src/game/layout.ts` の `computeLayout` だけが座標を決める。
   奥の物の大きさは `layout.unit`（工房の短辺から決まるので縦横で同じ見え方）。
+
+## 8. 音（M4）
+
+音声ファイルは一つも持たない。環境音も物理音も `src/audio/` で Web Audio から合成する。
+
+| 音 | いつ | 作り |
+|---|---|---|
+| `burner` | 起動から鳴り続ける | 雑音 → バンドパス。炎の強さで音量、入っている元素で中心周波数と Q が変わる |
+| `waves` | 起動から鳴り続ける | 雑音 → ローパス。0.09Hz の寄せ波 |
+| `material_enter` | `flame:enter` | 3600→700Hz へ落ちる雑音の一撃（ジュッ） |
+| `sparks` | 銅の仕事が `called` の間 | 240ms ごとに高域の短い弾け（パチッ） |
+| `current` | `deliver:success`(wiring) | 58→240Hz へ駆け上がる唸り＋灯が点くカチッ |
+| `flare_launch` | `deliver:success`(flare) | 噴き上がる雑音 → 上空で開く低い音 |
+| `battery_machine` | `deliver:success`(battery) | 52Hz の機械の唸り＋出てきた電池が当たる音 |
+
+三つの仕事の音は、現象が違うので作りも違う（PLAN §3.4）。
+
+- 反応する出来事は EventLog の kind そのもの（`src/core/EventTap.ts` が World の記録を音へ流す）。
+- 時刻はすべて GameClock 由来。壁時計は使わない。
+- **dev では実再生しない**。鳴らす予定の音の列を記録し、`__fire.dump('audio')` で読む。
+
+```js
+__fire.dump('audio')
+// [{ t: 0, cue: 'burner', action: 'start' },
+//  { t: 0, cue: 'waves', action: 'start' },
+//  { t: 0, cue: 'sparks', action: 'start' },
+//  { t: 112, cue: 'material_enter', action: 'play', data: { element: 'copper' } },
+//  { t: 112, cue: 'burner', action: 'change', data: { element: 'copper' } }, ... ]
+```
+
+`action` は持続音の `start`/`stop`/`change` と、一度きりの `play`。
+
+iOS の AudioContext は利用者の操作の中でしか動かないため、**最初のタッチ**で
+`Speech.unlock()` と `GameAudio.unlock()` を同じ手で呼ぶ（`Game.attachInput` の `pointerdown`）。
+
+### 名前の声
+
+`src/audio/Speech.ts`。
+
+- ja-JP の声を選ぶ（`ja-JP` 優先 → `ja` で始まる声 → 無ければ端末の既定）。
+  声の一覧が遅れて届く端末では `voiceschanged` のあとに選び直す。
+- 呼び声（`reason: 'call'`）は**待ち行列**。前の呼び声が終わってから次が鳴る。
+- 礼（`reason: 'thanks'`）は**即時**。待ち行列を通さず今すぐ鳴らし、鳴っている呼び声を打ち切らない
+  （`speechSynthesis.cancel()` は呼ばない）。
+- 子ども向けに `rate = 0.85` / `pitch = 1.15`。
+- 合成音声が無い端末では無音のまま成立する（名前は追加の情報であり、成立条件にしない）。
+
+検査は `tests/audio.test.ts`（待ち行列・声選び・無音での成立）と
+`e2e/rotate.spec.ts`（通しでの音の列）。
+
+## 9. 回転・リサイズ（M4）
+
+`resize` / `orientationchange` / `visualViewport` の変化を `src/core/viewportWatch.ts` が拾い、
+`Game.handleResize` が `computeLayout` → `World.setLayout` → `WorldView.layout` を呼ぶ。
+**世界は作り直さない**ので、持っている材料も余熱も進行中の仕事も失われない。
+大きさが変わっていないときは何もしない。
+
+iOS は回転の直後にはまだ新しい寸法を返さないので、`orientationchange` のあと
+80 / 250 / 600ms でもう一度見て最後の寸法で落ち着かせる。
+
+| 検査 | 内容 |
+|---|---|
+| `tests/rotate.test.ts` | 回転の前後で `stateView()` が一致。仕事の進行も材料の戻り先も続く |
+| `e2e/rotate.spec.ts` | 実タッチで材料を持ったまま viewport を縦→横にしても `held` が残り、横画面の受け口で届けが成立する |
+
+## 10. PWA と配信（M4）
+
+`vite-plugin-pwa` でマニフェストと Service Worker を作る。`base` は `/260914/`。
+手順とアイコンの作り直しは [DEPLOY.md](DEPLOY.md)。
+
+| 物 | 場所 |
+|---|---|
+| マニフェスト | `vite.config.ts` の `VitePWA({ manifest })` → `dist/manifest.webmanifest` |
+| アイコン | `public/icon.svg`（文字なしの炎）→ `node scripts/make-icons.mjs` で PNG を作り直す |
+| Service Worker | workbox の生成。静的資産を全部プリキャッシュし、オフラインで起動する |
+| iOS 向けの指定 | `index.html`（`apple-mobile-web-app-capable` / `viewport-fit=cover` / `user-scalable=no`、拡大・選択・はね返りを止める CSS と JS） |
+
+検査は `e2e/pwa.spec.ts`。`vite build` → `vite preview` で `/260914/` の下に配り、
+manifest と SW とアイコンが 200 で取れること、画面に押し物が出ないこと、
+オフラインで起動することを見る。
+
+本番の出力に `__fire` が入らないことは従来どおり `tests/prodBundle.test.ts` が
+`dist/` の全ファイルを見て検査する（SW・manifest・アイコンも検査の対象のまま）。
