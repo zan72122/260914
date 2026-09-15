@@ -152,15 +152,39 @@ export function eggGloss(ctx, cx, cy, rx, ry, t = 0, a = 1) {
 }
 
 // 「次に触るもの」の呼吸グロー
-export function attractGlow(ctx, x, y, r, t, color = 'rgba(255,240,180,') {
-  const p = 0.5 + 0.5 * Math.sin(t * 2.6);
+export function attractGlow(ctx, x, y, r, t, color = 'rgba(255,240,180,', boost = 1) {
+  const k = clamp(boost, 0, 2.2);
+  if (k <= 0.01) return;
+  const p = 0.5 + 0.5 * Math.sin(t * (2.6 + (k - 1) * 1.1));
   ctx.save();
-  const g = ctx.createRadialGradient(x, y, r * 0.35, x, y, r * (1.25 + p * 0.22));
-  g.addColorStop(0, color + (0.30 + p * 0.22) + ')');
+  const g = ctx.createRadialGradient(x, y, r * 0.35, x, y, r * (1.25 + p * 0.22) * (1 + (k - 1) * 0.12));
+  g.addColorStop(0, color + clamp((0.30 + p * 0.22) * k, 0, 0.92) + ')');
   g.addColorStop(1, color + '0)');
   ctx.fillStyle = g;
   ctx.beginPath();
-  ctx.arc(x, y, r * 1.5, 0, TAU);
+  ctx.arc(x, y, r * 1.5 * (1 + (k - 1) * 0.12), 0, TAU);
+  ctx.fill();
+  ctx.restore();
+}
+
+// 稜線に沿って光点が端から端へ走る（指の動きの見本。文字は使わない）
+export function runnerLight(ctx, from, to, ctrl, t, r) {
+  const q = (t * 0.55) % 1;
+  const e = q < 0.75 ? q / 0.75 : 1;              // 走ったあと少し休む
+  const m = 1 - e;
+  const x = m * m * from.x + 2 * m * e * ctrl.x + e * e * to.x;
+  const y = m * m * from.y + 2 * m * e * ctrl.y + e * e * to.y;
+  const a = q < 0.75 ? Math.sin(e * Math.PI) * 0.95 : 0;
+  if (a <= 0.02) return;
+  ctx.save();
+  ctx.globalAlpha = a;
+  const g = ctx.createRadialGradient(x, y, r * 0.1, x, y, r);
+  g.addColorStop(0, 'rgba(255,255,240,0.95)');
+  g.addColorStop(0.45, 'rgba(255,248,205,0.45)');
+  g.addColorStop(1, 'rgba(255,248,205,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, TAU);
   ctx.fill();
   ctx.restore();
 }

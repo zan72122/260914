@@ -3,21 +3,28 @@ import { TAU, clamp, lerp } from '../util.js';
 import { drawTable } from './table.js';
 import { drawPlateDish, drawPlateFood, drawLocalStroke } from './plate.js';
 import { drawPan, drawEggLiquid } from './pan.js';
-import { drawOmelet } from './egg.js';
+import { drawOmelet, RIDGE } from './egg.js';
 import { drawBottle, drawSpatula, drawBowl } from './tools.js';
 import { drawButton } from './buttons.js';
-import { attractGlow, sparkle, glossyStroke } from './fx.js';
+import { attractGlow, sparkle, glossyStroke, runnerLight } from './fx.js';
 import { S, omeletScreen } from '../state.js';
 
 const LATE = { [S.CUT]: 1, [S.OPEN]: 1, [S.DRAW]: 1, [S.MENU]: 1 };
 
+// 的外れな操作が続いているほど、触るべき物の光を強める（0.9〜2.0倍）
+const boostOf = (G) => 0.9 + clamp(G.miss, 0, 1.2) * 0.92;
+
 export function render(ctx, G, L) {
   const t = G.time;
+  const boost = boostOf(G);
   ctx.clearRect(0, 0, L.w, L.h);
   drawTable(ctx, L.w, L.h, G.variantId);
 
   // --- 皿 ---
   drawPlateDish(ctx, L.plate, G.variant);
+  if ((G.state === S.KETCHUP || G.state === S.MIX) && G.miss > 0.4) {
+    attractGlow(ctx, L.plate.cx, L.plate.cy, L.plate.r * 0.8, t, 'rgba(255,240,180,', boost);
+  }
   drawPlateFood(ctx, L.plate, G, t);
 
   // --- フライパン（料理が皿へ移ったら静かに消える） ---
@@ -25,7 +32,11 @@ export function render(ctx, G, L) {
     ctx.save();
     ctx.globalAlpha = G.panAlpha;
     if (G.state === S.SLIDE && G.omelet.place === 'pan') {
-      attractGlow(ctx, L.pan.cx, L.pan.cy, L.pan.r * 0.9, t);
+      attractGlow(ctx, L.pan.cx, L.pan.cy, L.pan.r * 0.9, t, 'rgba(255,240,180,', boost);
+      slideHint(ctx, L, G, t);
+    }
+    if (G.state === S.GATHER && G.miss > 0.4) {
+      attractGlow(ctx, L.pan.cx, L.pan.cy, L.pan.r * 0.95, t, 'rgba(255,240,180,', boost);
     }
     drawPan(ctx, L, G, t, (c) => {
       if (G.omelet.place !== 'none') return;   // 卵が塊になったら液体は描かない
@@ -49,7 +60,11 @@ export function render(ctx, G, L) {
       ctx.ellipse(L.plate.cx, L.plate.cy, L.plate.r * 0.97, L.plate.ry * 0.97, 0, 0, TAU);
       ctx.clip();
     }
+    if (G.state === S.CUT && G.omelet.cut === 0) {
+      attractGlow(ctx, o.x, o.y, o.rx * 0.9, t, 'rgba(255,240,180,', boost);
+    }
     drawOmelet(ctx, o, G.variant.egg, t);
+    if (G.state === S.CUT && G.omelet.cut === 0) cutHint(ctx, o, t);
     if (onPlate) ctx.restore();
   }
 
@@ -70,7 +85,7 @@ export function render(ctx, G, L) {
 
   const cooking = !LATE[G.state];
   if (cooking) {
-    if (G.state === S.MIX && !G.mix.done) attractGlow(ctx, G.spatula.x, G.spatula.y, r * 1.1, t);
+    if (G.state === S.MIX && !G.mix.done) attractGlow(ctx, G.spatula.x, G.spatula.y, r * 1.1, t, 'rgba(255,240,180,', boost);
     drawSpatula(ctx, G.spatula.x, G.spatula.y, r, G.spatula.angle);
 
     if (G.state === S.POUR && !G.egg.pouring && !G.egg.poured) attractGlow(ctx, G.bowl.x, G.bowl.y, r * 1.2, t);
@@ -80,16 +95,21 @@ export function render(ctx, G, L) {
 
   {
     if (G.state === S.KETCHUP && !G.ketchup.full && !G.bottle.grab) {
-      attractGlow(ctx, G.bottle.x, G.bottle.y, r * 1.25, t);
+      attractGlow(ctx, G.bottle.x, G.bottle.y, r * 1.25, t, 'rgba(255,240,180,', boost);
     }
-    if (G.bottle.flow > 0.05) drawSquirtStream(ctx, G, L, K);
+    // 流れの絵は「実際にケチャップが増えている」ときだけ（嘘のフィードバックを出さない）
+    if (G.bottle.flow > 0.05 && t - G.ketchup.emit < 0.18 && !G.ketchup.full) {
+      drawSquirtStream(ctx, G, L, K);
+    }
     drawBottle(ctx, G.bottle.x, G.bottle.y, r, G.bottle.angle, K);
   }
 
   // --- 絵だけのボタン ---
   if (G.state === S.DRAW || G.state === S.MENU) {
     for (const b of L.buttons) {
-      drawButton(ctx, b, t, G.pressed === b.id ? 1 : 0, G.state === S.MENU ? 1 : 0.45);
+      // 最初の一筆を描くまでは、光るのは皿だけ（誘いを1か所に集める）
+      const glow = G.state === S.MENU ? 1 : (G.draw.strokes.length ? 0.45 : 0);
+      drawButton(ctx, b, t, G.pressed === b.id ? 1 : 0, glow);
     }
   }
 
@@ -113,6 +133,33 @@ export function render(ctx, G, L) {
     ctx.fill();
     ctx.restore();
   }
+}
+
+// 稜線どおりになぞればよいことを、端から端へ走る光点で伝える
+function cutHint(ctx, o, t) {
+  const from = { x: o.x + o.rx * RIDGE.ax, y: o.y - o.ry * RIDGE.ay };
+  const to = { x: o.x + o.rx * RIDGE.ax, y: o.y + o.ry * RIDGE.ay };
+  const ctrl = { x: o.x + o.rx * RIDGE.cx, y: o.y };
+  runnerLight(ctx, from, to, ctrl, t, Math.max(6, o.rx * 0.18));
+}
+
+// フライパン→皿へ流れる光で「こっちへ倒す」を伝える
+function slideHint(ctx, L, G, t) {
+  const F = L.pan, P = L.plate;
+  const p = (t * 0.6) % 1;
+  ctx.save();
+  for (let i = 0; i < 3; i++) {
+    const q = (p + i / 3) % 1;
+    const x = lerp(F.cx, P.cx, q * 0.75);
+    const y = lerp(F.cy, P.cy, q * 0.75);
+    ctx.globalAlpha = 0.26 * Math.sin(q * Math.PI) * (1 - G.pan.prog);
+    ctx.strokeStyle = 'rgba(255,250,215,0.95)';
+    ctx.lineWidth = Math.max(2, F.r * 0.05);
+    ctx.beginPath();
+    ctx.ellipse(x, y, F.r * 0.30, F.ry * 0.22, 0, 0, TAU);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // 中央へ寄せてほしいことを、光のさざ波で伝える（文字は使わない）

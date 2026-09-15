@@ -3,7 +3,7 @@ import { computeLayout, panShift, PAN_SQUASH } from './layout.js';
 import { attachInput } from './input.js';
 import { createGame, update, pointerDown, pointerMove, pointerUp, onLayout, omeletScreen, resetGame, S } from './state.js';
 import { render } from './render/scene.js';
-import { MOUND, moundScreen } from './render/plate.js';
+import { MOUND, moundScreen, invalidatePlate } from './render/plate.js';
 import { invalidateTable } from './render/table.js';
 
 const canvas = document.getElementById('stage');
@@ -30,6 +30,7 @@ function resize() {
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
   invalidateTable();
+  invalidatePlate();
   // 状態はそのまま、座標系だけ作り直す
   L = computeLayout(w, h);
   onLayout(G, L);
@@ -42,6 +43,10 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('scroll', resize);
 }
 document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+// iOS Safari のピンチズーム（canvas の外で始まったものも含めて止める）
+for (const g of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(g, (e) => e.preventDefault(), { passive: false });
+}
 
 attachInput(canvas, {
   down: (p) => { resize(); pointerDown(G, L, p); },
@@ -95,6 +100,9 @@ const api = {
     return {
       ketchup: G.ketchup.amount / G.ketchup.need,
       strokes: G.ketchup.strokes.length,
+      flowing: G.time - G.ketchup.emit < 0.18 && !G.ketchup.full,   // 実際に加算中か
+      panFloor: G.pan.floor,
+      miss: G.miss,
       cover: G.mix.cover,
       morph: G.mix.morph,
       spread: G.egg.spread,
@@ -129,6 +137,8 @@ const api = {
   // 皿ローカル正規化 → 画面座標（回転テストで使う）
   plateAt(u, v) { return { x: L.plate.cx + u * L.plate.r, y: L.plate.cy + v * L.plate.ry }; },
   reset(v) { resetGame(G, v == null ? G.variantId : v); onLayout(G, L); },
+  // UX テスト用: 「触るべき物の光」がどれだけ強まっているか
+  get miss() { return G.miss; },
   // --- 演出のフレームキャプチャ用 ---
   get timeScale() { return timeScale; },
   set timeScale(v) { timeScale = Math.max(0, Number(v) || 0); },

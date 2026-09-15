@@ -45,7 +45,9 @@ export function attachInput(canvas, h) {
   canvas.addEventListener('lostpointercapture', (e) => { if (st.id === e.pointerId) end(e); });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   canvas.addEventListener('dblclick', (e) => e.preventDefault());
-  canvas.addEventListener('gesturestart', (e) => e.preventDefault());
+  for (const g of ['gesturestart', 'gesturechange', 'gestureend']) {
+    canvas.addEventListener(g, (e) => e.preventDefault(), { passive: false });
+  }
   return st;
 }
 

@@ -204,7 +204,37 @@ function hexA(hex, a) {
 }
 
 // --- 皿本体 ---
+// 皿は variant とレイアウトが変わらない限り不変なので、オフスクリーンへ一度だけ焼く。
+// （毎フレームの createLinearGradient×2 / createRadialGradient×2 / 縁の点28個をまるごと省く）
+let dishCache = null;
+
+export function invalidatePlate() { dishCache = null; }
+
 export function drawPlateDish(ctx, P, variant) {
+  const scale = (() => {
+    const m = ctx.getTransform ? ctx.getTransform() : null;
+    return Math.max(0.5, Math.min(3, m ? Math.hypot(m.a, m.b) : 1));
+  })();
+  const key = `${P.cx}|${P.cy}|${P.r}|${P.ry}|${variant.id}|${scale.toFixed(3)}`;
+  if (!dishCache || dishCache.key !== key) dishCache = bakeDish(P, variant, scale, key);
+  const d = dishCache;
+  ctx.drawImage(d.cv, P.cx - d.ox, P.cy - d.oy, d.w, d.h);
+}
+
+function bakeDish(P, variant, scale, key) {
+  // 落ち影（cx+r*0.03, cy+ry*0.14, r*1.02, ry*1.02）まで含む余白
+  const ox = P.r * 1.10, oy = P.ry * 1.10;
+  const w = ox * 2, h = oy * 2 + P.ry * 0.16;
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(1, Math.round(w * scale));
+  cv.height = Math.max(1, Math.round(h * scale));
+  const c = cv.getContext('2d');
+  c.setTransform(scale, 0, 0, scale, 0, 0);
+  paintDish(c, { cx: ox, cy: oy, r: P.r, ry: P.ry }, variant);
+  return { key, cv, ox, oy, w, h };
+}
+
+function paintDish(ctx, P, variant) {
   const { cx, cy, r, ry } = P;
   ctx.save();
   // 落ち影

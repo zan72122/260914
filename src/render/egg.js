@@ -236,6 +236,9 @@ function drawCutLine(ctx, rx, ry, k, K) {
 }
 
 // 切る場所を教える稜線（呼吸する縦の艶）
+// 稜線の形（判定・アトラクトと共有する）。オムレツローカルの比率。
+export const RIDGE = { ax: -0.02, ay: 0.78, cx: 0.10 };
+
 function drawRidge(ctx, rx, ry, t) {
   const p = 0.5 + 0.5 * Math.sin(t * 3.0);
   ctx.save();
@@ -244,8 +247,8 @@ function drawRidge(ctx, rx, ry, t) {
   ctx.strokeStyle = 'rgba(255,252,225,0.95)';
   ctx.lineWidth = Math.max(3, rx * 0.075);
   ctx.beginPath();
-  ctx.moveTo(-rx * 0.02, -ry * 0.78);
-  ctx.quadraticCurveTo(rx * 0.10, 0, -rx * 0.02, ry * 0.78);
+  ctx.moveTo(rx * RIDGE.ax, -ry * RIDGE.ay);
+  ctx.quadraticCurveTo(rx * RIDGE.cx, 0, rx * RIDGE.ax, ry * RIDGE.ay);
   ctx.stroke();
   ctx.globalAlpha = 0.22 + p * 0.26;
   ctx.strokeStyle = 'rgba(255,255,255,0.9)';

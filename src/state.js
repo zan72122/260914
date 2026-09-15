@@ -1,7 +1,7 @@
 // 状態機械。レイアウトには一切依存しない（座標は正規化 or 毎フレーム layout から取る）。
 import { clamp, lerp, smooth, springWobble, landWobble, TAU } from './util.js';
 import { toScreen, toLocal, panShift, PAN_SQUASH } from './layout.js';
-import { bakeRice, bakeMixedRice, makeLayer, paintMix, MOUND, moundRadius } from './render/plate.js';
+import { bakeRice, bakeMixedRice, makeLayer, paintMix, MOUND, moundRadius, invalidatePlate } from './render/plate.js';
 import { sfx, unlock } from './audio.js';
 
 export const S = {
@@ -68,19 +68,20 @@ export function createGame() {
     variantId: 0,
     variant: VARIANTS[0],
     assets: { rice: null, mixed: null, mixLayer: makeLayer() },
-    ketchup: { strokes: [], cur: null, amount: 0, need: 2.6, full: false },
+    ketchup: { strokes: [], cur: null, amount: 0, need: 2.6, full: false, emit: -9 },
     bottle: { x: 0, y: 0, tx: 0, ty: 0, angle: 0, grab: false, flow: 0, homed: false },
     spatula: { x: 0, y: 0, tx: 0, ty: 0, angle: 0, grab: false, homed: false },
     bowl: { x: 0, y: 0, tx: 0, ty: 0, angle: 0, grab: false, homed: false },
     mix: { cover: 0, grid: new Uint8Array(GRID * GRID), hit: 0, total: 0, morph: 0, done: false },
-    egg: { spread: 0, gather: 0, seed: 1.7, pouring: false, poured: false },
-    omelet: { place: 'none', u: 0, v: OM_V, wobT: 99, wobA: 0, land: false, cut: 0, open: 0, tororo: 0, ridge: false, fly: 0 },
-    pan: { tilt: 0, prog: 0 },
+    egg: { spread: 0, gather: 0, seed: 1.7, pouring: false, poured: false, touchT: 0 },
+    omelet: { place: 'none', u: 0, v: OM_V, wobT: 99, wobA: 0, land: false, cut: 0, open: 0, tororo: 0, ridge: false, fly: 0, taps: 0, tapT: -9 },
+    pan: { tilt: 0, prog: 0, floor: 0 },
     panAlpha: 1,
     draw: { strokes: [], cur: null },
     cutTrail: [],
     sparkles: [],
     hold: { active: false, t: 0, x: 0, y: 0 },
+    miss: 0,          // 的外れな操作が続いている度合い（0..1.2）。光を強めるのに使う
     next: null,
     pressed: null,
   };
@@ -106,6 +107,7 @@ export function applyVariant(G, id) {
   G.variant = VARIANTS[G.variantId];
   G.assets.rice = bakeRice(G.variant);
   G.assets.mixed = bakeMixedRice(G.variant);
+  invalidatePlate();
 }
 
 export function resetGame(G, variantId = G.variantId) {
@@ -116,6 +118,7 @@ export function resetGame(G, variantId = G.variantId) {
   G.ketchup.cur = null;
   G.ketchup.amount = 0;
   G.ketchup.full = false;
+  G.ketchup.emit = -9;
   G.mix.grid.fill(0);
   G.mix.hit = 0;
   G.mix.cover = 0;
@@ -128,9 +131,11 @@ export function resetGame(G, variantId = G.variantId) {
   G.egg.pouring = false;
   G.egg.poured = false;
   G.egg.seed = 1 + Math.random() * 9;
-  Object.assign(G.omelet, { place: 'none', u: 0, v: OM_V, wobT: 99, wobA: 0, land: false, cut: 0, open: 0, tororo: 0, ridge: false, fly: 0 });
+  G.egg.touchT = 0;
+  Object.assign(G.omelet, { place: 'none', u: 0, v: OM_V, wobT: 99, wobA: 0, land: false, cut: 0, open: 0, tororo: 0, ridge: false, fly: 0, taps: 0, tapT: -9 });
   G.pan.tilt = 0;
   G.pan.prog = 0;
+  G.pan.floor = 0;
   G.panAlpha = 1;
   G.draw.strokes.length = 0;
   G.draw.cur = null;
@@ -139,6 +144,7 @@ export function resetGame(G, variantId = G.variantId) {
   G.bottle.grab = G.spatula.grab = G.bowl.grab = false;
   G.bottle.angle = G.spatula.angle = G.bowl.angle = 0;
   G.hold.active = false;
+  G.miss = 0;
   G.pressed = null;
   G.next = null;
 }
@@ -165,6 +171,7 @@ export function update(G, L, dt) {
   G.time += dt;
   G.st += dt;
   if (G.hold.active) G.hold.t += dt;
+  G.miss = Math.max(0, G.miss - dt * 0.45);   // 的外れは時間で忘れる
 
   // 道具のやわらかい追従／戻り
   const bh = bottleHome(G, L);
@@ -228,14 +235,41 @@ function updKetchup(G, L, dt) {
   b.angle = lerp(b.angle, want, 1 - Math.exp(-10 * dt));
   b.flow = lerp(b.flow, b.grab && near > 0.5 ? 1 : 0, 1 - Math.exp(-12 * dt));
 
+  // 静止長押しでも時間で出る（約3秒で満タン）。動かしている間の squirt() と合算される。
+  const k = G.ketchup;
+  if (!k.full && b.grab && G.hold.active && near > 0.5) {
+    k.amount += dt * (k.need / 3.0);
+    k.emit = G.time;                       // 実際に増えているので「流れ」を描いてよい
+    if (Math.floor(G.time * 6) !== Math.floor((G.time - dt) * 6)) {
+      squirt(G, L, G.hold.x, G.hold.y + L.toolR * 1.1, true);   // 皿の上に点を残す
+    }
+    if (k.amount >= k.need) ketchupFull(G, L, G.hold.x, G.hold.y);
+  } else if (!k.full && G.hold.active && G.hold.t > 0.6 && near <= 0.5) {
+    G.miss = Math.min(1.2, G.miss + dt * 0.8);   // 皿から遠いところを触り続けている
+  }
+
   if (G.ketchup.full && !G.next) later(G, 0.45, () => setState(G, S.MIX));
 }
 
-function squirt(G, L, x, y) {
+function ketchupFull(G, L, x, y) {
+  const k = G.ketchup;
+  if (k.full) return;
+  k.full = true;
+  G.bottle.grab = false;
+  k.cur = null;
+  burst(G, x, y, 10, L.unit * 0.07, L.unit * 0.020);
+  sfx.ding();
+}
+
+function squirt(G, L, x, y, quiet = false) {
   const P = L.plate;
   let p = toLocal(P, x, y);
   const m = moundRadius(p.u, p.v);
-  if (m > 1.45) { G.ketchup.cur = null; return; }
+  if (m > 1.45) {
+    G.ketchup.cur = null;
+    G.miss = Math.min(1.2, G.miss + 0.07);   // 皿の外を狙い続けている
+    return;
+  }
   if (m > 0.92) { const k = 0.92 / m; p = { u: p.u * k, v: MOUND.cv + (p.v - MOUND.cv) * k }; }
   const k = G.ketchup;
   if (!k.cur) { k.cur = { pts: [], w: 0.085 }; k.strokes.push(k.cur); }
@@ -243,18 +277,13 @@ function squirt(G, L, x, y) {
   const step = last ? Math.hypot(p.u - last.u, p.v - last.v) : 0;
   if (!last || step > 0.035) {
     k.cur.pts.push({ u: p.u, v: p.v });
-    k.amount += last ? step * 1.15 : 0.10;
+    if (!quiet) { k.amount += last ? step * 1.15 : 0.10; k.emit = G.time; }
     sfx.squirt();
-  } else {
-    k.amount += 0.008;   // 長押しでも溜まる
+  } else if (!quiet) {
+    k.amount += 0.008;
+    k.emit = G.time;
   }
-  if (k.amount >= k.need && !k.full) {
-    k.full = true;
-    G.bottle.grab = false;
-    k.cur = null;
-    burst(G, x, y, 10, L.unit * 0.07, L.unit * 0.020);
-    sfx.ding();
-  }
+  if (k.amount >= k.need) ketchupFull(G, L, x, y);
 }
 
 // ---------- 2. 混ぜる ----------
@@ -272,6 +301,10 @@ function updMix(G, L, dt) {
     spring(s, s.tx, s.ty, dt, 24);
     s.angle = lerp(s.angle, 0.35 + Math.sin(G.time * 12) * 0.14, 1 - Math.exp(-10 * dt));
   }
+  if (!G.mix.done && G.hold.active && G.hold.t > 0.6) {
+    const q = toLocal(P, G.hold.x, G.hold.y);
+    if (Math.hypot(q.u, q.v) > 1.25) G.miss = Math.min(1.2, G.miss + dt * 0.8);
+  }
   if (G.mix.done) {
     G.mix.morph = clamp(G.mix.morph + dt / 0.75, 0, 1);
     if (G.mix.morph >= 1 && !G.next) later(G, 0.4, () => setState(G, S.POUR));
@@ -282,7 +315,7 @@ function rub(G, L, x, y) {
   if (G.mix.done) return;
   const P = L.plate;
   const p = toLocal(P, x, y);
-  if (Math.hypot(p.u, p.v) > 1.25) return;
+  if (Math.hypot(p.u, p.v) > 1.25) { G.miss = Math.min(1.2, G.miss + 0.07); return; }
   // ご飯の山からはみ出しても、山の上へやわらかく吸着する
   const m = moundRadius(p.u, p.v);
   const k = m > 0.94 ? 0.94 / m : 1;
@@ -344,7 +377,15 @@ function tiltToward(b, F) {
 }
 
 // ---------- 4. 寄せる ----------
-function updGather(G, L) {
+function updGather(G, L, dt) {
+  // 保険：フライパンの中を合計6秒さわっていたら自動で寄る（雑な操作でも必ず進む）
+  if (G.egg.gather < 1) {
+    const F = L.pan;
+    if (G.hold.active && Math.hypot(G.hold.x - F.cx, G.hold.y - F.cy) < F.r * 1.45) {
+      G.egg.touchT += dt;
+      if (G.egg.touchT > 6) G.egg.gather = clamp(G.egg.gather + dt * 0.7, 0, 1);
+    }
+  }
   if (G.egg.gather >= 1 && G.omelet.place === 'none') {
     G.omelet.place = 'pan';
     G.omelet.wobT = 0;
@@ -360,25 +401,33 @@ function gatherSwipe(G, L, p) {
   if (G.egg.gather >= 1) return;
   const F = L.pan;
   const px = p.x - p.dx, py = p.y - p.dy;
-  if (Math.hypot(px - F.cx, py - F.cy) > F.r * 1.45) return;
+  if (Math.hypot(px - F.cx, py - F.cy) > F.r * 1.45) { G.miss = Math.min(1.2, G.miss + 0.05); return; }
   let cx = F.cx - px, cy = F.cy - py;
   const cl = Math.hypot(cx, cy) || 1;
   cx /= cl; cy /= cl;
   const inward = p.dx * cx + p.dy * cy;
-  if (inward <= 0) return;
+  // 外向きでも「フライパンの中で動かした」ぶんだけ少し進む（一方向のスワイプでも詰まらない）
+  const gain = inward > 0 ? inward : Math.abs(inward) * 0.25;
+  if (gain <= 0) return;
   const before = G.egg.gather;
-  G.egg.gather = clamp(G.egg.gather + inward / (F.r * 1.8), 0, 1);
+  G.egg.gather = clamp(G.egg.gather + gain / (F.r * 1.8), 0, 1);
   if (Math.floor(before * 3) !== Math.floor(G.egg.gather * 3)) sfx.gather();
 }
 
 // ---------- 5. スライド ----------
 function updSlide(G, L, dt) {
   if (G.omelet.place === 'pan') {
-    if (!G.hold.active && G.pan.prog < 1) G.pan.prog = Math.max(0, G.pan.prog - dt * 1.1);
+    // 到達した最大値の8割は残す（断続的なドラッグでもふりだしに戻らない）
+    G.pan.floor = Math.max(G.pan.floor, G.pan.prog * 0.8);
+    if (!G.hold.active && G.pan.prog < 1) G.pan.prog = Math.max(G.pan.floor, G.pan.prog - dt * 0.35);
     if (G.hold.active && G.pan.prog < 1) {
-      const F = L.pan;
-      if (Math.hypot(G.hold.x - F.cx, G.hold.y - F.cy) < F.r * 1.6 && G.hold.t > 0.35) {
-        G.pan.prog = clamp(G.pan.prog + dt * 0.9, 0, 1);   // 長押しでも傾く
+      const F = L.pan, P = L.plate;
+      const nearPan = Math.hypot(G.hold.x - F.cx, G.hold.y - F.cy) < F.r * 1.6;
+      const nearPlate = Math.hypot(G.hold.x - P.cx, G.hold.y - P.cy) < P.r * 1.2;
+      if ((nearPan || nearPlate) && G.hold.t > 0.35) {
+        G.pan.prog = clamp(G.pan.prog + dt * 0.9, 0, 1);   // 長押しでも、行き先の皿を触っても傾く
+      } else if (!nearPan && !nearPlate && G.hold.t > 0.6) {
+        G.miss = Math.min(1.2, G.miss + dt * 0.8);
       }
     }
     // 実際の傾きは指より少し遅れて追いつく（倒れていく過程が見える）
@@ -411,6 +460,7 @@ function updSlide(G, L, dt) {
 
 // ---------- 6. 切る ----------
 function updCut(G, L, dt) {
+  if (G.omelet.taps > 0 && G.time - G.omelet.tapT > 1.5) G.omelet.taps = 0;
   if (G.omelet.cut > 0) {
     G.omelet.ridge = false;
     G.omelet.cut = clamp(G.omelet.cut + dt / 0.14, 0, 1);
@@ -434,7 +484,9 @@ function tryCut(G, L) {
     const dx = (tr[i].x - o.x) / (o.rx * 1.5), dy = (tr[i].y - o.y) / (o.ry * 1.9);
     if (dx * dx + dy * dy <= 1) near = true;
   }
-  if (near && far >= o.rx * 1.1) {
+  // 見えている稜線（縦 ±0.78ry）をそのままなぞれば必ず切れる長さにする
+  const need = Math.min(o.rx * 1.1, o.ry * 1.45);
+  if (near && far >= need) {
     G.omelet.cut = 0.01;   // 稜線へ吸着して切れる（精度不要）
     G.omelet.ridge = false;
     G.cutTrail.length = 0;
@@ -489,7 +541,7 @@ export function pointerDown(G, L, p) {
   G.hold.y = p.y;
 
   if (G.state === S.DRAW || G.state === S.MENU) {
-    const b = hitButton(L, p.x, p.y);
+    const b = hitButton(L, p.x, p.y, buttonSlack(G));
     if (b) { G.pressed = b.id; return; }
     G.draw.cur = null;
     drawPoint(G, L, p.x, p.y);
@@ -501,6 +553,7 @@ export function pointerDown(G, L, p) {
       G.bottle.grab = true;
       G.bottle.tx = p.x;
       G.bottle.ty = p.y - L.toolR * 0.6;
+      squirt(G, L, p.x, p.y + L.toolR * 1.1);   // 押した瞬間に一滴出る
       break;
     }
     case S.MIX: {
@@ -524,6 +577,25 @@ export function pointerDown(G, L, p) {
     case S.CUT: {
       G.cutTrail.length = 0;
       G.cutTrail.push({ x: p.x, y: p.y });
+      if (G.omelet.cut <= 0) {
+        const o = omeletScreen(G, L);
+        const dx = (p.x - o.x) / (o.rx * 1.5), dy = (p.y - o.y) / (o.ry * 1.9);
+        if (dx * dx + dy * dy <= 1) {
+          // タップ連打の救済（1.5秒以内に3回でパカッ）
+          if (G.time - G.omelet.tapT > 1.5) G.omelet.taps = 0;
+          G.omelet.taps++;
+          G.omelet.tapT = G.time;
+          if (G.omelet.taps >= 3) {
+            G.omelet.cut = 0.01;
+            G.omelet.ridge = false;
+            G.omelet.taps = 0;
+            G.cutTrail.length = 0;
+            sfx.cut();
+          }
+        } else {
+          G.miss = Math.min(1.2, G.miss + 0.25);
+        }
+      }
       break;
     }
     default: break;
@@ -534,7 +606,16 @@ export function pointerMove(G, L, p) {
   G.hold.x = p.x;
   G.hold.y = p.y;
   if (G.state === S.DRAW || G.state === S.MENU) {
-    if (G.pressed) return;
+    if (G.pressed) {
+      const b = L.buttons.find((q) => q.id === G.pressed);
+      // ボタンから指が離れたら押下をキャンセルして、そのまま描画へ引き継ぐ
+      if (!b || Math.hypot(p.x - b.x, p.y - b.y) > b.r * 1.6) {
+        G.pressed = null;
+        G.draw.cur = null;
+        drawPoint(G, L, p.x, p.y);
+      }
+      return;
+    }
     drawPoint(G, L, p.x, p.y);
     return;
   }
@@ -583,6 +664,11 @@ export function pointerMove(G, L, p) {
     }
     case S.CUT: {
       if (G.omelet.cut > 0) break;
+      {
+        const o = omeletScreen(G, L);
+        const dx = (p.x - o.x) / (o.rx * 2.2), dy = (p.y - o.y) / (o.ry * 2.6);
+        if (dx * dx + dy * dy > 1) G.miss = Math.min(1.2, G.miss + 0.04);
+      }
       const tr = G.cutTrail;
       const last = tr[tr.length - 1];
       if (!last || Math.hypot(p.x - last.x, p.y - last.y) > 4) tr.push({ x: p.x, y: p.y });
@@ -600,7 +686,10 @@ export function pointerUp(G, L) {
     if (G.pressed) {
       const id = G.pressed;
       G.pressed = null;
-      pressButton(G, L, id);
+      // 「押して、同じボタンの上で離す」ときだけ発火する
+      const b = hitButton(L, G.hold.x, G.hold.y, buttonSlack(G));
+      if (b && b.id === id) { pressButton(G, L, id); return; }
+      G.draw.cur = null;
       return;
     }
     G.draw.cur = null;
@@ -622,9 +711,14 @@ export function pressButton(G, L, id) {
   onLayout(G, L);
 }
 
-export function hitButton(L, x, y) {
+// 絵を全消しするボタンは、まだ描いている最中（DRAW）だけ判定を絞る
+export function buttonSlack(G) {
+  return (G.state === S.DRAW && G.draw.strokes.length === 0) ? 1.05 : 1.35;
+}
+
+export function hitButton(L, x, y, k = 1.35) {
   for (const b of L.buttons) {
-    if (Math.hypot(x - b.x, y - b.y) <= b.r * 1.35) return b;
+    if (Math.hypot(x - b.x, y - b.y) <= b.r * k) return b;
   }
   return null;
 }
