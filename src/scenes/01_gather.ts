@@ -27,7 +27,7 @@ import { SAFE } from '../core/viewport';
 import { KID_WORLD_H } from '../art/kidSheet';
 import { SCENE_TINTS } from '../art/palette';
 import { BGM_GATHER } from '../core/audio';
-import { CLUSTER_RADIUS, allExited, allGathered, gatherProgress } from './gatherLogic';
+import { CLUSTER_RADIUS, allExited, allGathered, gatherProgress, stragglerPull } from './gatherLogic';
 
 const KID_COUNT = 44;
 /** Seconds of clapping before the crowd sets off. */
@@ -161,6 +161,7 @@ export class GatherScene extends CrowdScene {
     if (this.phase === 'scatter') {
       wander(this.crowd, this.time, dt, 22);
       this.magnetiseToWaver();
+      this.pullStragglers(dt);
     }
 
     this.crowd.update(dt);
@@ -195,6 +196,38 @@ export class GatherScene extends CrowdScene {
     this.extraScale[this.waverIndex] = 1 + this.waveBig * 0.28;
 
     this.syncSprites(dt);
+  }
+
+  /**
+   * Once a group has formed, it pulls the rest of the playground towards it.
+   *
+   * Gathering forty-four children one sweep at a time took a competent player
+   * about half a minute, which is twice as long as any other scene. The fix is
+   * not to make the finger stronger but to make the *group* mean something:
+   * past PULL_THRESHOLD the kids still outside the circle start drifting
+   * towards it by themselves, harder the fuller it gets.
+   *
+   * Below the threshold this does nothing whatsoever, so a scene nobody
+   * touches still cannot finish itself — the 30-second rescue remains the only
+   * way the crowd gathers without a finger.
+   */
+  private pullStragglers(dt: number): void {
+    const w = this.waver;
+    const force = stragglerPull(gatherProgress(this.crowd.kids, w.x, w.y, CLUSTER_RADIUS));
+    if (force <= 0) return;
+    const kids = this.crowd.kids;
+    const r2 = CLUSTER_RADIUS * CLUSTER_RADIUS;
+    for (let i = 0; i < kids.length; i++) {
+      if (i === this.waverIndex) continue;
+      const k = kids[i];
+      const dx = w.x - k.x;
+      const dy = w.y - k.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 <= r2 || d2 < 1e-6) continue;
+      const d = Math.sqrt(d2);
+      k.vx += (dx / d) * force * dt;
+      k.vy += (dy / d) * force * dt;
+    }
   }
 
   /**

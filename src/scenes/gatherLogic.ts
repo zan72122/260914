@@ -61,3 +61,35 @@ export function allExited(kids: readonly Point[], exitX: number): boolean {
   for (let i = 0; i < kids.length; i++) if (kids[i].x < exitX) return false;
   return true;
 }
+
+/**
+ * Once this much of the crowd has arrived, the group starts pulling.
+ *
+ * A half-formed group of children is a real force in a playground: the last
+ * few come over because everyone else is already there. Below this fraction
+ * nothing happens at all, which matters for two reasons — the scene must
+ * never finish itself (the 30-second rescue is the only no-input completion),
+ * and the player has to feel that the gathering is theirs.
+ */
+export const PULL_THRESHOLD = 0.6;
+
+/**
+ * The strongest the pull ever gets, in world units per second squared.
+ *
+ * With the crowd's damping of 2.4/s this settles at about 140 units/s, well
+ * under the 190 a kid walks at when they are actually going somewhere: a
+ * straggler drifts towards the party, they are never dragged to it.
+ */
+export const PULL_FORCE = 340;
+
+/**
+ * How hard a group that is `fraction` formed tugs at whoever is still outside
+ * it. Zero until the threshold, then eased in, so nothing about it is a switch
+ * being thrown: the scene simply gets easier the better it is going.
+ */
+export function stragglerPull(fraction: number): number {
+  if (fraction <= PULL_THRESHOLD) return 0;
+  const t = Math.min(1, (fraction - PULL_THRESHOLD) / (1 - PULL_THRESHOLD));
+  // Smoothstep: the pull arrives gradually rather than snapping on.
+  return PULL_FORCE * t * t * (3 - 2 * t);
+}
