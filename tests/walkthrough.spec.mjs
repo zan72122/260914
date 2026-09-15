@@ -195,16 +195,58 @@ async function runViewport(browser, vp, base) {
 
   // --- ending ---
   check('reached the ending', await state(page) === 'ENDING');
-  await page.waitForTimeout(3000);
+  const phase = () => page.evaluate(() => window.__game.snapshot().endingPhase);
+  const waitPhase = (p) => page.waitForFunction(
+    (p) => window.__game.snapshot().endingPhase === p, p, { timeout: 60000, polling: 30 });
+
+  // she skips home past the lit houses - and it has to be short
+  await waitPhase('moon');
   await shot(page, dir, '90-ending');
   const allLit = await page.evaluate(() =>
     window.__game.houses.every(h => h.litTarget > 0.5));
   check('every house lit at the ending', allLit);
 
-  // tap for fireworks
-  await page.evaluate(() => window.__game.tapNdc(0.1, 0.75));
-  await page.waitForTimeout(2200);
+  // fireworks over her own porch: tap for one more, then look at the frame
+  await waitPhase('fireworks');
+  // Take this one on production-sized time steps. The walkthrough runs at 4x on
+  // a software rasteriser, so one rendered frame is a quarter second of game
+  // time and a firework is sampled about four times; the same update loop at
+  // 1/60 shows what a phone shows. Nothing is skipped, only stepped finer.
+  await page.evaluate(() => window.__game.pause());
+  await page.evaluate(() => window.__game.tapNdc(0.05, 0.45));
+  await page.evaluate(() => window.__game.step(1 / 60, 110));
   await shot(page, dir, '91-fireworks');
+  // count only sparks that are actually up in the sky and inside the frame,
+  // so a stray ground sparkle cannot pass this off as a firework
+  const fwOnScreen = await page.evaluate(() => {
+    const g = window.__game, sp = g.chain.ctx.sparkles;
+    let n = 0;
+    for (const it of sp.items) {
+      if (it.life <= 0 || it.p.y < 6) continue;
+      const s = g.project(it.p.x, it.p.y, it.p.z);
+      if (s.onScreen) n++;
+    }
+    return n;
+  });
+  check('fireworks are in the frame of the 91 shot', fwOnScreen >= 20, `(${fwOnScreen} sparks)`);
+  const girlFramed = await page.evaluate(() => {
+    const g = window.__game;
+    return g.project(g.girl.pos.x, g.girl.pos.y + 1, g.girl.pos.z).onScreen;
+  });
+  check('she is in the frame of the 91 shot too', girlFramed);
+  check('she is sitting at her own house', await phase() === 'fireworks');
+  await page.evaluate(() => window.__game.resume());
+
+  // the ending sub-phases are observable in the log, with the walk home timed
+  const beats = await page.evaluate(() =>
+    window.__game.log(160).filter(e => e.type === 'state' && e.ending));
+  const names = beats.map(b => b.to);
+  check('the ending logs its beats',
+    ['walkHome', 'moon', 'sit', 'fireworks'].every(n => names.includes(n)),
+    JSON.stringify(names));
+  const moonBeat = beats.find(b => b.to === 'moon');
+  check('the walk home takes at most 6 s',
+    !!moonBeat && moonBeat.at <= 6.0, moonBeat ? `${moonBeat.at}s` : 'no moon beat');
 
   // wait until restart is offered, then restart with a tap
   await page.waitForFunction(() => window.__game.restartReady, null, { timeout: 40000 });

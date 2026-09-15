@@ -5,10 +5,10 @@ Everything below runs headless with SwiftShader; no GPU required.
 ```bash
 npm install
 npm run build:test          # dist-test/  (testability layer ON)
-npm test                    # the default scenario set  (~45 s)
-npm test -- bell:2          # one scenario only         (~16 s)
+npm test                    # the default scenario set  (~75 s)
+npm test -- bell:2          # one scenario only         (~50 s)
 npm test -- bell:2 reveal:3 --shots
-npm run test:full           # the whole 5-house walkthrough in 3 viewports (~9 min)
+npm run test:full           # the whole 5-house walkthrough in 3 viewports (~8 min)
 npm run build               # dist/  (testability layer OFF - this is what ships)
 ```
 
@@ -61,17 +61,30 @@ window.__game.targetScreen()   // screen position of what the world invites now
 ```
 
 `snapshot()` returns: `ready`, `stage`, `houseIndex`, `seed`, `frame`, `time`,
-`target` (kind + world + screen position of the invited object), `girl`
-(position, heading, anim, walking, speed, costume), `bucket` (fill/capacity),
-`house` (lit / doorOpen / bellGlow / residentOut for the current house),
-`litHouses`, `input.accepted`, `input.lastRejection` (`{reason, detail, frame}`),
-`wait` (e.g. `"animating:doorOpen"`, `"walking"`, `"timers:3"`), `restartReady`,
-`paused`, `render.calls`.
+`target` (kind + world position + `hitRadius` in world units + screen position
+of the invited object), `girl` (position, heading, anim, walking, speed,
+costume), `bucket` (fill/capacity), `house` (lit / doorOpen / bellGlow /
+residentOut for the current house), `litHouses`, `input.accepted`,
+`input.lastRejection` (`{reason, detail, frame}`), `wait` (e.g.
+`"animating:doorOpen"`, `"walking"`, `"timers:3"`), `attractor`
+(`{active, level}`), `endingPhase`, `restartReady`, `paused`, `render.calls`.
+
+`targetScreen()` (and `snapshot().target.screen`) carry a **`radius`**: the
+invited object's hit radius projected into pixels at the current framing. That
+is the number that says whether a four-year-old can hit it; the checks require
+at least 40 px for the doorbell and the bucket in every shipped orientation.
 
 `log()` entries are `{i, frame, type, state, ...}` with `type` one of
 `input` (a tap and what it hit), `state` (transition), `reject` (an input the
-chain deliberately ignored, with the reason), `scenario`, `ready`. Nothing is
-written per frame.
+chain deliberately ignored, with the reason), `attract` (the idle attractor
+fired, with the target stage), `scenario`, `ready`. Nothing is written per
+frame.
+
+The ending is one `stage` (`ENDING`) with several beats, each logged as a
+`state` entry carrying `ending: true`, the beat name in `to` and the seconds
+since the ending began in `at`: `walkHome`, `moon`, `sit`, `fireworks`,
+`restartReady`. `snapshot().endingPhase` reports the current one, so a check can
+wait for a beat instead of guessing at a timeout.
 
 ## Deterministic time
 
@@ -81,6 +94,12 @@ window.__game.step(1/60, 120)                    // 120 fixed steps
 window.__game.stepUntil("(s) => s.stage === 'BELL'", 1200)
 window.__game.resume()
 ```
+
+The full walkthrough runs at `?speed=4` to fit its budget on a software
+rasteriser, where one rendered frame is about a quarter second of game time.
+For the one shot where that sampling matters — the fireworks — it pauses and
+takes 110 steps of `1/60` first, so the frame shows what a phone shows. Same
+update loop, finer steps; nothing is skipped.
 
 `step()` drives exactly the same `frame(dt)` the real loop uses — chain,
 character, world, particles, camera and audio ticks all run for every step.
@@ -123,7 +142,8 @@ an assertion pass.
 * `tests/harness.mjs` — static server for `dist-test/`, SwiftShader chromium,
   `openGame` / `snapshot` / `step` / `stepUntil` / `tapInvited` helpers.
 * `tests/scenario.spec.mjs` — the cheap per-stage checks (default `npm test`),
-  plus reload-isolation and determinism checks.
+  plus reload-isolation, invited-target-size (four viewports: 390x844, 844x390,
+  820x1180, 1180x820), idle-attractor and determinism checks.
 * `tests/walkthrough.spec.mjs` — the full five-house playthrough, ending and
   restart at 390×844, 844×390 and 820×1180, writing `shots/<viewport>/*.png`.
 

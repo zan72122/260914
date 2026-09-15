@@ -246,6 +246,67 @@ try {
     await page.close();
   }
 
+  // ---- the invited target is big enough for a four-year-old --------------
+  // A tap target that projects smaller than a fingertip is not an invitation.
+  // 40px is the floor; the checks below measure the real projected hit radius
+  // reported by targetScreen(), in every orientation we ship.
+  console.log('\n  -- invited target size');
+  {
+    const MIN_RADIUS = 40;
+    const VIEWPORTS = [
+      { name: '390x844', width: 390, height: 844 },
+      { name: '844x390', width: 844, height: 390 },
+      { name: '820x1180', width: 820, height: 1180 },
+      { name: '1180x820', width: 1180, height: 820 }
+    ];
+    for (const scen of ['bell:2', 'bucket:3']) {
+      for (const vp of VIEWPORTS) {
+        const page = await openGame(browser, {
+          scenario: scen, seed: 1, viewport: { width: vp.width, height: vp.height }
+        });
+        // let the framing and the pose settle, the way they do in play
+        await step(page, 120);
+        const t = await page.evaluate(() => window.__game.targetScreen());
+        const s = await snapshot(page);
+        check(`${scen} @${vp.name} target on screen`, !!t && t.onScreen, JSON.stringify(t));
+        check(`${scen} @${vp.name} hit radius >= ${MIN_RADIUS}px`,
+          !!t && t.radius >= MIN_RADIUS, `${t && t.radius}px`);
+        check(`${scen} @${vp.name} world hit radius >= 1.0`,
+          s.target.hitRadius >= 1.0, String(s.target.hitRadius));
+        // and the real input path still lands on it at that position
+        const hit = await page.evaluate(([x, y]) => window.__game.tapScreen(x, y), [t.x, t.y]);
+        check(`${scen} @${vp.name} a tap there hits it`,
+          hit && hit.type === (scen.startsWith('bell') ? 'doorbell' : 'bucket'),
+          JSON.stringify(hit));
+        await page.close();
+      }
+    }
+  }
+
+  // ---- the attractor is observable, not just decorative ------------------
+  console.log('\n  -- idle attractor');
+  {
+    const page = await openGame(browser, { scenario: 'find:1', seed: 1 });
+    const before = await snapshot(page);
+    check('attractor starts quiet', before.attractor.active === false,
+      JSON.stringify(before.attractor));
+    await step(page, 9 * 60);              // nine seconds of doing nothing
+    const after = await snapshot(page);
+    check('attractor turns itself on after 8s idle', after.attractor.active === true,
+      JSON.stringify(after.attractor));
+    check('attractor reports a level', after.attractor.level > 0, String(after.attractor.level));
+    const log = await gameLog(page, 40);
+    const att = log.filter(e => e.type === 'attract');
+    check('the log records the attract', att.length > 0, JSON.stringify(att.slice(0, 1)));
+    check('stage is unchanged by the attractor', after.stage === 'FIND', after.stage);
+    // and a real tap puts it away again
+    await tapInvited(page);
+    const quiet = await snapshot(page);
+    check('a tap switches the attractor off', quiet.attractor.active === false);
+    check('no page errors', page.errors.length === 0, page.errors.slice(0, 2).join(' | '));
+    await page.close();
+  }
+
   // ---- same seed + same steps => same state ------------------------------
   console.log('\n  -- determinism');
   {
