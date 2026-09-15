@@ -24,6 +24,7 @@ const LEVEL_SHOTS = [
 interface ToolPoint {
   index: number;
   used: boolean;
+  dormant: boolean;
   x: number;
   y: number;
   z: number;
@@ -47,6 +48,10 @@ declare global {
       project(x: number, y: number, z: number): { x: number; y: number };
       connected(): boolean;
       cleared(): boolean;
+      rotating(): boolean;
+      islandDiameterPx(): number;
+      portrait(): boolean;
+      timing(): { toPlay: number; toMap: number; playBuild: number };
     };
   }
 }
@@ -63,7 +68,9 @@ async function tapWorld(page: Page, pt: { x: number; y: number; z: number } | nu
   const screen = await page.evaluate((p) => window.__game?.project(p.x, p.y, p.z) ?? null, pt!);
   expect(screen, '画面座標').not.toBeNull();
   await page.mouse.click(screen!.x, screen!.y);
-  await page.waitForTimeout(150);
+  // 回転アニメの間は入力を受け付けないので、終わるまで待ってから次を押す(4.2 T1)
+  await page.waitForFunction(() => window.__game?.rotating() !== true, undefined, { timeout: 10_000 });
+  await page.waitForTimeout(120);
 }
 
 async function tapTool(page: Page, index: number): Promise<void> {
@@ -280,4 +287,143 @@ test('WebGL コンテキストが取得できている', async ({ page }) => {
     return c.getContext('webgl2') !== null || c.getContext('webgl') !== null;
   });
   expect(ok).toBe(true);
+});
+
+// --- 全 10 面を自動でクリアする(M3〜M4 の描画・入力が全レベルで壊れていないことの保証) ---
+
+/**
+ * `tests/levels.test.ts` と同じ総当たりで得た最短手順(タップするツールの番号)。
+ * 実際の画面座標に投影してタップするので、盤面・オーバーレイ・当たり判定・
+ * ツールの適用・経路判定・走行・クリア判定までが一続きに検証される。
+ */
+const SOLUTIONS: readonly (readonly number[])[] = [
+  [0],
+  [0, 0, 1],
+  [0, 1, 1],
+  [0, 1],
+  [0, 1],
+  [0, 1, 2, 2],
+  [0, 0, 1, 2],
+  [0, 1, 1, 2],
+  [0, 1, 1, 2, 3],
+  [0, 0, 1, 2, 3],
+];
+
+SOLUTIONS.forEach((steps, i) => {
+  const level = i + 1;
+  test(`レベル ${level} をタップだけでクリアできる`, async ({ page }) => {
+    await page.setViewportSize({ width: 1180, height: 820 });
+    await page.goto(`./?level=${level}&debug=1`);
+    await waitForFirstFrame(page);
+    expect(await page.evaluate(() => window.__game?.connected())).toBe(false);
+
+    for (const step of steps) {
+      // «まだ効かない» ツール(瓦礫の上の回転)は隠れているはず
+      const dormant = await page.evaluate(
+        (s) => window.__game?.tools().find((t) => t.index === s)?.dormant ?? true,
+        step,
+      );
+      expect(dormant, `レベル ${level} のツール ${step}`).toBe(false);
+      await tapTool(page, step);
+    }
+
+    await page.waitForFunction(() => window.__game?.connected() === true, undefined, { timeout: 15_000 });
+    await page.waitForFunction(() => window.__game?.cleared() === true, undefined, { timeout: 30_000 });
+  });
+});
+
+test('盤面のタイルを触っても地図へ戻らない(誤タッチ耐性、R8)', async ({ page }) => {
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await page.goto('./?level=3&debug=1');
+  await waitForFirstFrame(page);
+
+  // ツールの無いタイルの真ん中を押す
+  await tapWorld(page, { x: 4, y: 0.2, z: 0 });
+  await tapWorld(page, { x: 0, y: 0.2, z: 4 });
+  expect(await page.evaluate(() => window.__game?.screen())).toBe('play');
+});
+
+test('画面端 16px 以内のタップは無視される(5.2)', async ({ page }) => {
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await page.goto('./?level=1&debug=1');
+  await waitForFirstFrame(page);
+
+  await page.mouse.click(4, 400);
+  await page.mouse.click(1176, 400);
+  await page.mouse.click(600, 3);
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.__game?.screen())).toBe('play');
+});
+
+test('12px 以上ずらして離すとタップにならない(5.1)', async ({ page }) => {
+  await page.setViewportSize({ width: 1180, height: 820 });
+  await page.goto('./?level=1&debug=1');
+  await waitForFirstFrame(page);
+
+  const pt = await page.evaluate(() => {
+    const tool = window.__game?.tools()[0];
+    return tool ? window.__game!.project(tool.x, tool.y, tool.z) : null;
+  });
+  expect(pt).not.toBeNull();
+  await page.mouse.move(pt!.x, pt!.y);
+  await page.mouse.down();
+  await page.mouse.move(pt!.x + 40, pt!.y + 18, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(() => window.__game?.connected())).toBe(false);
+
+  // 動かさずに押し直せば効く
+  await tapTool(page, 0);
+  await page.waitForFunction(() => window.__game?.connected() === true, undefined, { timeout: 10_000 });
+});
+
+test('iPhone 縦の地図で島が十分に大きい(5.2)', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./?debug=1');
+  await waitForFirstFrame(page);
+
+  expect(await page.evaluate(() => window.__game?.portrait())).toBe(true);
+  const d = await page.evaluate(() => window.__game?.islandDiameterPx() ?? 0);
+  console.log(`iPhone 縦の島の直径: ${d.toFixed(1)} CSS px`);
+  expect(d).toBeGreaterThanOrEqual(72);
+});
+
+test('画面の向きが変わると地図の配置が切り替わる', async ({ page }) => {
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.goto('./?debug=1');
+  await waitForFirstFrame(page);
+  expect(await page.evaluate(() => window.__game?.portrait())).toBe(false);
+  const landscape = await page.evaluate(() => window.__game?.islands() ?? []);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(1200); // デバウンス 150ms + 並べ替え 0.7s
+  expect(await page.evaluate(() => window.__game?.portrait())).toBe(true);
+  const portrait = await page.evaluate(() => window.__game?.islands() ?? []);
+
+  expect(portrait).toHaveLength(10);
+  // 並びが実際に変わっている
+  expect(Math.abs(portrait[9]!.x - landscape[9]!.x)).toBeGreaterThan(1);
+  const d = await page.evaluate(() => window.__game?.islandDiameterPx() ?? 0);
+  expect(d).toBeGreaterThanOrEqual(72);
+});
+
+test('地図 → 島 → 地図 の遷移が 0.8s + 0.2s に収まる', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./?debug=1');
+  await waitForFirstFrame(page);
+
+  await tapIsland(page, 0);
+  await page.waitForFunction(() => window.__game?.screen() === 'play', undefined, { timeout: 10_000 });
+  const toPlay = await page.evaluate(() => window.__game?.timing() ?? { toPlay: 0, toMap: 0, playBuild: 0 });
+  console.log(`地図 → プレイ: ${toPlay.toPlay.toFixed(0)}ms(うち生成 ${toPlay.playBuild.toFixed(0)}ms)`);
+  expect(toPlay.toPlay).toBeLessThan(1000);
+  expect(toPlay.playBuild).toBeLessThan(200);
+
+  // 海をタップして地図へ戻る
+  await page.mouse.click(60, 780);
+  await page.waitForFunction(() => window.__game?.screen() === 'map', undefined, { timeout: 10_000 });
+  const back = await page.evaluate(() => window.__game?.timing() ?? { toPlay: 0, toMap: 0, playBuild: 0 });
+  console.log(`プレイ → 地図: ${back.toMap.toFixed(0)}ms`);
+  expect(back.toMap).toBeGreaterThan(0);
+  expect(back.toMap).toBeLessThan(1000);
 });
