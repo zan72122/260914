@@ -10,6 +10,10 @@ export {
   buildLoop,
   midiToHz,
   makeRng,
+  scheduleDue,
+  LOOK_AHEAD_SEC,
+  MAX_NOTES_PER_TICK,
+  SCHEDULER_TICK_MS,
   PENTATONIC,
   BGM_GATHER,
   BGM_MARCH,
@@ -22,7 +26,7 @@ export {
   BGM_TOWER,
   BGM_SLEEP,
 } from './bgm';
-export type { BgmVoiceOptions } from './bgm';
+export type { BgmVoiceOptions, LoopCursor } from './bgm';
 
 /** One audio stack for the whole app. */
 export class Audio {

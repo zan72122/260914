@@ -1,7 +1,11 @@
 /**
- * Stub BGM: a short generated pentatonic loop (music-box-ish triangle waves)
- * per scene, with a crossfade API for scene transitions. Phase 0 ships the
- * generator and the crossfade; per-scene keys/tempos arrive with the scenes.
+ * BGM: a short generated pentatonic loop (music-box-ish triangle waves) per
+ * scene, with a crossfade API for scene transitions.
+ *
+ * Notes are placed on the AudioContext's own clock by a look-ahead scheduler
+ * (see `scheduleDue`), so the music keeps time whatever the frame rate is
+ * doing. A JS timer that played each note when it happened to fire would drag
+ * the tempo around every time the game got busy.
  */
 import type { AudioEngine } from './context';
 
@@ -69,11 +73,75 @@ export function buildLoop(opts: BgmVoiceOptions): number[] {
   return out;
 }
 
+/**
+ * How often the scheduler wakes up, in milliseconds.
+ *
+ * The timer is only a pump: it never decides WHEN a note sounds, it only asks
+ * "has anything come due?" often enough that the answer is always in time.
+ */
+export const SCHEDULER_TICK_MS = 25;
+/** How far ahead of the audio clock notes are handed to Web Audio, seconds. */
+export const LOOK_AHEAD_SEC = 0.1;
+/** The most notes one wake-up may schedule, however late it was. */
+export const MAX_NOTES_PER_TICK = 32;
+/** A note is queued this far ahead of the very first beat, seconds. */
+export const START_DELAY_SEC = 0.06;
+
+/** Where a loop has got to: the audio-clock time and index of the next note. */
+export interface LoopCursor {
+  nextTime: number;
+  index: number;
+}
+
+/**
+ * Look-ahead scheduling (the standard Web Audio pattern).
+ *
+ * `setInterval` drifts: it fires late under load, and a loop whose notes are
+ * played at the moment the timer happens to fire inherits every one of those
+ * delays, so the music slows down whenever the game is busy — which in this
+ * game is exactly when forty children are laughing at once.
+ *
+ * Instead, the cursor advances by exactly `stepSec` per note on the
+ * AudioContext's own clock, and each note is handed to Web Audio with its
+ * precise start time up to `lookAhead` seconds early. The timer may fire late,
+ * early or twice in a row; the music does not care, because nothing about the
+ * schedule is derived from when the timer fired.
+ *
+ * Returns how many notes were scheduled.
+ */
+export function scheduleDue(
+  cursor: LoopCursor,
+  now: number,
+  stepSec: number,
+  emit: (time: number, index: number) => void,
+  lookAhead: number = LOOK_AHEAD_SEC,
+  maxNotes: number = MAX_NOTES_PER_TICK,
+): number {
+  if (!(stepSec > 0)) return 0;
+  const behind = now - cursor.nextTime;
+  if (behind > stepSec * maxNotes) {
+    // The page was asleep (a backgrounded tab, a locked iPad). Skip the
+    // silence in whole steps, so the loop resumes on its own grid instead of
+    // dumping a minute of missed notes all at once.
+    const skip = Math.floor(behind / stepSec);
+    cursor.nextTime += skip * stepSec;
+    cursor.index += skip;
+  }
+  let scheduled = 0;
+  while (cursor.nextTime < now + lookAhead && scheduled < maxNotes) {
+    emit(cursor.nextTime, cursor.index);
+    cursor.nextTime += stepSec;
+    cursor.index++;
+    scheduled++;
+  }
+  return scheduled;
+}
+
 class BgmVoice {
   gain: GainNode;
   private timer: ReturnType<typeof setInterval> | null = null;
   private notes: number[];
-  private index = 0;
+  private cursor: LoopCursor = { nextTime: 0, index: 0 };
   private stepSec: number;
   private wave: OscillatorType;
   private level: number;
@@ -94,8 +162,10 @@ class BgmVoice {
 
   start(): void {
     if (this.timer) return;
-    this.tick();
-    this.timer = setInterval(() => this.tick(), this.stepSec * 1000);
+    this.cursor.nextTime = this.ctx.currentTime + START_DELAY_SEC;
+    this.cursor.index = 0;
+    this.pump();
+    this.timer = setInterval(this.pump, SCHEDULER_TICK_MS);
   }
 
   stop(): void {
@@ -108,10 +178,14 @@ class BgmVoice {
     }
   }
 
-  private tick(): void {
-    const midi = this.notes[this.index % this.notes.length];
-    this.index++;
-    const t = this.ctx.currentTime;
+  /** The pump: ask what has come due, schedule it, go back to sleep. */
+  private pump = (): void => {
+    scheduleDue(this.cursor, this.ctx.currentTime, this.stepSec, this.emit);
+  };
+
+  /** Plays one note at an exact time on the audio clock. */
+  private emit = (t: number, index: number): void => {
+    const midi = this.notes[index % this.notes.length];
     const osc = this.ctx.createOscillator();
     osc.type = this.wave;
     osc.frequency.setValueAtTime(midiToHz(midi), t);
@@ -126,7 +200,7 @@ class BgmVoice {
     env.connect(this.gain);
     osc.start(t);
     osc.stop(t + this.stepSec * 2);
-  }
+  };
 }
 
 export class Bgm {
