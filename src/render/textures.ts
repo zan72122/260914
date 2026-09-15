@@ -265,3 +265,92 @@ export function iconTexture(kind: 'rotate' | 'raise' | 'destroy'): THREE.CanvasT
     }
   });
 }
+
+/**
+ * 橋バリアントの上面(4.1)。直線タイルだけが水の上を渡る «橋» に見える。
+ * 接続規則は普通の直線と同じで、違いは見た目だけ。
+ */
+export function bridgeTexture(roadColor: string, waterColor: string): THREE.CanvasTexture {
+  return cached(`bridge:${roadColor}:${waterColor}`, (ctx) => {
+    const c = SIZE / 2;
+    ctx.fillStyle = waterColor;
+    ctx.fillRect(0, 0, SIZE, SIZE);
+    // 橋桁(南北に渡す。実際の向きはメッシュの回転で表現する)
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(c - SIZE * 0.26, 0, SIZE * 0.52, SIZE);
+    ctx.fillStyle = roadColor;
+    ctx.fillRect(c - SIZE * 0.22, 0, SIZE * 0.44, SIZE);
+    // 板目
+    const plank = new THREE.Color(roadColor).multiplyScalar(0.82);
+    ctx.strokeStyle = `#${plank.getHexString()}`;
+    ctx.lineWidth = SIZE * 0.02;
+    for (let i = 1; i < 8; i++) {
+      const y = (SIZE / 8) * i;
+      ctx.beginPath();
+      ctx.moveTo(c - SIZE * 0.22, y);
+      ctx.lineTo(c + SIZE * 0.22, y);
+      ctx.stroke();
+    }
+  });
+}
+
+/**
+ * 水面のコースティクス(2.4)。網目模様を 1 枚描き、スクロールさせて揺らぎを作る。
+ * 重い計算は使わない(R4)。
+ */
+export function causticsTexture(): THREE.CanvasTexture {
+  const key = 'caustics';
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const { canvas, ctx } = makeCanvas();
+  ctx.clearRect(0, 0, SIZE, SIZE);
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.lineWidth = SIZE * 0.022;
+  ctx.lineCap = 'round';
+  // 網目: 正弦波を上下左右に走らせる。乱数は使わず毎回同じ模様にする
+  for (let i = 0; i < 6; i++) {
+    ctx.beginPath();
+    for (let x = 0; x <= SIZE; x += 4) {
+      const y = (SIZE / 6) * i + Math.sin((x / SIZE) * Math.PI * 4 + i) * SIZE * 0.05;
+      if (x === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  for (let i = 0; i < 6; i++) {
+    ctx.beginPath();
+    for (let y = 0; y <= SIZE; y += 4) {
+      const x = (SIZE / 6) * i + Math.sin((y / SIZE) * Math.PI * 4 + i * 1.7) * SIZE * 0.05;
+      if (y === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  const tex = toTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  cache.set(key, tex);
+  return tex;
+}
+
+/** ビルの壁。窓が灯る(2.3 / 6.3)。夜は発光色で «夜» を演出する(7.3) */
+export function windowTexture(wall: string, glow: string, lit: boolean): THREE.CanvasTexture {
+  return cached(`window:${wall}:${glow}:${lit ? 1 : 0}`, (ctx) => {
+    ctx.fillStyle = wall;
+    ctx.fillRect(0, 0, SIZE, SIZE);
+    const cols = 3;
+    const rows = 5;
+    const dark = new THREE.Color(wall).multiplyScalar(0.7);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        // 灯りの有無は座標から決める(乱数を使わず毎回同じ見た目にする)
+        const on = lit && (r * 3 + c * 5 + ((r * c) % 3)) % 3 !== 0;
+        ctx.fillStyle = on ? glow : `#${dark.getHexString()}`;
+        const w = SIZE / (cols * 2 + 1);
+        const h = SIZE / (rows * 2 + 1);
+        ctx.fillRect(w * (c * 2 + 1), h * (r * 2 + 1), w, h);
+      }
+    }
+  });
+}

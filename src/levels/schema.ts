@@ -1,6 +1,6 @@
 import type { Board, Height, Layer, Reveal, Tile, TileKind, Tool, ToolKind, Vec2, Direction } from '../core/types';
 
-/** テーマ ID(7.1 のパレット表に対応)。M2 時点では砂漠(昼)のみ使用 */
+/** テーマ ID(7.1 のパレット表に対応) */
 export type ThemeId =
   | 'desert-day'
   | 'desert-dusk'
@@ -13,6 +13,26 @@ export type ThemeId =
   | 'bridge-city'
   | 'night-festival';
 
+/** プロシージャル装飾の種類(6.3 / 7.2)。同種は InstancedMesh でまとめる */
+export type PropKind =
+  | 'palm'
+  | 'drygrass'
+  | 'lighthouse'
+  | 'rock'
+  | 'tree'
+  | 'reed'
+  | 'flower'
+  | 'duck'
+  | 'wheat'
+  | 'house'
+  | 'building'
+  | 'fence'
+  | 'mushroom'
+  | 'darktree'
+  | 'firefly'
+  | 'streetlamp'
+  | 'bricktower';
+
 export interface Palette {
   /** 地面(空地)上面 */
   readonly ground: string;
@@ -22,21 +42,110 @@ export interface Palette {
   readonly accent: string;
   /** 背景(空) */
   readonly sky: string;
+  /** 盤面の外に広がる水 / 砂の色 */
+  readonly water: string;
+  /** 発光色(窓の灯・蛍・街灯)。夜はこれで «夜» を演出する(7.3) */
+  readonly glow: string;
+  /** ゴールの旗の色。夜は明るい色にする(暗くて見えないと致命的) */
+  readonly flag: string;
+  /** 夜のテーマか。色相で夜を表し、明度は落としすぎない(7.1) */
+  readonly night: boolean;
+  /** 側面を上面より暗くする割合(G1) */
+  readonly sideDarken: number;
+  /** 半球光の強さ */
+  readonly hemi: number;
+  /** 平行光(1 灯・影)の強さ */
+  readonly sun: number;
+  /** 平行光の色 */
+  readonly sunColor: string;
+  /** 盤面外の水面にコースティクスを出すか(2.4) */
+  readonly caustics: boolean;
+  /** 直線タイルを橋(橋げた付き)として描くか(4.1) */
+  readonly bridge: boolean;
+  /** このテーマに置く装飾(6.3) */
+  readonly props: readonly PropKind[];
 }
 
-/** 7.1 のパレット表 */
+/**
+ * 7.1 のパレット表。
+ *
+ * 夜のテーマ(7・8・10)は «暗さ» ではなく «色相» で夜を表す。
+ * 上面の明度は昼のテーマの 7 割以上を保ち、窓の灯・蛍・街灯の発光色で夜らしさを出す。
+ * 4 歳児の視認性(7.1「明度差は大きめ」)を満たすための判断。
+ */
 export const PALETTES: Readonly<Record<ThemeId, Palette>> = {
-  'desert-day': { ground: '#E8B454', road: '#8C8378', accent: '#F2E3B0', sky: '#F6D28A' },
-  'desert-dusk': { ground: '#D9884A', road: '#8C8378', accent: '#FFD9A0', sky: '#E87A55' },
-  meadow: { ground: '#7CBF5A', road: '#8C8378', accent: '#C8E89A', sky: '#9FD9F0' },
-  'water-day': { ground: '#78C86A', road: '#8C8378', accent: '#F2D857', sky: '#BEE8F2' },
-  'water-dusk': { ground: '#78C86A', road: '#8C8378', accent: '#F2D857', sky: '#E8A47A' },
-  'gray-city': { ground: '#96A08C', road: '#6E6E6E', accent: '#C4C9BC', sky: '#AEB8A8' },
-  'green-city-night': { ground: '#2E4A3A', road: '#4A4A4A', accent: '#F5D77A', sky: '#16283A' },
-  'night-rail': { ground: '#1E3A4C', road: '#5A4A3E', accent: '#BFF7A8', sky: '#14202E' },
-  'bridge-city': { ground: '#96A08C', road: '#6E6E6E', accent: '#5FC8D8', sky: '#BEE8F2' },
-  'night-festival': { ground: '#2E4A3A', road: '#4A4A4A', accent: '#F5D77A', sky: '#14202E' },
-}
+  'desert-day': {
+    ground: '#E8B454', road: '#8C8378', accent: '#F2E3B0', sky: '#F6D28A',
+    water: '#F0C877', glow: '#FFF3C4', flag: '#2A2320', night: false,
+    sideDarken: 0.24, hemi: 1.0, sun: 1.5, sunColor: '#FFF6E2',
+    caustics: false, bridge: false,
+    props: ['palm', 'drygrass', 'lighthouse', 'rock'],
+  },
+  'desert-dusk': {
+    ground: '#D9884A', road: '#8C8378', accent: '#FFD9A0', sky: '#E87A55',
+    water: '#D9764E', glow: '#FFE0AE', flag: '#2A2320', night: false,
+    sideDarken: 0.26, hemi: 1.0, sun: 1.4, sunColor: '#FFE0B8',
+    caustics: false, bridge: false,
+    props: ['palm', 'drygrass', 'lighthouse', 'rock'],
+  },
+  meadow: {
+    ground: '#7CBF5A', road: '#8C8378', accent: '#C8E89A', sky: '#9FD9F0',
+    water: '#6FC6E0', glow: '#FFF6C8', flag: '#2A2320', night: false,
+    sideDarken: 0.24, hemi: 1.0, sun: 1.45, sunColor: '#FFFDF0',
+    caustics: false, bridge: false,
+    props: ['tree', 'reed', 'flower', 'house'],
+  },
+  'water-day': {
+    ground: '#78C86A', road: '#8C8378', accent: '#F2D857', sky: '#BEE8F2',
+    water: '#5FC8D8', glow: '#FFF6C8', flag: '#2A2320', night: false,
+    sideDarken: 0.24, hemi: 1.0, sun: 1.45, sunColor: '#FFFDF0',
+    caustics: true, bridge: false,
+    props: ['duck', 'rock', 'wheat', 'flower', 'reed'],
+  },
+  'water-dusk': {
+    ground: '#78C86A', road: '#8C8378', accent: '#F2D857', sky: '#E8A47A',
+    water: '#57A8C8', glow: '#FFE7B0', flag: '#2A2320', night: false,
+    sideDarken: 0.26, hemi: 1.0, sun: 1.35, sunColor: '#FFE3BE',
+    caustics: true, bridge: false,
+    props: ['duck', 'rock', 'wheat', 'flower', 'reed'],
+  },
+  'gray-city': {
+    // 彩度を少し上げてくすみを取る(灰緑のまま、はっきり見えるように)
+    ground: '#9EB489', road: '#6E6E6E', accent: '#D2DCC0', sky: '#B4C4A4',
+    water: '#A8BA96', glow: '#FFF2C8', flag: '#2A2320', night: false,
+    sideDarken: 0.24, hemi: 1.0, sun: 1.45, sunColor: '#FFFDF0',
+    caustics: false, bridge: false,
+    props: ['building', 'house', 'tree'],
+  },
+  'green-city-night': {
+    ground: '#5F9A78', road: '#6E7A82', accent: '#F5D77A', sky: '#243C56',
+    water: '#33566E', glow: '#FFE7A0', flag: '#FFFFFF', night: true,
+    sideDarken: 0.28, hemi: 0.95, sun: 1.1, sunColor: '#CFE2FF',
+    caustics: false, bridge: false,
+    props: ['building', 'house', 'fence', 'darktree', 'streetlamp'],
+  },
+  'night-rail': {
+    ground: '#5E97A8', road: '#7E6B58', accent: '#BFF7A8', sky: '#1F3450',
+    water: '#2E4E68', glow: '#CFF7A8', flag: '#FFF2C0', night: true,
+    sideDarken: 0.28, hemi: 0.95, sun: 1.1, sunColor: '#CFE2FF',
+    caustics: false, bridge: false,
+    props: ['bricktower', 'mushroom', 'darktree', 'firefly', 'rock'],
+  },
+  'bridge-city': {
+    ground: '#9EB489', road: '#6E6E6E', accent: '#5FC8D8', sky: '#BEE8F2',
+    water: '#4FBFD6', glow: '#FFF2C8', flag: '#2A2320', night: false,
+    sideDarken: 0.24, hemi: 1.0, sun: 1.45, sunColor: '#FFFDF0',
+    caustics: true, bridge: true,
+    props: ['rock', 'reed', 'house', 'building', 'duck'],
+  },
+  'night-festival': {
+    ground: '#68A48A', road: '#6E7A82', accent: '#F5D77A', sky: '#223A58',
+    water: '#30546E', glow: '#FFDF8E', flag: '#FFFFFF', night: true,
+    sideDarken: 0.28, hemi: 0.95, sun: 1.1, sunColor: '#CFE2FF',
+    caustics: false, bridge: false,
+    props: ['building', 'streetlamp', 'darktree', 'firefly', 'house'],
+  },
+};
 
 /** 盤面の初期値からの差分としてセルを指定する */
 export interface CellSpec {
@@ -65,8 +174,10 @@ export interface Level {
   /** 盤面のセル定義(指定しないセルは空地) */
   readonly cells: readonly CellSpec[];
   readonly tools: readonly ToolSpec[];
-  /** 装飾。M4 で使用 */
-  readonly props?: readonly { readonly kind: string; readonly x: number; readonly y: number }[];
+  /**
+   * 装飾の追加指定(省略可)。指定しなければテーマごとの装飾が空地へ自動配置される。
+   */
+  readonly props?: readonly { readonly kind: PropKind; readonly x: number; readonly y: number }[];
 }
 
 const EMPTY_TILE: Tile = { kind: 'empty', rot: 0, height: 0, layer: 'road' };

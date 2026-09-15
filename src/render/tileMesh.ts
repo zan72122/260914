@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Tile } from '../core/types';
 import type { Palette } from '../levels/schema';
-import { goalTexture, railTexture, roadTexture, rubbleTexture } from './textures';
+import { bridgeTexture, goalTexture, railTexture, roadTexture, rubbleTexture } from './textures';
 
 /** タイルの厚み(4.1 / G1) */
 export const TILE_THICKNESS = 0.3;
@@ -44,6 +44,10 @@ function topMaterial(tile: Tile, palette: Palette): THREE.Material {
     case 'goal':
       return new THREE.MeshLambertMaterial({ map: goalTexture(palette.road, palette.ground, tile.layer) });
     default:
+      // 橋バリアント: 水上テーマの直線だけ «橋» として描く。接続規則は同じ(4.1)
+      if (palette.bridge && tile.kind === 'straight') {
+        return new THREE.MeshLambertMaterial({ map: bridgeTexture(palette.road, palette.water) });
+      }
       return new THREE.MeshLambertMaterial({
         map:
           tile.layer === 'rail'
@@ -58,8 +62,8 @@ function topMaterial(tile: Tile, palette: Palette): THREE.Material {
  * BoxGeometry のマテリアル配列は [+x, -x, +y(上面), -y(底), +z, -z] の順。
  */
 export function createTileMesh(tile: Tile, palette: Palette): THREE.Mesh {
-  const side = new THREE.MeshLambertMaterial({ color: darken(palette.ground, 0.24) });
-  const bottom = new THREE.MeshLambertMaterial({ color: darken(palette.ground, 0.4) });
+  const side = new THREE.MeshLambertMaterial({ color: darken(palette.ground, palette.sideDarken) });
+  const bottom = new THREE.MeshLambertMaterial({ color: darken(palette.ground, palette.sideDarken + 0.16) });
   const mesh = new THREE.Mesh(geometry, [side, side, topMaterial(tile, palette), bottom, side, side]);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -133,6 +137,8 @@ export function createBlockProp(palette: Palette, x: number, y: number): THREE.G
 
   // セルごとに向きを少し変えて、同じ形の繰り返しに見せない
   g.rotation.y = ((x * 7 + y * 13) % 8) * (Math.PI / 8);
+  // 破壊アイコン(💣)がタイル中央に大きく出るので、瓦礫は一回り小さくして譲る
+  g.scale.setScalar(0.82);
   return g;
 }
 

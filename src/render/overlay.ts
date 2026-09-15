@@ -9,7 +9,9 @@ export const HIT_SCALE = 1.4;
  * アイコンの大きさ(タイル幅に対する割合)。
  * 下にあるカーブの形が読めるよう、タイル幅の 45% 程度に留める。
  */
-const ICON_SIZE = 0.45;
+const ICON_SIZE = 0.52;
+/** アイコンの下に敷く円盤。岩や模様の上でもアイコンが読めるようにする(7.6) */
+const PAD_SIZE = ICON_SIZE * 1.34;
 /** 当たり判定はアイコンより大きく取りたいので、下限をタイル幅の 7 割にする(5.2) */
 const HIT_SIZE = Math.max(ICON_SIZE * HIT_SCALE, 0.7);
 /** 半透明オーバーレイの基準不透明度。道の向きが透けて見える濃さにする */
@@ -37,6 +39,7 @@ export interface ToolOverlay {
 }
 
 const planeGeo = new THREE.PlaneGeometry(1, 1);
+const padGeo = new THREE.CircleGeometry(0.5, 24);
 
 /** 点線枠の破線 1 本分 */
 function dash(len: number): THREE.Mesh {
@@ -83,15 +86,35 @@ export function createToolOverlay(
     group.add(overlay);
     followers.push({ mesh: overlay, dy: 0.012, cell: c });
 
+    // アイコンの下敷き(暗い円盤)。破壊アイコンが瓦礫に紛れないように
+    const pad = new THREE.Mesh(
+      padGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0x14100c,
+        transparent: true,
+        opacity: 0.42,
+        depthWrite: false,
+        depthTest: false,
+      }),
+    );
+    pad.rotation.x = -Math.PI / 2;
+    pad.scale.setScalar(PAD_SIZE);
+    pad.position.set(c.x, 0, c.y);
+    pad.renderOrder = 3;
+    group.add(pad);
+    followers.push({ mesh: pad, dy: 0.045, cell: c });
+
     // 白いアイコン
     const imat = new THREE.MeshBasicMaterial({ map: iconMap, transparent: true, depthWrite: false, depthTest: false });
     const icon = new THREE.Mesh(planeGeo, imat);
     icon.rotation.x = -Math.PI / 2;
     icon.scale.setScalar(ICON_SIZE);
     icon.position.set(c.x, 0, c.y);
-    icon.renderOrder = 4;
+    icon.renderOrder = 5;
     icons.push(icon);
     group.add(icon);
+    // 瓦礫の上でも読めるのは depthTest を切っているため。
+    // 位置はタイル中央のまま動かさない(3.3-(4) タップした場所 = 変化する場所)
     followers.push({ mesh: icon, dy: 0.05, cell: c });
 
     // 当たり判定用の見えない板(5.2)。範囲内のどのタイルでも押せる
