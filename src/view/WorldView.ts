@@ -2,7 +2,7 @@ import { Container, Graphics } from 'pixi.js';
 import type { FlameRenderer } from '../flame/FlameRenderer';
 import { createFlameRenderer } from '../flame/FlameRenderer';
 import { flameColorOf } from '../flame/elementColors';
-import type { Layout, MaterialId } from '../game/layout';
+import { BENCH_SURFACE, type Layout, type MaterialId } from '../game/layout';
 import type { World } from '../game/world';
 import { AFTERGLOW_MS } from '../game/world';
 import type { Rng } from '../core/Rng';
@@ -64,9 +64,9 @@ export class WorldView {
     };
     this.root.addChild(
       this.bg,
+      this.wallG,
       this.harborG,
       this.shipG,
-      this.wallG,
       this.lampGlow,
       this.wireG,
       this.sparkG,
@@ -108,12 +108,25 @@ export class WorldView {
 
     // 窓の外の港（位置の確保）
     this.harborG.clear();
-    this.harborG.rect(l.harbor.x, l.harbor.y, l.harbor.w, l.harbor.h).fill({ color: SEA });
+    const hz = l.harbor.y + l.harbor.h * 0.55; // 水平線
+    const sky = 8;
+    for (let i = 0; i < sky; i++) {
+      const k = i / (sky - 1);
+      this.harborG
+        .rect(l.harbor.x, l.harbor.y + ((hz - l.harbor.y) * i) / sky, l.harbor.w, (hz - l.harbor.y) / sky + 1)
+        .fill({ color: mix(SKY_TOP, SKY_BOTTOM, k) });
+    }
+    this.harborG.rect(l.harbor.x, hz, l.harbor.w, l.harbor.y + l.harbor.h - hz).fill({ color: SEA });
+    // 窓枠
     this.harborG
-      .rect(l.harbor.x - u * 0.4, l.harbor.y - u * 0.4, l.harbor.w + u * 0.8, u * 0.4)
-      .fill({ color: METAL, alpha: 0.5 });
+      .rect(l.harbor.x, l.harbor.y, l.harbor.w, l.harbor.h)
+      .stroke({ width: Math.max(2, u * 0.5), color: 0x40372f });
     this.harborG
-      .rect(l.harbor.x, l.harbor.y + l.harbor.h - u * 0.5, l.harbor.w, u * 0.5)
+      .rect(l.harbor.x + l.harbor.w / 2 - u * 0.12, l.harbor.y, u * 0.24, l.harbor.h)
+      .fill({ color: 0x40372f });
+    // 工房の桟橋
+    this.harborG
+      .rect(l.harbor.x, l.harbor.y + l.harbor.h - u * 0.8, l.harbor.w * 0.45, u * 0.8)
       .fill({ color: 0x2b2018 });
     // 桟橋の信号炎の発射台
     this.harborG
@@ -127,6 +140,7 @@ export class WorldView {
       .fill({ color: 0x0b1220 });
     this.shipG.rect(-u * 0.1, -u * 1.3, u * 0.2, u * 1.3).fill({ color: 0x0b1220 });
     this.shipG.position.set(l.ship.x, l.ship.y);
+    this.shipG.scale.set(1);
 
     // 作業員（手を振る）
     this.workerBody.clear();
@@ -138,6 +152,7 @@ export class WorldView {
     this.workerArm.rect(0, -u * 0.22, u * 1.5, u * 0.44).fill({ color: 0x3b5a6b });
     this.workerArm.position.set(u * 0.7, -u * 1.8);
     this.workerG.position.set(l.worker.x, l.worker.y);
+    this.workerG.scale.set(2.2);
 
     // 作業机のリモコンと電池工場の受け口（位置の確保）
     this.deviceG.clear();
@@ -157,13 +172,11 @@ export class WorldView {
     // 試し燃やし台
     this.benchG.clear();
     this.benchG.rect(l.bench.x, l.bench.y, l.bench.w, l.bench.h).fill({ color: TABLE });
-    const topY = l.orientation === 'portrait' ? l.bench.y : l.bench.y;
-    const topH = l.orientation === 'portrait' ? l.bench.h * 0.1 : l.bench.h;
-    if (l.orientation === 'portrait') {
-      this.benchG.rect(l.bench.x, topY, l.bench.w, topH).fill({ color: TABLE_TOP });
-    } else {
-      this.benchG.rect(l.bench.x + l.bench.w - topH * 0.06, l.bench.y, topH * 0.06, l.bench.h).fill({ color: TABLE_TOP });
-    }
+    // 台の面（物が載る帯）。縦横どちらでも同じ規則で置く。
+    const surfaceTop = l.bench.y + l.bench.h * (BENCH_SURFACE - 0.2);
+    const surfaceH = l.bench.h * 0.42;
+    this.benchG.rect(l.bench.x, surfaceTop, l.bench.w, surfaceH).fill({ color: TABLE_TOP });
+    this.benchG.rect(l.bench.x, surfaceTop, l.bench.w, Math.max(2, u * 0.25)).fill({ color: 0x5d4c3d });
     // 材料が転がる木箱
     this.benchG.rect(l.crate.x, l.crate.y, l.crate.w, l.crate.h).fill({ color: 0x6b4a2c });
     this.benchG
@@ -282,7 +295,7 @@ export class WorldView {
           l.workLamp.x - u * 7.5,
           l.workLamp.y + u * 12,
         ])
-        .fill({ color: 0xffe6b0, alpha: 0.22 * lit * flick });
+        .fill({ color: 0xffe6b0, alpha: 0.13 * lit * flick });
       this.lampGlow.circle(l.workLamp.x, l.workLamp.y + u * 0.2, u * 2.2).fill({ color: 0xffeec4, alpha: 0.35 * lit * flick });
       this.lampGlow.circle(l.workLamp.x, l.workLamp.y + u * 0.2, u * 0.8).fill({ color: 0xfff7e0, alpha: 0.9 * lit * flick });
     }

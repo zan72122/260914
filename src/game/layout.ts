@@ -28,6 +28,9 @@ export interface Rect {
   h: number;
 }
 
+/** 台の面の位置（台の高さに対する割合）。物はこの面に載る。 */
+export const BENCH_SURFACE = 0.62;
+
 export interface Layout {
   width: number;
   height: number;
@@ -61,11 +64,12 @@ export interface Layout {
   batteryFactory: Point;
 }
 
-/** 台の上の位置。長辺方向 along / 短辺方向 across で指定し、縦横で同じ配置規則を使う。 */
-function benchPoint(bench: Rect, o: Orientation, along: number, across: number): Point {
-  return o === 'portrait'
-    ? { x: bench.x + bench.w * along, y: bench.y + bench.h * across }
-    : { x: bench.x + bench.w * across, y: bench.y + bench.h * along };
+/**
+ * 台の上の位置。along は台を横切る方向（物を並べる方向）、across は奥行き方向。
+ * 縦でも横でも同じ規則で、同じ物を置き直すだけ。
+ */
+function benchPoint(bench: Rect, along: number, across: number): Point {
+  return { x: bench.x + bench.w * along, y: bench.y + bench.h * across };
 }
 
 function at(r: Rect, fx: number, fy: number): Point {
@@ -90,11 +94,12 @@ export function computeLayout(width: number, height: number): Layout {
   const benchShort = Math.min(bench.w, bench.h);
   const touchRadius = Math.max(28, Math.min(width, height) * 0.075);
 
-  const burner = benchPoint(bench, orientation, 0.52, 0.5);
-  const flameW = benchShort * 0.34;
-  const flameH = benchShort * 0.62;
+  const burner = benchPoint(bench, 0.52, BENCH_SURFACE);
+  // 炎は台の短辺にも、台の高さにも収まる大きさにする（縦横どちらでも画面から出ない）
+  const flameH = Math.min(bench.h * 0.5, benchShort * 0.62);
+  const flameW = flameH * 0.55;
 
-  const crateCenter = benchPoint(bench, orientation, 0.2, 0.52);
+  const crateCenter = benchPoint(bench, 0.24, BENCH_SURFACE + 0.1);
   const crateW = benchShort * 0.46;
   const crateH = benchShort * 0.3;
 
@@ -106,19 +111,19 @@ export function computeLayout(width: number, height: number): Layout {
     bench,
     workshop,
     burner,
-    flame: { x: burner.x, y: burner.y - benchShort * 0.06, w: flameW, h: flameH },
+    flame: { x: burner.x, y: burner.y - flameH * 0.1, w: flameW, h: flameH },
     crate: { x: crateCenter.x - crateW / 2, y: crateCenter.y - crateH / 2, w: crateW, h: crateH },
     materialSlots: {
-      copper_scrap: benchPoint(bench, orientation, 0.12, 0.47),
-      strontium_grains: benchPoint(bench, orientation, 0.2, 0.62),
-      lithium_powder: benchPoint(bench, orientation, 0.28, 0.44),
+      copper_scrap: benchPoint(bench, 0.15, BENCH_SURFACE + 0.04),
+      strontium_grains: benchPoint(bench, 0.24, BENCH_SURFACE + 0.16),
+      lithium_powder: benchPoint(bench, 0.33, BENCH_SURFACE + 0.02),
     },
-    prism: benchPoint(bench, orientation, 0.86, 0.6),
+    prism: benchPoint(bench, 0.86, BENCH_SURFACE + 0.06),
     wireLeft: at(workshop, 0.09, 0.54),
     wireGap: at(workshop, 0.24, 0.51),
     wireRight: at(workshop, 0.39, 0.48),
     workLamp: at(workshop, 0.3, 0.22),
-    worker: at(workshop, 0.53, 0.66),
+    worker: at(workshop, 0.36, 0.9),
     harbor: {
       x: workshop.x + workshop.w * 0.58,
       y: workshop.y + workshop.h * 0.05,
@@ -127,7 +132,7 @@ export function computeLayout(width: number, height: number): Layout {
     },
     ship: at(workshop, 0.82, 0.24),
     flareLauncher: at(workshop, 0.62, 0.45),
-    remote: at(workshop, 0.7, 0.82),
-    batteryFactory: at(workshop, 0.9, 0.8),
+    remote: at(workshop, 0.72, 0.93),
+    batteryFactory: at(workshop, 0.9, 0.88),
   };
 }
