@@ -77,8 +77,8 @@ export class Bead extends Debris {
       }
       if (this.orbT >= ORBIT) {
         if (world && world.audio) world.audio.pop('pop', 0.95);   // the clack
-        this._handOff(vac, { kind: 'crumb', color: this.color, size: this.r * 2.4 });
-        this.ride = vac.transits.length ? vac.transits[vac.transits.length - 1] : null;
+        // transit() hands the record back, so the scene can keep animating it
+        this.ride = this._handOff(vac, { kind: 'crumb', color: this.color, size: this.r * 2.4 });
         if (world && world.onCaptured) world.onCaptured(this);
       }
       return;

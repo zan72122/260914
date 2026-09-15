@@ -238,7 +238,7 @@ export class Strand extends Debris {
         this.state = State.CAPTURED;
         this.reelV = V.reelV0 * (this.clump > 1 ? 1.7 : 1);
         this.reelT = 0;
-        vac.gulp = 1;
+        vac.gulp(1);
       }
     }
   }

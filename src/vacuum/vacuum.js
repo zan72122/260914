@@ -4,11 +4,21 @@ const TMP = { x: 0, y: 0 };
 const TMP2 = { x: 0, y: 0 };
 const TMP3 = { x: 0, y: 0 };
 
-/** Lead offsets in SCREEN px (so the finger never covers the mouth). */
-const LEAD = {
+/**
+ * Lead offsets in SCREEN px (so the finger never covers the mouth).
+ * Exported because the dev harness has to aim the MOUTH at a target, which
+ * means offsetting the finger by `up` AND by the mouth offset below.
+ */
+export const LEAD = {
   portrait: { up: 92, ahead: 0, bodyBack: 124 },
   landscape: { up: 78, ahead: 36, bodyBack: 108 },
 };
+
+/**
+ * How far in front of the nozzle centre the mouth sits, in DESIGN px. The head
+ * points "up" when parked, so the mouth is this much further along dir.
+ */
+export const MOUTH_OFFSET = 22;
 
 const TUBE_SAMPLES = 34;
 
@@ -26,14 +36,21 @@ export class Vacuum {
     this.powerN = 0;           // 0..1 normalised
     this.load = 0;             // 0..1, debris currently in the flow
     this.time = 0;
-    this.gulp = 0;             // mouth squash when something goes in
+    this.gulpAmount = 0;       // mouth squash when something goes in
+    /**
+     * 0..1 blockage at the intake. The vacuum itself understands it: the
+     * motor pitch drops, the flow weakens and the head shakes. Debris that
+     * plugs the mouth (a sock, a jammed dust bunny) just sets it every frame.
+     */
+    this.clog = 0;
+    this._shakeX = 0; this._shakeY = 0;
 
     // gesture mirrors, so debris/scenes never need the Input object
     this.rub = 0; this.circle = 0; this.scrub = 0;
     this._lastHeadDirX = 0; this._lastHeadDirY = 0; this._scrubE = 0;
 
     // optional cone light, used by dark scenes (see src/core/light.js)
-    this.headlight = { on: false, r: 260, intensity: 1, cone: 0.5 };
+    this.headlight = { on: false, r: 260, intensity: 1, cone: 0.5, softness: 0 };
 
     this.hosePts = [ {x:0,y:0}, {x:0,y:0,vx:0,vy:0}, {x:0,y:0,vx:0,vy:0}, {x:0,y:0} ];
     this._tube = [ {x:0,y:0}, this.hosePts[0], this.hosePts[1], this.hosePts[2], this.hosePts[3], {x:0,y:0} ];
@@ -74,7 +91,7 @@ export class Vacuum {
       this.hosePts[i].vx = 0; this.hosePts[i].vy = 0;
     }
     this.transits.length = 0;
-    this.power = 1; this.powerN = 0; this.gulp = 0;
+    this.power = 1; this.powerN = 0; this.gulpAmount = 0; this.clog = 0;
   }
 
   clearCup() { this.cup.length = 0; this.cupCols.fill(0); }
@@ -94,7 +111,16 @@ export class Vacuum {
     const tau = target > this.power ? 0.3 : 0.45;
     this.power += (target - this.power) * (1 - Math.exp(-dt / (tau / 3)));
     this.powerN = clamp((this.power - 1) / (this.MAXP - 1), 0, 1);
-    this.gulp *= Math.exp(-dt / 0.045);
+    this.gulpAmount *= Math.exp(-dt / 0.045);
+    // whatever is plugging the mouth re-asserts `clog` every frame; left alone
+    // it clears itself quickly, so nothing can forget to switch it off
+    this.clog = clamp(this.clog * Math.exp(-dt / 0.09), 0, 1);
+    // a clogged head judders: the motor is working and nothing is moving
+    if (this.clog > 0.01) {
+      const a = this.clog * 2.6;
+      this._shakeX = Math.sin(this.time * 61) * a;
+      this._shakeY = Math.cos(this.time * 47.3) * a;
+    } else { this._shakeX = 0; this._shakeY = 0; }
 
     // --- follow the finger with a lead offset ---
     const L = LEAD[this.pose] || LEAD.portrait;
@@ -186,12 +212,14 @@ export class Vacuum {
     this.cupPhase = this.time * (7 + this.powerN * 7);
     this._updateMotes(dt, cam);
 
-    if (this.audio) this.audio.setMotor(this.power, this.load);
+    if (this.audio) this.audio.setMotor(this.power, this.load, this.clog);
   }
 
-  get mouthX() { return this.nozzle.x + this.dirX * 22; }
-  get mouthY() { return this.nozzle.y + this.dirY * 22; }
+  get mouthX() { return this.nozzle.x + this.dirX * MOUTH_OFFSET; }
+  get mouthY() { return this.nozzle.y + this.dirY * MOUTH_OFFSET; }
   get radius() { return 138 * (0.8 + 0.3 * this.powerN); }
+  /** A blocked intake moves less air. 1 = clear, 0.25 = fully plugged. */
+  get flowScale() { return 1 - 0.75 * this.clog; }
 
   /** Current mouth position and facing, for debris that feeds itself in. */
   mouth() {
@@ -221,7 +249,7 @@ export class Vacuum {
     // what changes the world, not hovering vaguely nearby
     const q = 1 + dd * dd;
     const falloff = 1 / (q * q);
-    const s = this.power * falloff * cone;
+    const s = this.power * this.flowScale * falloff * cone;
     out.strength = s;
     out.fx = ux * s;
     out.fy = uy * s;
@@ -270,8 +298,14 @@ export class Vacuum {
    *     the tail stays outside the mouth until its turn, so you see the whole
    *     thing run in head-first.
    */
-  transit(item) {
-    this.gulp = 1;
+  /** Squash the mouth, as if something just went in. */
+  gulp(amount = 1) {
+    if (amount > this.gulpAmount) this.gulpAmount = clamp(amount, 0, 1);
+    return this.gulpAmount;
+  }
+
+  transit(item, dur) {
+    this.gulp(1);
     let it;
     if (item.kind === 'strand' && item.points && item.points.length > 1) {
       const pts = item.points.map((p) => ({ x: p.x, y: p.y, s: 0 }));
@@ -293,11 +327,47 @@ export class Vacuum {
         x: this.mouthX, y: this.mouthY,
       };
     }
+    if (dur !== undefined && dur > 0) it.dur = dur;
     this.transits.push(it);
     if (this.audio) {
       const k = item.kind === 'crumb' ? 'tick' : item.kind === 'wisp' ? 'tick' : 'pop';
       this.audio.pop(k, item.kind === 'wisp' ? 0.35 : item.kind === 'crumb' ? 0.6 : 1);
     }
+    return it;
+  }
+
+  /** Put something straight into the cup, with no tube ride. */
+  addToCup(item) {
+    this._land({
+      kind: item.kind || 'fluff', color: item.color || '#cfc6b8',
+      size: item.size === undefined ? 8 : item.size, seed: this._seed(),
+    });
+    return this.cup[this.cup.length - 1];
+  }
+
+  /**
+   * Tip the cup out. Returns the contents with WORLD coordinates filled in
+   * (`wx`, `wy`), so a scene can keep animating them after the cup is clear.
+   */
+  emptyCup() {
+    const a = this.bodyAngle + Math.PI / 2;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const out = this.cup.map((c) => ({
+      x: c.x, y: c.y, r: c.r, kind: c.kind, color: c.color, seed: c.seed, rot: c.rot,
+      wx: this.body.x + c.x * ca - c.y * sa,
+      wy: this.body.y + c.x * sa + c.y * ca,
+    }));
+    this.clearCup();
+    return out;
+  }
+
+  /** Cup-local point -> world. The finale pour needs this every frame. */
+  cupToWorld(lx, ly, out) {
+    const a = this.bodyAngle + Math.PI / 2;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    out.x = this.body.x + lx * ca - ly * sa;
+    out.y = this.body.y + lx * sa + ly * ca;
+    return out;
   }
 
   _seed() { return (this.rng ? this.rng.next() : Math.random()) * 100; }
@@ -517,9 +587,9 @@ export class Vacuum {
 
   _drawHead(ctx) {
     const ang = Math.atan2(this.dirY, this.dirX);
-    const g = this.gulp;
+    const g = this.gulpAmount;
     ctx.save();
-    ctx.translate(this.nozzle.x, this.nozzle.y);
+    ctx.translate(this.nozzle.x + this._shakeX, this.nozzle.y + this._shakeY);
     ctx.rotate(ang);
     ctx.scale(1 + 0.12 * g, 1 - 0.1 * g);      // the mouth gulps when it swallows
     // neck
@@ -564,6 +634,7 @@ export class Vacuum {
       power: +this.power.toFixed(3), radius: Math.round(this.radius),
       rub: +this.rub.toFixed(2), circle: +this.circle.toFixed(2), scrub: +this.scrub.toFixed(2),
       transits: this.transits.length, cup: this.cup.length,
+      clog: +this.clog.toFixed(2), gulp: +this.gulpAmount.toFixed(2),
     };
   }
 }

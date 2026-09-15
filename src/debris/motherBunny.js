@@ -61,6 +61,9 @@ export class MotherBunny extends DustBunny {
         this.squash = 0;
       } else {
         this.state = State.CAPTURED;          // for the dev overlay
+        // plastered across the intake: the machine bogs down and shakes
+        const jam = clamp(this.grip, 0, 1) * 0.85;
+        if (jam > vac.clog) vac.clog = jam;
         const m = vac.mouth();
         // sit ON the face of the nozzle, not inside it: it is the biggest
         // thing on screen and it has to be seen straining

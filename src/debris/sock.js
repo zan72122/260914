@@ -56,6 +56,15 @@ export class Sock extends Debris {
     this.gulped = false;
   }
   get type() { return 'sock'; }
+  translate(dx, dy) {
+    super.translate(dx, dy);
+    for (let i = 0; i < this.n; i++) {
+      this.nx[i] += dx; this.ny[i] += dy;
+      this.rhx[i] += dx; this.rhy[i] += dy;
+    }
+  }
+  /** The toe: that is the end that peels up and goes in first. */
+  aim(out) { out = out || { x: 0, y: 0 }; out.x = this.nx[0]; out.y = this.ny[0]; return out; }
 
   _sample(vac, i) { return vac.field(this.nx[i], this.ny[i], TMPF); }
 
@@ -155,6 +164,9 @@ export class Sock extends Debris {
     this.clogT += dt;
     const u = clamp(this.clogT / CLOG_DUR, 0, 1);
     this.clogAmount = u < 0.82 ? smoothstep(0, 0.18, u) : 1 - smoothstep(0.82, 1, u);
+    // the vacuum itself understands a blocked intake: pitch drops, the flow
+    // weakens, the head judders. Nothing has to poke at the audio graph.
+    if (this.clogAmount > vac.clog) vac.clog = this.clogAmount;
     const m = vac.mouth();
     const px = -m.dirY, py = m.dirX;
     const n = this.n;
