@@ -4,6 +4,8 @@ import * as THREE from 'three';
 export const EDGE_IGNORE_PX = 16;
 /** 12px 以上動いたらタップではない(5.1) */
 export const TAP_SLOP_PX = 12;
+/** 2 点の距離がこの倍率を超えたらピンチとみなす(5.1: 判定は緩め) */
+export const PINCH_RATIO = 1.2;
 
 export interface TapTargets {
   /** 当たり判定に使う見えない板。userData.toolIndex を持つ */
@@ -17,10 +19,16 @@ export interface TouchHandlers {
   onPressEnd(toolIndex: number): void;
   /** タップ確定(pointerup、5.1) */
   onTap(toolIndex: number): void;
-  /** 盤面の外側(海・隣の島)のタップ。M4 で地図へ戻る操作になる */
+  /** 盤面の外側(海・隣の島)のタップ。地図へ戻る操作(5.1) */
   onOutsideTap?(): void;
+  /** 2 本指ピンチアウト。ズームアウト = 地図へ戻る(5.1) */
+  onPinchOut?(): void;
+  /** 2 本指ピンチイン。地図画面で島に寄る(5.1) */
+  onPinchIn?(): void;
   /** 最初の入力。AudioContext の resume 契機(R1) */
   onFirstInput?(): void;
+  /** タップを受け付けない状態か(回転アニメ中など、4.2 T1) */
+  locked?(): boolean;
 }
 
 export interface TouchInput {
@@ -41,6 +49,11 @@ export function attachTouchInput(
   let startY = 0;
   let pressedTool: number | undefined;
   let firstInputDone = false;
+
+  /** ピンチ検出用(5.1: pointer イベントを自前で処理して 2 点の距離変化を追う) */
+  const points = new Map<number, { x: number; y: number }>();
+  let pinchStart = 0;
+  let pinchFired = false;
 
   function pick(clientX: number, clientY: number): number | undefined {
     const rect = dom.getBoundingClientRect();
@@ -70,13 +83,28 @@ export function attachTouchInput(
     activeId = undefined;
   }
 
+  function pinchDistance(): number {
+    const it = [...points.values()];
+    const a = it[0];
+    const b = it[1];
+    if (!a || !b) return 0;
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
   const onDown = (e: PointerEvent): void => {
     if (!firstInputDone) {
       firstInputDone = true;
       handlers.onFirstInput?.();
     }
+    points.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (points.size >= 2) {
+      // 2 本目の指が触れた。ここからはピンチとして扱い、タップは取り消す
+      cancel();
+      pinchStart = pinchDistance();
+      pinchFired = false;
+      return;
+    }
     if (activeId !== undefined) {
-      // 2 本目の指。ピンチは M4 で扱う。現時点ではタップを取り消すだけ
       cancel();
       return;
     }
@@ -84,6 +112,7 @@ export function attachTouchInput(
     activeId = e.pointerId;
     startX = e.clientX;
     startY = e.clientY;
+    if (handlers.locked?.()) return;
     const idx = pick(e.clientX, e.clientY);
     if (idx !== undefined) {
       pressedTool = idx;
@@ -92,6 +121,25 @@ export function attachTouchInput(
   };
 
   const onMove = (e: PointerEvent): void => {
+    const p = points.get(e.pointerId);
+    if (p) {
+      p.x = e.clientX;
+      p.y = e.clientY;
+    }
+    if (points.size >= 2) {
+      if (pinchFired || pinchStart <= 0) return;
+      const d = pinchDistance();
+      if (d <= 0) return;
+      const ratio = d / pinchStart;
+      if (ratio >= PINCH_RATIO) {
+        pinchFired = true;
+        handlers.onPinchOut?.();
+      } else if (ratio <= 1 / PINCH_RATIO) {
+        pinchFired = true;
+        handlers.onPinchIn?.();
+      }
+      return;
+    }
     if (e.pointerId !== activeId) return;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
@@ -99,6 +147,12 @@ export function attachTouchInput(
   };
 
   const onUp = (e: PointerEvent): void => {
+    const wasPinching = points.size >= 2;
+    points.delete(e.pointerId);
+    if (wasPinching) {
+      cancel();
+      return;
+    }
     if (e.pointerId !== activeId) return;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
@@ -107,12 +161,14 @@ export function attachTouchInput(
     cancel();
     if (moved) return;
     if (nearEdge(e.clientX, e.clientY)) return;
+    if (handlers.locked?.()) return;
     const idx = pick(e.clientX, e.clientY);
     if (idx !== undefined && idx === pressed) handlers.onTap(idx);
     else if (idx === undefined) handlers.onOutsideTap?.();
   };
 
   const onCancel = (e: PointerEvent): void => {
+    points.delete(e.pointerId);
     if (e.pointerId !== activeId) return;
     cancel();
   };

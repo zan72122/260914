@@ -7,7 +7,20 @@ import type { GameState, Vec2 } from '../core/types';
 import { buildBoard, buildTools, PALETTES, type Level } from '../levels/schema';
 import { attachTouchInput } from '../input/touch';
 import { resumeAudio } from '../audio/context';
-import { createStage, type Stage } from '../render/scene';
+import { startBgm } from '../audio/bgm';
+import {
+  playDestroy,
+  playExitIsland,
+  playFanfare,
+  playHorn,
+  playLift,
+  playMiss,
+  playRotate,
+  playSparkle,
+  startEngine,
+  stopEngine,
+} from '../audio/sfx';
+import { createStage, CAMERA_SECONDS, type Stage } from '../render/scene';
 import {
   createTileMesh,
   createBlockProp,
@@ -17,12 +30,14 @@ import {
   updateTileMesh,
   STEP_HEIGHT,
   TILE_THICKNESS,
+  SLAB_SIZE,
 } from '../render/tileMesh';
 import { createToolOverlay, pressOverlay, pulseOverlay, type ToolOverlay } from '../render/overlay';
 import { createPathLine } from '../render/pathLine';
 import { createVehicle } from '../render/vehicle';
 import { createConfetti, createDebris, createDust } from '../render/fx';
-import { createGoalFlag, createSurroundings } from '../render/props';
+import { createBridgeRails, createGoalFlag, createPropField, createSurroundings, planProps } from '../render/props';
+import { railTexture } from '../render/textures';
 
 /** 経路が繋がってから発車するまでの溜め(4.4) */
 const LAUNCH_DELAY = 0.5;
@@ -30,6 +45,10 @@ const LAUNCH_DELAY = 0.5;
 const HINT_IDLE = 6;
 /** タイルの上下アニメ(7.4: 0.30s ease-in-out + 着地時に微バウンス) */
 const LIFT_DURATION = 0.3;
+/** タイルの回転アニメ(7.4: 0.25s ease-out)。この間は入力を受け付けない(4.2 T1) */
+const ROTATE_DURATION = 0.25;
+/** クリア後、自動で地図へ戻るまでの猶予(3.4: その間のタップで留まれる) */
+const AUTO_EXIT_DELAY = 2;
 
 /** ease-in-out + 着地の微バウンス */
 function liftEase(p: number): number {
@@ -37,6 +56,11 @@ function liftEase(p: number): number {
   if (p <= 0.7) return e;
   // 行き過ぎてから戻る小さな跳ね返り
   return e + Math.sin(((p - 0.7) / 0.3) * Math.PI) * 0.07;
+}
+
+/** ease-out(7.4: 回転) */
+function easeOut(p: number): number {
+  return 1 - Math.pow(1 - p, 3);
 }
 
 /** デバッグ用に露出する読み取り口(E2E のタップ位置計算に使う) */
@@ -53,7 +77,12 @@ export interface PlayScreen {
   dispose(): void;
 }
 
-export function createPlayScreen(container: HTMLElement, level: Level): PlayScreen {
+export interface PlayOptions {
+  /** ピンチアウト / 盤外タップ / クリア後の自動で地図へ戻る(5.1) */
+  onExit?(cleared: boolean): void;
+}
+
+export function createPlayScreen(container: HTMLElement, level: Level, opts: PlayOptions = {}): PlayScreen {
   const palette = PALETTES[level.theme];
   const stage: Stage = createStage(container);
   stage.setPalette(palette);
@@ -62,13 +91,16 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
   const { w, h } = level.size;
   const idx = (x: number, y: number): number => y * w + x;
 
-  stage.root.add(createSurroundings(w, h, palette));
+  const surroundings = createSurroundings(w, h, palette);
+  stage.root.add(surroundings.group);
 
   // --- タイル ---
   const tileMeshes: THREE.Mesh[] = [];
   const blockProps: (THREE.Group | undefined)[] = [];
-  /** 回転アニメの目標角 */
-  const targetRotY: number[] = [];
+  /** 回転アニメ(0.25s ease-out) */
+  const rotFrom: number[] = [];
+  const rotTo: number[] = [];
+  const rotT: number[] = [];
   /** 上下アニメ。lift は 0..1 の連続値(0 = 低い、1 = 1 段高い) */
   const lift: number[] = [];
   const liftFrom: number[] = [];
@@ -85,7 +117,9 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
       setTileLift(mesh, tile.height);
       stage.root.add(mesh);
       tileMeshes.push(mesh);
-      targetRotY.push(mesh.rotation.y);
+      rotFrom.push(mesh.rotation.y);
+      rotTo.push(mesh.rotation.y);
+      rotT.push(-1);
       lift.push(tile.height);
       liftFrom.push(tile.height);
       liftTo.push(tile.height);
@@ -99,6 +133,14 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
       } else {
         blockProps.push(undefined);
       }
+
+      // 橋バリアント: 直線タイルに欄干と橋げたを立てる(6.3 の 9 面)
+      if (palette.bridge && tile.kind === 'straight') {
+        const rails = createBridgeRails(palette);
+        rails.position.set(x, topYOf(tile.height), y);
+        rails.rotation.y = -tile.rot * (Math.PI / 2);
+        stage.root.add(rails);
+      }
     }
   }
 
@@ -108,14 +150,51 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
     return lift[idx(c.x, c.y)] ?? 0;
   };
 
+  // --- 装飾(6.3 / 7.2)。当たり判定には含めない ---
+  const props = createPropField(planProps(level, state.board, palette), palette);
+  stage.root.add(props.group);
+
   // --- ゴールの旗 ---
   const goalPos = findTile(state.board, 'goal');
-  const flag = createGoalFlag();
+  const flag = createGoalFlag(palette);
   if (goalPos) {
     flag.position.set(goalPos.x, topYOf(liftAt(goalPos)), goalPos.y);
     stage.root.add(flag);
   } else {
     flag.visible = false;
+  }
+
+  // --- 待機中の列車の «尾» が盤外に浮かないよう、スタート手前に線路を 1 枚置く ---
+  const startPos = findTile(state.board, 'start');
+  if (startPos && level.vehicle === 'train') {
+    const startTile = tileAt(state.board, startPos);
+    // start は 1 方向にだけ繋がる。その逆側(= 列車が来た方向)に線路を伸ばす
+    const dir = startTile ? startTile.rot : 0;
+    const back = [
+      { dx: 0, dy: 1 },
+      { dx: -1, dy: 0 },
+      { dx: 0, dy: -1 },
+      { dx: 1, dy: 0 },
+    ][dir] ?? { dx: 0, dy: -1 };
+    const approach = new THREE.Mesh(
+      new THREE.BoxGeometry(SLAB_SIZE, TILE_THICKNESS, SLAB_SIZE),
+      [
+        new THREE.MeshLambertMaterial({ color: new THREE.Color(palette.ground).multiplyScalar(0.7) }),
+        new THREE.MeshLambertMaterial({ color: new THREE.Color(palette.ground).multiplyScalar(0.7) }),
+        new THREE.MeshLambertMaterial({ map: railTexture('straight', palette.road, palette.ground) }),
+        new THREE.MeshLambertMaterial({ color: new THREE.Color(palette.ground).multiplyScalar(0.55) }),
+        new THREE.MeshLambertMaterial({ color: new THREE.Color(palette.ground).multiplyScalar(0.7) }),
+        new THREE.MeshLambertMaterial({ color: new THREE.Color(palette.ground).multiplyScalar(0.7) }),
+      ],
+    );
+    approach.position.set(
+      startPos.x + back.dx,
+      topYOf(startTile?.height ?? 0) - TILE_THICKNESS / 2,
+      startPos.y + back.dy,
+    );
+    approach.rotation.y = back.dx !== 0 ? Math.PI / 2 : 0;
+    approach.receiveShadow = true;
+    stage.root.add(approach);
   }
 
   // --- 経路プレビュー線・乗り物・エフェクト ---
@@ -154,6 +233,8 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
     new THREE.Vector3(-0.5, 0, -0.5),
     new THREE.Vector3(w - 0.5, STEP_HEIGHT + TILE_THICKNESS + 0.6, h - 0.5),
   );
+  /** 地図へ引くときの枠(盤面の外まで見える) */
+  const outBox = box.clone().expandByScalar(Math.max(w, h) * 0.9);
   stage.fit(box);
 
   // --- ゲーム進行の状態 ---
@@ -164,8 +245,16 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
   let cleared = false;
   let hintActive = false;
   let hintReturnTimer = -1;
+  let autoExitTimer = -1;
+  let exiting = -1;
+  let driving = false;
   const pressAmount: number[] = state.tools.map(() => 0);
   const pressTarget: number[] = state.tools.map(() => 0);
+
+  function anyRotating(): boolean {
+    for (const t of rotT) if (t >= 0) return true;
+    return false;
+  }
 
   function startLift(i: number, to: number): void {
     liftFrom[i] = lift[i] ?? 0;
@@ -181,9 +270,18 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
         const mesh = tileMeshes[i]!;
         const prevRot = mesh.rotation.y;
         updateTileMesh(mesh, tile, palette, x, y);
-        targetRotY[i] = mesh.rotation.y;
-        // アニメーションで追いつかせるため、いったん元の角度に戻す
+        const target = mesh.rotation.y;
+        // 回転は 0.25s ease-out のトゥイーンで追いつかせる(7.4)
         mesh.rotation.y = prevRot;
+        if (Math.abs(target - prevRot) > 1e-6) {
+          let from = prevRot;
+          // 最短方向に回さず、必ず時計回りに見せる(3.3-(4): 回転方向は常に時計回り)
+          while (from < target) from += Math.PI * 2;
+          while (from - target >= Math.PI * 2) from -= Math.PI * 2;
+          rotFrom[i] = from;
+          rotTo[i] = target;
+          rotT[i] = 0;
+        }
         if (liftTo[i] !== tile.height) startLift(i, tile.height);
       }
     }
@@ -195,6 +293,8 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
     pathLine.update(state.board, result.path);
     vehicle.place(state.board, result.path);
     vehicle.setPuzzled(false);
+    driving = false;
+    stopEngine();
     if (connected && !previouslyConnected) {
       pathLine.startSweep(); // 繋がった瞬間、端から端へ光が流れる(3.3-(6))
       launchTimer = LAUNCH_DELAY;
@@ -204,15 +304,31 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
   }
 
   function onArrive(): void {
+    driving = false;
+    stopEngine();
     if (!connected || cleared) return;
     cleared = true;
     const gp = goalPos ?? { x: 0, y: 0 };
     confetti.burst(new THREE.Vector3(gp.x, topYOf(liftAt(gp)), gp.y));
+    playSparkle();
+    playFanfare();
     markCleared(level.id);
+    // 2 秒待って自動で地図へ戻る。その間のタップで留まれる(3.4)
+    autoExitTimer = AUTO_EXIT_DELAY;
+  }
+
+  function exitToMap(): void {
+    if (exiting >= 0) return;
+    if (!opts.onExit) return;
+    exiting = CAMERA_SECONDS;
+    autoExitTimer = -1;
+    stopEngine();
+    playExitIsland();
+    stage.animateFit(outBox, CAMERA_SECONDS);
   }
 
   /** 破壊の演出(4.2 T3): 破片が飛び、土煙が上がり、跡は空地になる */
-  function playDestroy(cells: readonly Vec2[], before: GameState): void {
+  function playDestroyFx(cells: readonly Vec2[], before: GameState): void {
     for (const c of cells) {
       const was = tileAt(before.board, c);
       const now = tileAt(state.board, c);
@@ -231,9 +347,11 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
 
   function tap(toolIndex: number): void {
     resumeAudio();
+    startBgm(level.theme);
     idleTimer = 0;
     hintActive = false;
     hintReturnTimer = -1;
+    autoExitTimer = -1; // クリア後のタップは «まだ見ていたい» の合図(3.4)
 
     const before = connected;
     const beforeState = state;
@@ -241,16 +359,28 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
     state = result.state;
     pressTarget[toolIndex] = 0;
 
-    if (!result.changed) return; // 「ぷにっと沈んで戻る」だけ(4.2 T3)
+    if (!result.changed) {
+      playMiss(); // 「ぷにっと沈んで戻る」だけ(4.2 T3)
+      stage.requestRender();
+      return;
+    }
 
     const tool = state.tools[toolIndex];
     cleared = false;
     refreshVisuals();
     updatePath(before);
 
-    if (tool?.kind === 'destroy') playDestroy(tool.cells, beforeState);
+    if (tool?.kind === 'rotate') playRotate();
+    if (tool?.kind === 'destroy') {
+      playDestroy();
+      playDestroyFx(tool.cells, beforeState);
+    }
     if (tool?.kind === 'raise') {
       // 持ち上げ時の土煙(4.2 T2)
+      const first = tool.cells[0];
+      const wasHigh = first ? (tileAt(beforeState.board, first)?.height ?? 0) : 0;
+      const nowHigh = first ? (tileAt(state.board, first)?.height ?? 0) : 0;
+      playLift(nowHigh > wasHigh);
       for (const c of tool.cells) dust.burst(new THREE.Vector3(c.x, topYOf(liftAt(c)), c.y));
     }
 
@@ -259,33 +389,54 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
       const ov = overlays[toolIndex];
       if (ov) ov.group.visible = false;
     }
+    stage.requestRender();
   }
 
   const input = attachTouchInput(stage.renderer.domElement, stage.camera, { objects: hitObjects }, {
     onPressStart(i) {
       pressTarget[i] = 1;
       idleTimer = 0;
+      autoExitTimer = -1;
+      stage.requestRender();
     },
     onPressEnd(i) {
       pressTarget[i] = 0;
+      stage.requestRender();
     },
     onTap: tap,
-    onFirstInput: resumeAudio,
+    // 盤面の外側(海・隣の島)をタップしても地図へ戻る(5.1)
+    onOutsideTap: exitToMap,
+    // 2 本指ピンチアウトが «戻る» の主操作(5.1)
+    onPinchOut: exitToMap,
+    onFirstInput() {
+      resumeAudio();
+      startBgm(level.theme);
+    },
+    // 回転アニメ中は入力を受け付けない(4.2 T1)
+    locked: () => anyRotating() || exiting >= 0,
   });
 
   updatePath(false);
 
   stage.onFrame((dt, t) => {
+    let busy = false;
+
     // タイルのアニメーション(7.4)
     for (let i = 0; i < tileMeshes.length; i++) {
       const mesh = tileMeshes[i]!;
-      const tr = targetRotY[i]!;
-      // 0.25s ease-out 相当の指数的な追従
-      const k = 1 - Math.pow(0.001, dt / 0.25);
-      let diff = tr - mesh.rotation.y;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      mesh.rotation.y += diff * k;
+
+      // 回転: 0.25s ease-out
+      const rt = rotT[i]!;
+      if (rt >= 0) {
+        const nt = rt + dt;
+        const p = Math.min(1, nt / ROTATE_DURATION);
+        const from = rotFrom[i]!;
+        const to = rotTo[i]!;
+        mesh.rotation.y = from + (to - from) * easeOut(p);
+        rotT[i] = p >= 1 ? -1 : nt;
+        if (p >= 1) mesh.rotation.y = to;
+        busy = true;
+      }
 
       // 上下: 0.30s の ease-in-out + 着地の微バウンス
       const et = liftT[i]!;
@@ -297,15 +448,15 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
         lift[i] = from + (to - from) * liftEase(p);
         liftT[i] = p >= 1 ? -1 : nt;
         if (p >= 1) lift[i] = to;
+        setTileLift(mesh, lift[i]!);
+        const prop = blockProps[i];
+        if (prop) prop.position.y = topYOf(lift[i]!);
+        busy = true;
       }
-      setTileLift(mesh, lift[i]!);
-
-      const prop = blockProps[i];
-      if (prop) prop.position.y = topYOf(lift[i]!);
     }
 
     // ツールのオーバーレイをタイルの高さに追従させる
-    for (const ov of overlays) ov.syncHeights(liftAt);
+    if (busy) for (const ov of overlays) ov.syncHeights(liftAt);
 
     // ゴールマーカーの上下(7.4: 2.0 秒周期、振幅 0.1)
     if (goalPos) {
@@ -320,6 +471,7 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
       const a = pressAmount[i] ?? 0;
       const target = pressTarget[i] ?? 0;
       const next = a + (target - a) * Math.min(1, dt * 18);
+      if (Math.abs(next - a) > 0.001) busy = true;
       pressAmount[i] = next;
       pressOverlay(ov, next);
     });
@@ -329,31 +481,41 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
     confetti.tick(dt);
     dust.tick(dt);
     debris.tick(dt);
+    if (props.tick(t)) busy = true;
+    if (surroundings.tick(dt)) busy = true;
+    if (vehicle.mode !== 'idle') busy = true;
 
     // 溜めてから発車(4.4)
     if (launchTimer > 0) {
       launchTimer -= dt;
+      busy = true;
       if (launchTimer <= 0) {
         launchTimer = -1;
+        driving = true;
+        startEngine(level.vehicle);
         vehicle.drive(onArrive);
       }
     }
 
     // 無操作ヒント(3.4)
-    if (!connected && !hintActive) {
+    if (!connected && !hintActive && exiting < 0) {
       idleTimer += dt;
       if (idleTimer >= HINT_IDLE) {
         idleTimer = 0;
         hintCount++;
         hintActive = true;
+        startEngine(level.vehicle);
         vehicle.drive(() => {
           vehicle.setPuzzled(true);
+          stopEngine();
+          playHorn(); // 首をかしげて短いクラクション 1 回(責める音にはしない)
           hintReturnTimer = 1.2;
         });
       }
     }
     if (hintReturnTimer > 0) {
       hintReturnTimer -= dt;
+      busy = true;
       if (hintReturnTimer <= 0) {
         hintReturnTimer = -1;
         vehicle.setPuzzled(false);
@@ -371,6 +533,30 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
         for (const m of ov.overlayMats) m.opacity = 0.12 + glow * 0.25;
       });
     }
+
+    // クリア後、2 秒待って自動で地図へズームアウト(3.4)
+    if (autoExitTimer > 0) {
+      autoExitTimer -= dt;
+      busy = true;
+      if (autoExitTimer <= 0) {
+        autoExitTimer = -1;
+        exitToMap();
+      }
+    }
+    if (exiting >= 0) {
+      exiting -= dt;
+      busy = true;
+      if (exiting <= 0) {
+        exiting = -1;
+        opts.onExit?.(cleared);
+        return;
+      }
+    }
+
+    if (driving) busy = true;
+    // オンデマンドレンダリング(R5)。明滅と旗の揺れしか無いときは低頻度でだけ描く
+    if (busy) stage.requestRender();
+    else stage.requestIdleRender();
   });
 
   stage.start();
@@ -401,6 +587,7 @@ export function createPlayScreen(container: HTMLElement, level: Level): PlayScre
   return {
     debug,
     dispose() {
+      stopEngine();
       input.dispose();
       stage.dispose();
     },
