@@ -33,6 +33,7 @@ export class BuriedItem extends Debris {
     this.rolling = false;
     this.cock = 0;
     this.charge = 0;
+    this.lx = 0; this.ly = 0;   // smoothed direction of the pull
     this.clack = 0;
     this._clackT = 0;
     this.hue = this.kind2 === 'marble'
@@ -50,10 +51,17 @@ export class BuriedItem extends Debris {
     const f = vac.field(this.x, this.y, TMPF);
     const s = f.strength;
     this.strength = s;
+    // which way the air is dragging it: the lean has to point at the nozzle,
+    // so the strain reads as suction and not as a random wobble
+    if (s > 1e-4) {
+      const k = 1 - Math.exp(-10 * dt);
+      this.lx += (f.fx / s - this.lx) * k;
+      this.ly += (f.fy / s - this.ly) * k;
+    }
 
     if (e < 0.999) {
       // still held in the sand: the flow can only make it shiver in its socket
-      this.rock += (smoothstep(0.1, 0.8, s) * e - this.rock) * (1 - Math.exp(-11 * dt));
+      this.rock += (smoothstep(0.08, 0.7, s) * e - this.rock) * (1 - Math.exp(-11 * dt));
       this.state = s > 0.08 && e > 0.05 ? State.REACTING : State.IDLE;
       return;
     }
@@ -67,8 +75,8 @@ export class BuriedItem extends Debris {
           // it does not fly in: it is knocked out of its hollow sideways and
           // rolls, curving into the mouth, clacking on the bare floor
           const side = this.rng.next() < 0.5 ? 1 : -1;
-          this.vx = f.fx * 30 - f.fy * 150 * side;
-          this.vy = f.fy * 30 + f.fx * 150 * side;
+          this.vx = f.fx * 46 - f.fy * 95 * side;
+          this.vy = f.fy * 46 + f.fx * 95 * side;
           this.spin = (this.rng.next() - 0.5) * 9;
           this.clack = 1;
           if (world && world.audio) world.audio.pop('tick', 0.8);
@@ -81,7 +89,7 @@ export class BuriedItem extends Debris {
       this.state = s > 0.06 ? State.REACTING : State.IDLE;
       if (s > BREAK) this.charge += (s - BREAK) * dt;
       else this.charge = Math.max(0, this.charge - dt * 0.45);
-      if (this.charge > 0.30) { this.cock = 0.1; this.state = State.REACTING; }
+      if (this.charge > 0.14) { this.cock = 0.09; this.state = State.REACTING; }
     } else {
       this.vx += f.fx * ACC * dt;
       this.vy += f.fy * ACC * dt;
@@ -104,7 +112,7 @@ export class BuriedItem extends Debris {
         // it ploughs a little furrow through whatever sand is left
         this.pile.hf.add(this.x, this.y, -Math.min(0.9, sp * 0.004));
       }
-      if (px === this.x && py === this.y && sp < 5) this.rolling = false;
+      if (sp < 7 && s < BREAK * 0.55) { this.rolling = false; this.vx = 0; this.vy = 0; this.charge = 0; }
     }
 
     if (f.inCapture) {
@@ -119,10 +127,13 @@ export class BuriedItem extends Debris {
     if (e <= 0.02) return;
     const r = this.r;
     const rk = this.rock * (this.rolling ? 0 : 1);
-    const wob = noise1(this.t * (5 + rk * 9) + this.seed) * rk;
-    const ang = this.rot + wob * 0.45;
-    const x = this.x + wob * 1.8 - (this.cock > 0 ? 3 : 0);
-    const y = this.y + noise1(this.t * 7 + this.seed + 4) * rk * 1.2;
+    // It strains TOWARD the mouth — a big lean along the pull, plus a fast
+    // tremble across it — and cocks back the other way just before it goes.
+    const wob = noise1(this.t * (6 + rk * 11) + this.seed) * rk;
+    const lean = rk * 7 * (0.55 + 0.45 * Math.sin(this.t * 13)) - (this.cock > 0 ? 7 : 0);
+    const ang = this.rot + (this.lx * rk) * 0.5 + wob * 0.35;
+    const x = this.x + this.lx * lean - this.ly * wob * 2.2;
+    const y = this.y + this.ly * lean + this.lx * wob * 2.2;
 
     ctx.save();
     // shadow only once it is really out of the sand

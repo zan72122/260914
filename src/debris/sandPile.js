@@ -6,21 +6,24 @@ import { clamp, TAU } from '../core/math.js';
 const TMPF = { fx: 0, fy: 0, strength: 0, inCapture: false, dist: 0 };
 
 /* ---- tuning (height units; one cell is ~7.5 design px wide) -------------- */
-const EAT = 6;         // units/s/cell swallowed inside the capture ellipse at strength 1
-const LIFT_S0 = 0.42;   // above this the flow lifts grain off the open surface
-const LIFT = 6.5;         // units/s/cell lifted per unit of strength above LIFT_S0
+const EAT = 5;          // units/s/cell swallowed inside the capture ellipse at strength 1
+const LIFT_S0 = 0.34;   // above this the flow lifts grain off the open surface
+const LIFT = 9;         // units/s/cell lifted off the open surface, and it
+const LIFT_CAP = 1.1;   // saturates: the bowl is broad and flat, not a spike
 const SHIM_S0 = 0.04;   // the faint shimmer starts this early
 const ROLL_S0 = 0.11;   // a grain leaves the surface and rolls from here
 const ROLL_GO = 0.52;   // a rolling grain is torn off the floor and flies in
-const GRAIN_MASS = 5.5; // units of drained sand each visible flying grain stands for
+const GRAIN_MASS = 2.6; // units of drained sand each visible flying grain stands for
 const ROLL_MASS = 2.4;  // units a surface grain takes with it
-const CUP_BATCH = 70;   // units per deposit in the dust cup
+const CUP_BATCH = 55;   // units per deposit in the dust cup (also the tube stream rate)
 const SLUMP_DIFF = 7.5; // height step between neighbours that makes a wall let go
 const RELAX_REPOSE = 0.62;
 const RELAX_RATE = 0.42;
 const MAXH = 30;
+const WAKE_DECAY = 1.3; // how long a cell keeps being scoured after the head passes
+const RIM = 4.2;        // slope (height per cell) at which a crater wall catches a hard edge
 
-const N_GRAINS = 190;
+const N_GRAINS = 280;
 
 /**
  * A pile of sand on a height field.
@@ -51,6 +54,7 @@ export class SandPile extends Debris {
     this.lo = opts.lo || '#e6d1a1';
     this.hi = opts.hi || '#f2e3bd';
     this.shim = new Float32Array(cols * rows);
+    this.wake = new Float32Array(cols * rows);
     this.mass0 = 1;
     this.cupDebt = 0;
     this.spawnDebt = 0;
@@ -58,7 +62,7 @@ export class SandPile extends Debris {
     this.slumps = 0;
     this._slumpT = 0;
     this._slumpCool = 0;
-    this.slumpFX = { t: 0, x: 0, y: 0, dx: 0, dy: 0 };
+    this.slumpFX = { t: 0, dur: 0.45, x: 0, y: 0, dx: 0, dy: 0, r: 20, run: 30 };
     this._sites = new Float32Array(32);   // ring buffer of recently eaten spots
     this._siteN = 0;
     this._trickle = 0;
@@ -92,6 +96,21 @@ export class SandPile extends Debris {
 
   /** Heap a smooth mound. */
   heap(x, y, r, amount) { this.hf.addRadial(x, y, r, amount); return this; }
+
+  /** Diffuse only the cells the airflow has been working (mass conserving). */
+  _smoothActive(k) {
+    const h = this.hf.h, d = this.hf._d, w = this.wake, C = this.cols, R = this.rows;
+    for (let y = 1; y < R - 1; y++) {
+      for (let x = 1; x < C - 1; x++) {
+        const i = y * C + x;
+        if (w[i] < 0.25) { d[i] = h[i]; continue; }
+        d[i] = h[i] + ((h[i - 1] + h[i + 1] + h[i - C] + h[i + C]) * 0.25 - h[i]) * k;
+      }
+    }
+    for (let y = 1; y < R - 1; y++) {
+      for (let x = 1; x < C - 1; x++) { const i = y * C + x; if (w[i] >= 0.25) h[i] = d[i]; }
+    }
+  }
 
   /** Blend the heaps into one mound so the lobes do not read as separate domes. */
   smooth(passes = 2, k = 0.4) {
@@ -152,7 +171,8 @@ export class SandPile extends Debris {
 
     // ---- shimmer memory decays everywhere, is refreshed where the air blows
     const decay = Math.exp(-3.4 * dt);
-    for (let i = 0; i < this.shim.length; i++) this.shim[i] *= decay;
+    const wdecay = Math.exp(-WAKE_DECAY * dt);
+    for (let i = 0; i < this.shim.length; i++) { this.shim[i] *= decay; this.wake[i] *= wdecay; }
 
     // ---- the cells under the airflow -------------------------------------
     // Empty cells cost nothing (the height test comes before the field sample),
@@ -181,9 +201,18 @@ export class SandPile extends Debris {
         if (s > this.shim[i]) this.shim[i] = s;
 
         if (hv < thin && s > 0.2) { taken += hv; h[i] = 0; continue; }
+        // The cell keeps being scoured for a moment after the head has moved
+        // on, so a moving head leaves a trough behind it instead of a hole that
+        // closes the instant it passes.
+        if (s > this.wake[i]) this.wake[i] = s;
+        const se = s > this.wake[i] * 0.80 ? s : this.wake[i] * 0.80;
         let take = 0;
         if (f.inCapture) take = EAT * s * dt;
-        else if (s > LIFT_S0) { take = LIFT * (s - LIFT_S0) * dt; lifted += take; }
+        else if (se > LIFT_S0) {
+          const ex = se - LIFT_S0;
+          take = LIFT * (ex < LIFT_CAP ? ex : LIFT_CAP) * dt;
+          lifted += take;
+        }
         if (take > 0) {
           if (take > hv) take = hv;
           h[i] = hv - take;
@@ -212,6 +241,10 @@ export class SandPile extends Debris {
 
     // ---- the walls slide in after the crater -----------------------------
     hf.relax(dt * RELAX_RATE, RELAX_REPOSE);
+    // Sand that the air has been working keeps a smooth surface: without this
+    // the per-cell erosion leaves grid noise, and noise makes the slope shading
+    // (which is what draws the crater) fire everywhere instead of on the walls.
+    this._smoothActive(clamp(dt * 9, 0, 0.35));
 
     // ---- and every so often a whole chunk lets go at once ----------------
     this._slumpCool -= dt;
@@ -392,10 +425,11 @@ export class SandPile extends Debris {
     hf.addRadial(wx + bdx * cw * 2.6, wy + bdy * ch * 2.6, dr, (moved * 0.76) / perUnit);
     this.slumps++;
     this._slumpCool = 0.52;
-    this.slumpFX.t = 0.5; this.slumpFX.x = wx; this.slumpFX.y = wy;
-    this.slumpFX.dx = bdx; this.slumpFX.dy = bdy;
-    const n = 7 + ((moved * 0.5) | 0);
-    for (let i = 0; i < Math.min(14, n); i++) {
+    const fx = this.slumpFX;
+    fx.t = fx.dur; fx.x = wx; fx.y = wy;
+    fx.dx = bdx; fx.dy = bdy; fx.r = rad * 1.25; fx.run = cw * 3.6;
+    const n = 22 + ((moved * 0.7) | 0);
+    for (let i = 0; i < Math.min(34, n); i++) {
       const p = this._grain();
       if (!p) break;
       p.on = 1; p.mode = 2;
@@ -407,9 +441,9 @@ export class SandPile extends Debris {
       p.life = 1.5; p.m = moved * 0.02; p.c = this.rng.int(0, 2);
       p.rot = this.rng.range(0, TAU); p.spin = this.rng.range(-8, 8);
     }
-    if (sctx && sctx.camera) sctx.camera.kick(2.6);
+    if (sctx && sctx.camera) sctx.camera.kick(3.4);
     const audio = world && world.audio;
-    if (audio) audio.pop('whoosh', 0.3);
+    if (audio) audio.pop('whoosh', 0.45);
   }
 
   // --------------------------------------------------------------- render
@@ -442,11 +476,29 @@ export class SandPile extends Debris {
         if (v <= 0.02) { d[o + 3] = 0; continue; }
         any = true;
         const k = v > MAXH ? 1 : v / MAXH;
-        // light from the top-left: the crater wall facing away goes dark
-        const gx = (x > 0 ? h[i - 1] : 0) - v;
-        const gy = (y > 0 ? h[i - C] : 0) - v;
-        let sh = 1 + (gx + gy) * 0.075;
-        if (sh < 0.56) sh = 0.56; else if (sh > 1.28) sh = 1.28;
+        // Real slope shading from a central difference, hard enough that a pit
+        // reads AS a pit: light from the top-left, the far wall of the crater in
+        // shadow, a bright lip where the wall crests, and the floor of the bowl
+        // sunk in its own ambient occlusion.
+        const hl = x > 0 ? h[i - 1] : v, hr = x < C - 1 ? h[i + 1] : v;
+        const hu = y > 0 ? h[i - C] : v, hd = y < R - 1 ? h[i + C] : v;
+        const gx = hl - hr, gy = hu - hd;
+        // The light comes from the top-left, like every other shadow in the
+        // scene, so a face that FALLS toward the top-left is the one that is
+        // lit; the far wall of a crater turns away and goes into shadow.
+        const lit = -(gx + gy);
+        // The pile's own dome is gently curved and must stay warm, so the
+        // shading is deliberately non-linear: soft everywhere, then hard once a
+        // slope is steep enough to be a crater WALL.
+        let sh = 1 + lit * 0.050;
+        const amb = (hl + hr + hu + hd) * 0.25 - v;
+        if (amb > 1.2) sh -= (amb - 1.2 > 5 ? 5 : amb - 1.2) * 0.045;   // in the hollow
+        const slope = (gx < 0 ? -gx : gx) + (gy < 0 ? -gy : gy);
+        if (slope > RIM) {
+          const w = slope - RIM > 4 ? 1 : (slope - RIM) / 4;
+          sh += (lit > 0 ? 0.34 : -0.27) * w;
+        }
+        if (sh < 0.70) sh = 0.70; else if (sh > 1.52) sh = 1.52;
         const sm = this.shim[i];
         if (sm > SHIM_S0) {
           // fine ripples running in toward the mouth: the air is already moving
@@ -454,16 +506,17 @@ export class SandPile extends Debris {
           const dd = Math.sqrt(ax * ax + ay * ay);
           sh += Math.sin(t * 16 - dd * 1.15) * 0.065 * Math.min(1, sm * 7);
         }
-        // thin sand at the edge sits in its own shadow: the pile gets an edge
-        const e = v < 2.5 ? 0.60 + 0.40 * v * 0.4 : 1;
-        const q = sh * e;
-        let r = (198 + 46 * k) * q;
-        let g = (170 + 46 * k) * q;
-        let b = (112 + 50 * k) * q;
+        // Sand is sand: colour must NOT fall off with depth, or a drained pile
+        // goes olive everywhere except its peak. Only the slope shades it.
+        let r = (226 + 18 * k) * sh;
+        let g = (198 + 18 * k) * sh;
+        let b = (143 + 20 * k) * sh;
         d[o] = r > 255 ? 255 : r;
         d[o + 1] = g > 255 ? 255 : g;
         d[o + 2] = b > 255 ? 255 : b;
-        const a = v * 230;
+        // Sand covers or it does not. A long translucent ramp over the dark mat
+        // just reads as mud, and it blurs the moment the pattern comes through.
+        const a = v * 470;
         d[o + 3] = a > 255 ? 255 : a;
       }
     }
@@ -482,16 +535,41 @@ export class SandPile extends Debris {
     this._drawGrains(ctx);
   }
 
+  /** A whole chunk of wall coming away: you see the block slide, not a puff. */
   _drawSlumpFX(ctx) {
     const s = this.slumpFX;
     if (s.t <= 0) return;
-    const u = 1 - s.t / 0.5;
+    const u = 1 - s.t / s.dur;
+    const e = u * (2 - u);                     // eases out: it lets go, then settles
+    const cx = s.x + s.dx * s.run * e, cy = s.y + s.dy * s.run * e;
+    const r = s.r;
     ctx.save();
+    // the scar it left on the wall behind it
     ctx.globalAlpha = 0.5 * (1 - u);
-    ctx.fillStyle = '#efe0bb';
-    const rr = 12 + u * 46;
+    ctx.fillStyle = 'rgba(96,72,36,1)';
     ctx.beginPath();
-    ctx.ellipse(s.x + s.dx * u * 22, s.y + s.dy * u * 22, rr, rr * 0.7, 0, 0, TAU);
+    ctx.ellipse(s.x - s.dx * 3, s.y - s.dy * 3, r * 1.05, r * 0.85, 0, 0, TAU);
+    ctx.fill();
+    // the chunk itself, with a dark edge on its uphill side
+    ctx.globalAlpha = 0.9 * (1 - u * u);
+    ctx.fillStyle = 'rgba(70,52,26,0.55)';
+    ctx.beginPath();
+    ctx.ellipse(cx - s.dx * 5 + 3, cy - s.dy * 5 + 4, r * 1.02, r * 0.8, 0, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = '#e6cf9c';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, r, r * 0.78, 0, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,248,222,0.6)';
+    ctx.beginPath();
+    ctx.ellipse(cx - r * 0.25, cy - r * 0.28, r * 0.5, r * 0.34, 0, 0, TAU);
+    ctx.fill();
+    // and the dust it throws up
+    ctx.globalAlpha = 0.42 * (1 - u);
+    ctx.fillStyle = '#f4e7c6';
+    const rr = r * (0.9 + u * 1.5);
+    ctx.beginPath();
+    ctx.ellipse(cx + s.dx * 10, cy + s.dy * 10, rr, rr * 0.72, 0, 0, TAU);
     ctx.fill();
     ctx.restore();
   }
@@ -503,14 +581,22 @@ export class SandPile extends Debris {
       const p = g[i];
       if (!p.on) continue;
       const sp = Math.hypot(p.vx, p.vy);
-      // a fast grain smears into a streak: you can see the stream move
-      if (sp > 150) {
-        ctx.strokeStyle = 'rgba(247,235,203,0.4)';
-        ctx.lineWidth = p.r * 1.5;
+      // a fast grain smears into a long bright streak: dozens of them pouring
+      // along the same lines is what makes the drain read as a rush of sand
+      if (sp > 80) {
+        const f = sp > 420 ? 1 : sp / 420;
         ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(210,175,110,' + (0.28 + 0.30 * f).toFixed(3) + ')';
+        ctx.lineWidth = p.r * 2.2;
         ctx.beginPath();
         ctx.moveTo(p.x, p.y);
-        ctx.lineTo(p.x - p.vx * 0.026, p.y - p.vy * 0.026);
+        ctx.lineTo(p.x - p.vx * 0.045, p.y - p.vy * 0.045);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,250,232,' + (0.42 + 0.45 * f).toFixed(3) + ')';
+        ctx.lineWidth = p.r * 1.0;
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x - p.vx * 0.032, p.y - p.vy * 0.032);
         ctx.stroke();
       } else if (p.mode !== 0) {
         ctx.fillStyle = 'rgba(70,55,30,0.22)';
