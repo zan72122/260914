@@ -62,7 +62,7 @@ export function createGirl() {
   head.castShadow = true;
   headGroup.add(head);
 
-  const face = new THREE.Mesh(new THREE.PlaneGeometry(0.46, 0.46), new THREE.MeshBasicMaterial({
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), new THREE.MeshBasicMaterial({
     map: T.girlFaceTexture(), transparent: true, depthWrite: false
   }));
   face.position.set(0, 0.26, 0.302);
@@ -71,9 +71,18 @@ export function createGirl() {
   // hair
   const hairMat = mat(0x3a2118, 0.95);
   const hair = new THREE.Group();
-  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.325, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.62), hairMat);
+  // the cap stops above the eyebrows - long bangs used to swallow her face
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.325, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.40), hairMat);
   cap.position.y = 0.26;
   hair.add(cap);
+  const fringe = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), hairMat);
+  fringe.scale.set(2.3, 0.6, 0.7);
+  fringe.position.set(0, 0.345, 0.25);
+  hair.add(fringe);
+  const backHair = new THREE.Mesh(
+    new THREE.SphereGeometry(0.33, 14, 10, Math.PI * 1.05, Math.PI * 0.9, 0, Math.PI * 0.72), hairMat);
+  backHair.position.y = 0.26;
+  hair.add(backHair);
   for (const s of [-1, 1]) {
     const tail = new THREE.Mesh(new THREE.CapsuleGeometry(0.1, 0.3, 3, 8), hairMat);
     tail.position.set(s * 0.29, 0.13, -0.05);
@@ -240,8 +249,9 @@ export function createGirl() {
   const rim = new THREE.PointLight(0xa8ccff, 3.2, 6.0, 2);
   rim.position.set(-0.9, 2.0, -1.2);
   root.add(rim);
-  const keyLight = new THREE.PointLight(0xffe0b8, 2.4, 6.5, 2);
-  keyLight.position.set(0.7, 1.8, 1.7);
+  // a soft fill in front of her face, so it reads whenever she turns to us
+  const keyLight = new THREE.PointLight(0xffe2bc, 1.5, 3.2, 2);
+  keyLight.position.set(0.1, 1.5, 1.15);
   root.add(keyLight);
 
   // sparkle ring (used during reveal)
@@ -271,6 +281,7 @@ export function createGirl() {
     lookAt: null,
     anim: null, animT: 0, animDur: 0,
     offer: 0, offerTarget: 0,
+    present: 0, presentTarget: 0,
     ringGlow: 0,
     onFootstep: null,
     bucketPulse: 0
@@ -307,6 +318,10 @@ export function resetGirl(g) {
   g.anim = null; g.animT = 0; g.animDur = 0;
   g.walkPhase = 0; g.t = 0;
   g.offer = 0; g.offerTarget = 0;
+  g.present = 0; g.presentTarget = 0;
+  g.bucketHolder.position.set(0, -0.5, 0.05);
+  g.bucketHolder.rotation.set(0, 0, 0);
+  g.bucket.scale.setScalar(1);
   g.ringGlow = 0; g.bucketPulse = 0; g.bucketHaloTarget = 0;
   g.lookAt = null;
   g.candyCount = 0;
@@ -347,27 +362,38 @@ export function updateGirl(g, dt, t) {
   // --- path following ---
   let moving = false;
   if (g.path) {
-    const target = g.path[g.pathI];
-    _tmp.copy(target).sub(g.pos); _tmp.y = 0;
-    const d = _tmp.length();
     const sp = 3.0 * (g.speedScale || 1);
     g.speed += (sp - g.speed) * Math.min(1, dt * 4);
-    const step = g.speed * dt;
-    if (d <= step + 0.12) {
-      // snap on arrival so a long frame can never make her orbit a waypoint
-      g.pos.copy(target); g.pos.y = 0;
-      g.pathI++;
-      if (g.pathI >= g.path.length) { g.path = null; }
+    // Spend the whole step, carrying what is left of it past each waypoint: a
+    // long frame then covers the same ground as many short ones.
+    let remain = g.speed * dt;
+    let guard = 0;
+    while (g.path && remain > 0 && guard++ < 32) {
+      const target = g.path[g.pathI];
+      _tmp.copy(target).sub(g.pos); _tmp.y = 0;
+      const d = _tmp.length();
+      if (d <= remain + 0.02) {
+        g.pos.copy(target); g.pos.y = 0;
+        remain -= d;
+        g.pathI++;
+        if (g.pathI >= g.path.length) g.path = null;
+      } else {
+        _tmp.normalize();
+        g.pos.addScaledVector(_tmp, remain);
+        remain = 0;
+      }
       moving = true;
-    } else {
-      _tmp.normalize();
-      g.pos.addScaledVector(_tmp, step);
-      const want = Math.atan2(_tmp.x, _tmp.z);
-      let diff = want - g.heading;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      g.heading += diff * Math.min(1, dt * 7);
-      moving = true;
+    }
+    if (g.path) {
+      _tmp.copy(g.path[g.pathI]).sub(g.pos); _tmp.y = 0;
+      if (_tmp.lengthSq() > 1e-6) {
+        _tmp.normalize();
+        const want = Math.atan2(_tmp.x, _tmp.z);
+        let diff = want - g.heading;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        g.heading += diff * Math.min(1, dt * 7);
+      }
     }
   }
   if (!moving) g.speed += (0 - g.speed) * Math.min(1, dt * 8);
@@ -459,6 +485,19 @@ export function updateGirl(g, dt, t) {
       g.arms[1].rotation.z = 0.12 + Math.sin(g.t * 1.6 + 1) * 0.02;
     }
 
+    // "here is my bucket": lifted to chest height in front, big and readable
+    g.present += ((g.presentTarget || 0) - g.present) * Math.min(1, dt * 4);
+    if (g.present > 0.002) {
+      const pr = g.present;
+      g.arms[0].rotation.x = g.arms[0].rotation.x * (1 - pr) + -1.45 * pr;
+      g.arms[0].rotation.z = g.arms[0].rotation.z * (1 - pr) + -0.34 * pr;
+      g.bucketHolder.rotation.x = 1.45 * pr;
+      g.bucketHolder.position.z = 0.05 + 0.06 * pr;
+    } else {
+      g.bucketHolder.rotation.x = 0;
+      g.bucketHolder.position.z = 0.05;
+    }
+
     // cape sway
     if (g.anim !== 'reveal') {
       for (let i = 0; i < g.cape.length; i++) {
@@ -484,7 +523,7 @@ export function updateGirl(g, dt, t) {
   const bh = g.bucketHaloTarget || 0;
   g.bucketHalo.material.opacity += ((bh * (0.4 + 0.35 * Math.sin(t * 5)) + g.bucketPulse * 0.5) - g.bucketHalo.material.opacity) * Math.min(1, dt * 6);
   g.bucket.rotation.z = bh * Math.sin(t * 11) * 0.09;
-  g.bucket.scale.setScalar(1 + g.bucketPulse * 0.12);
+  g.bucket.scale.setScalar((1 + g.bucketPulse * 0.12) * (1 + 0.38 * g.present));
 
   g.ringGlow = Math.max(0, g.ringGlow - dt * 1.1);
   g.ring.material.opacity = g.ringGlow * 0.85;
@@ -502,6 +541,7 @@ export function girlWorldPoint(g, which) {
   const v = new THREE.Vector3();
   if (which === 'bucket') g.bucket.getWorldPosition(v);
   else if (which === 'head') g.headMesh.getWorldPosition(v);
+  else if (which === 'hat') { g.head.getWorldPosition(v); v.y += 0.92; }
   else v.copy(g.pos).setY(1.0);
   return v;
 }
