@@ -14,6 +14,15 @@ import { LEAD } from '../vacuum/vacuum.js';
  *                       the way on. No UI, no text, ever.
  *   entry()             where the camera starts when this scene is entered
  *
+ * Optional hooks:
+ *   drawOver(ctx2d, cam)          drawn AFTER the vacuum: in front of the machine
+ *   saveProgress()/restoreProgress(p)  carry the player's progress across an
+ *                       orientation change (the default is index-based and is
+ *                       usually right; override with no-ops if the scene
+ *                       already rebuilds everything from `persist`)
+ *   lights(layer, cam, vac)       when `this.light` is a LightLayer
+ *   devFinish()                   finish instantly, for dev/shot.mjs --complete
+ *
  * Everything else (vacuum, field, transit, cup, harness) is core and must not
  * be modified to add a scene.
  */
