@@ -163,7 +163,10 @@ const CHECKS = {
     const full = await snapshot(page);
     check('the bucket is full', full.bucket.fill >= full.bucket.capacity,
       `${full.bucket.fill}/${full.bucket.capacity}`);
-    check('the blinking home lantern is on screen', !!full.target && full.target.screen.onScreen);
+    // the camera eases over to the blinking lantern that invites another go
+    const framed = await stepUntil(page,
+      '(s) => !!s.target && s.target.screen.onScreen', 400);
+    check('the blinking home lantern comes into frame', framed.ok, `${framed.steps} steps`);
     const t = await tapInvited(page);
     check('tap resolves to her own house', t.hit && t.hit.type === 'house' && t.hit.house === 0,
       JSON.stringify(t.hit || t.error));

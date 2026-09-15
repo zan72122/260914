@@ -501,6 +501,12 @@ export class Chain {
       if (this.seatedT > 4 && !this.restartReady) {
         this.restartReady = true;
         this.busy = false;
+        // frame the blinking lantern that invites another go
+        this.restartPoint = home.lanterns[0].getWorldPosition(new THREE.Vector3());
+        cam.setFocus(this.restartPoint, 0.75);
+        cam.zoom = 0.95;
+        cam.orbit = 0.25;
+        cam.eyeScale = 0.8;
         if (this.ctx.debug) console.log('[state] restart-ready');
       }
       if (this.restartReady) {
@@ -570,7 +576,8 @@ export class Chain {
       case 'BUCKET': return girlWorldPoint(this.ctx.girl, 'bucket');
       case 'ENDING':
         if (!this.restartReady) return null;
-        return this.ctx.world.houses[0].lanterns[0].getWorldPosition(new THREE.Vector3());
+        return (this.restartPoint ||
+          this.ctx.world.houses[0].lanterns[0].getWorldPosition(new THREE.Vector3())).clone();
       default: return null;
     }
   }
