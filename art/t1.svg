@@ -73,8 +73,11 @@
       <path d="M252 404 q22 -30 44 -12" stroke="#c48b84" stroke-width="5" fill="none"/>
     </g>
 
+    <!-- R2: the blossom sits clear above the pot rim, so the butterfly can rest on
+         the rim below it without melting into the petals. The inner group carries
+         the offset because staging.js animates the transform of the outer one. -->
     <g data-layer="flower" opacity="0">
-      <g stroke="#46423a" stroke-width="6" stroke-linejoin="round">
+      <g transform="translate(0 -40)" stroke="#46423a" stroke-width="6" stroke-linejoin="round">
         <ellipse cx="270" cy="352" rx="34" ry="46" fill="#e0a49c"/>
         <ellipse cx="320" cy="388" rx="46" ry="32" fill="#d9958d" transform="rotate(18 320 388)"/>
         <ellipse cx="220" cy="388" rx="46" ry="32" fill="#d9958d" transform="rotate(-18 220 388)"/>

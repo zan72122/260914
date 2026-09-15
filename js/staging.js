@@ -7,6 +7,7 @@
 
 import { Tile, TILE_DEFS } from './tile.js';
 import { tween, fade, growFrom, rainLoop, wait, easeOutCubic, easeInOutCubic } from './fx.js';
+import { audio } from './audio.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -35,6 +36,7 @@ export async function stageP1(board) {
   const rainAbove = t2.layer('rain');
   const rainBelow = t1.layer('rain');
   if (rainBelow) rainBelow.style.opacity = '1';
+  audio.rain(2900);
   await Promise.all([
     rainLoop(rainAbove, 520, 900, 3),
     rainLoop(rainBelow, 600, 900, 3)
@@ -85,6 +87,7 @@ export async function stageP2(board) {
   // a band of light reaches out of the window and down to the pot
   const beam = t1.layer('beam');
   if (beam) {
+    audio.light();
     beam.style.opacity = '0';
     beam.setAttribute('transform', 'translate(620 300) scale(0.05) translate(-620 -300)');
     beam.style.opacity = '1';
@@ -135,8 +138,9 @@ export async function stageP3(board) {
   await fade(t1.layer('bud'), 1, 0, 500);
   const flower = t1.layer('flower');
   if (flower) {
+    audio.bloom();
     flower.style.opacity = '1';
-    await growFrom(flower, 270, 430, 1200, 0.12);
+    await growFrom(flower, 270, 392, 1200, 0.12);
   }
 }
 
@@ -146,11 +150,13 @@ async function flyButterfly(board) {
   const t4 = board.tiles.get('T4');
   const wing = t4 && t4.layer('butterfly');
   const start = svgToBoard(board, 'T4', 640, 518);
-  const end = svgToBoard(board, 'T1', 276, 392);
+  // R2: it settles on the rim of the pot, below and to the right of the blossom,
+  // where its orange wings never sit on the pink petals.
+  const end = svgToBoard(board, 'T1', 272, 562);
   if (!fxEl || !wing || !start || !end) return;
 
   const flyer = document.createElementNS(SVG_NS, 'svg');
-  flyer.setAttribute('class', 'flyer');
+  flyer.setAttribute('class', 'flyer butterfly-flyer');
   flyer.setAttribute('viewBox', '0 0 1000 1000');
   flyer.setAttribute('width', String(start.size));
   flyer.setAttribute('height', String(start.size));
@@ -166,20 +172,22 @@ async function flyButterfly(board) {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const lift = -start.size * 0.34;              // arc up through the window
+  const LAND = 0.85;                            // it folds down a little as it settles
   await tween(2200, (t) => {
     const x = dx * t;
     const y = dy * t + lift * Math.sin(Math.PI * t);
+    const sc = 1 - (1 - LAND) * t;
     const flap = 0.55 + 0.45 * Math.abs(Math.cos(t * 26));
-    flyer.style.transform = `translate(${x}px, ${y}px) scale(${flap}, 1)`;
+    flyer.style.transform = `translate(${x}px, ${y}px) scale(${flap * sc}, ${sc})`;
   }, easeInOutCubic);
 
-  // it settles on the bud and keeps breathing there through the ending
+  // it settles on the pot rim and keeps breathing there through the ending
   const rest = `translate(${dx}px, ${dy}px)`;
-  flyer.style.transform = rest;
+  flyer.style.transform = `${rest} scale(${LAND}, ${LAND})`;
   flyer.animate(
-    [{ transform: `${rest} scale(1, 1)` },
-     { transform: `${rest} scale(0.82, 1)` },
-     { transform: `${rest} scale(1, 1)` }],
+    [{ transform: `${rest} scale(${LAND}, ${LAND})` },
+     { transform: `${rest} scale(${LAND * 0.9}, ${LAND})` },
+     { transform: `${rest} scale(${LAND}, ${LAND})` }],
     { duration: 2600, iterations: Infinity, easing: 'ease-in-out' }
   );
 }
@@ -197,16 +205,81 @@ export async function stageEnding(board, restart) {
   for (const [id, tile] of board.tiles) {
     if (id === 'T2') tile.el.classList.add('fade-away');
   }
-  await wait(2600);
+
+  // R1: the sun leaves the window and climbs into the sky of the top row, so the
+  // four cells read as one picture instead of two pictures over two blanks.
+  await raiseSun(board);
+  await wait(1400);
 
   const seed = dropSeed(board, restart);
   if (!seed) return;
 }
 
+/** The sun rises out of T1's window and settles high in the top row. */
+async function raiseSun(board) {
+  const fxEl = document.getElementById('fx');
+  const from = svgToBoard(board, 'T1', 725, 290);
+  if (!fxEl || !from) return wait(1200);
+
+  const t3 = board.tiles.get('T3');
+  const b = board.boardEl.getBoundingClientRect();
+  const size = Math.max(90, from.size * 0.42);
+
+  const sun = document.createElementNS(SVG_NS, 'svg');
+  sun.setAttribute('class', 'flyer sun-rise');
+  sun.setAttribute('viewBox', '0 0 200 200');
+  sun.setAttribute('width', String(size));
+  sun.setAttribute('height', String(size));
+  sun.style.left = `${from.x - size / 2}px`;
+  sun.style.top = `${from.y - size / 2}px`;
+  const disc = document.createElementNS(SVG_NS, 'circle');
+  disc.setAttribute('cx', '100'); disc.setAttribute('cy', '100'); disc.setAttribute('r', '52');
+  disc.setAttribute('fill', '#f2c85c');
+  disc.setAttribute('stroke', '#46423a'); disc.setAttribute('stroke-width', '6');
+  const inner = document.createElementNS(SVG_NS, 'circle');
+  inner.setAttribute('cx', '100'); inner.setAttribute('cy', '100'); inner.setAttribute('r', '36');
+  inner.setAttribute('fill', 'none');
+  inner.setAttribute('stroke', '#e0b348'); inner.setAttribute('stroke-width', '3');
+  const rays = document.createElementNS(SVG_NS, 'g');
+  rays.setAttribute('stroke', '#46423a');
+  rays.setAttribute('stroke-width', '5');
+  rays.setAttribute('stroke-linecap', 'round');
+  const ray = document.createElementNS(SVG_NS, 'path');
+  ray.setAttribute('d', 'M100 26 V4 M100 174 V196 M26 100 H4 M174 100 H196 ' +
+                        'M48 48 L32 32 M152 152 L168 168 M152 48 L168 32 M48 152 L32 168');
+  rays.appendChild(ray);
+  sun.append(disc, inner, rays);
+  fxEl.appendChild(sun);
+
+  const toX = b.width * 0.70 - size / 2;
+  const toY = b.height * 0.13 - size / 2;
+  const dx = toX - (from.x - size / 2);
+  const dy = toY - (from.y - size / 2);
+
+  // the sun in the window goes with it
+  if (t3) fade(t3.layer('sun'), 1, 0, 1200);
+
+  await tween(2400, (t) => {
+    sun.style.transform = `translate(${dx * t}px, ${dy * t}px)`;
+    sun.style.opacity = String(Math.min(1, 0.2 + t * 1.6));
+  }, easeOutCubic);
+  sun.style.transform = `translate(${dx}px, ${dy}px)`;
+  sun.animate(
+    [{ transform: `translate(${dx}px, ${dy}px) scale(1)` },
+     { transform: `translate(${dx}px, ${dy}px) scale(1.04)` },
+     { transform: `translate(${dx}px, ${dy}px) scale(1)` }],
+    { duration: 5200, iterations: Infinity, easing: 'ease-in-out' }
+  );
+}
+
 function dropSeed(board, restart) {
   const fxEl = document.getElementById('fx');
-  const from = svgToBoard(board, 'T1', 276, 400);
-  if (!fxEl || !from) return null;
+  // it leaves the heart of the flower (which now sits 40 units higher, see art/t1.svg)
+  const from = svgToBoard(board, 'T1', 270, 372);
+  // R4: the floor in FRONT of the table - clear of both legs (x 118 / 470) and of
+  // the cross bar (y 800); the legs stop at y 884.
+  const to = svgToBoard(board, 'T1', 322, 900);
+  if (!fxEl || !from || !to) return null;
 
   const size = Math.max(72, from.size * 0.32);
   const svg = document.createElementNS(SVG_NS, 'svg');
@@ -231,16 +304,19 @@ function dropSeed(board, restart) {
   svg.append(hit, body, shine);
   fxEl.appendChild(svg);
 
-  // the seed drops from the flower and comes to rest low in the picture
-  const boardH = board.boardEl.getBoundingClientRect().height;
-  const fall = Math.max(60, boardH * 0.86 - from.y);
+  // the seed drops from the flower and comes to rest on the floor, in front of
+  // the table and beside its legs (R4). The pulse is kept.
+  const fall = Math.max(60, to.y - from.y);
+  const drift = to.x - from.x;
+  audio.seed();
   tween(1100, (t) => {
-    svg.style.transform = `translateY(${fall * t}px) rotate(${t * 40}deg)`;
+    svg.style.transform = `translate(${drift * t}px, ${fall * t}px) rotate(${t * 40}deg)`;
   }, easeOutCubic).then(() => {
+    const rest = `translate(${drift}px, ${fall}px)`;
     svg.animate(
-      [{ transform: `translateY(${fall}px) rotate(40deg) scale(1)` },
-       { transform: `translateY(${fall - 6}px) rotate(40deg) scale(1.08)` },
-       { transform: `translateY(${fall}px) rotate(40deg) scale(1)` }],
+      [{ transform: `${rest} rotate(40deg) scale(1)` },
+       { transform: `translate(${drift}px, ${fall - 6}px) rotate(40deg) scale(1.08)` },
+       { transform: `${rest} rotate(40deg) scale(1)` }],
       { duration: 1800, iterations: Infinity, easing: 'ease-in-out' }
     );
   });
@@ -253,4 +329,49 @@ function dropSeed(board, restart) {
   };
   svg.addEventListener('pointerdown', onTap, { passive: false });
   return svg;
+}
+
+
+/* ------------------------- restoring a saved game ------------------------- */
+
+/**
+ * Put the board straight into the state after `n` solved puzzles (docs/03.md F5).
+ * No animation, no sound: the child simply finds the world where they left it.
+ * Called on boot, before the PuzzleRunner exists, so no condition can re-fire.
+ */
+export function restoreTo(board, n) {
+  if (!n || n < 1) return;
+  const t1 = board.tiles.get('T1');
+  const t2 = board.tiles.get('T2');
+  const t4 = board.tiles.get('T4');
+  if (!t1 || !t2 || !t4) return;
+  const show = (name, v) => { const g = t1.layer(name); if (g) g.style.opacity = String(v); };
+
+  // after P1: the cloud has rained itself out above the room, the seed has sprouted,
+  // and the sun has taken the cell the cloud left behind.
+  board.moveTo('T2', 0, 0);
+  t2.setSaturated(false);
+  show('rain', 0);
+  show('soil-wet', 1);
+  show('seed', 0);
+  show('sprout', 1);
+  if (!board.tiles.get('T3') && board.isEmpty(1, 1)) {
+    const sun = new Tile(TILE_DEFS.T3);
+    sun.setSaturated(true);
+    board.add(sun, 1, 1);
+  }
+
+  // after P2: the sun is under the room, the light band is out and the bud is closed.
+  if (n >= 2) {
+    board.slideUnder('T3', 1, 0);
+    const beam = t1.layer('beam');
+    if (beam) {
+      beam.setAttribute('transform', 'translate(620 300) scale(1) translate(-620 -300)');
+      beam.style.opacity = '1';
+    }
+    show('bud', 1);
+    t4.setSaturated(true);
+  }
+
+  board.layout();
 }

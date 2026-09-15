@@ -6,6 +6,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="color-scheme" content="light">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#efe6d2">
+<link rel="icon" href="art/icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
@@ -66,6 +69,16 @@
     <div class="cell" data-r="0" data-c="1"></div>
     <div class="cell" data-r="1" data-c="0"></div>
     <div class="cell" data-r="1" data-c="1"></div>
+    <!-- R1: the ending sky behind the top row (gradient + two bird silhouettes) -->
+    <div id="sky" aria-hidden="true">
+      <svg class="birds birds-a" viewBox="0 0 200 60" fill="none" stroke="#6f7f8a" stroke-width="4" stroke-linecap="round">
+        <path d="M18 34 q16 -18 32 -2 q16 -16 32 2"/>
+        <path d="M104 20 q12 -14 24 -2 q12 -12 24 2"/>
+      </svg>
+      <svg class="birds birds-b" viewBox="0 0 200 60" fill="none" stroke="#7d8d96" stroke-width="4" stroke-linecap="round">
+        <path d="M60 30 q14 -16 28 -2 q14 -14 28 2"/>
+      </svg>
+    </div>
     <div id="tiles"></div>
     <div id="fx"></div>
     <div id="bloom"></div>
