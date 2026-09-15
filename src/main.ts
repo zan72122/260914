@@ -22,6 +22,9 @@ import createHide from './scenes/07_hide';
 import createBalloon from './scenes/08_balloon';
 import createTower from './scenes/09_tower';
 import createSleep from './scenes/10_sleep';
+import { SCENE_ORDER } from './scenes/order';
+import type { SceneName } from './scenes/order';
+import type { SceneFactory } from './core/director';
 
 async function boot(): Promise<void> {
   const host = document.getElementById('app') ?? document.body;
@@ -67,19 +70,24 @@ async function boot(): Promise<void> {
   // The whole loop, in the order §4 of the plan lays out. After scene 10 the
   // director wraps back round to scene 1, building it from scratch: the game
   // resets completely and starts again, for as long as anyone is playing.
+  //
+  // The sequence itself lives in `scenes/order.ts`; this is only the map from
+  // a name to the thing that builds it, so the order cannot drift out of step
+  // with what the tests check.
+  const factories: Record<SceneName, SceneFactory> = {
+    gather: createGather,
+    march: createMarch,
+    tickle: createTickle,
+    ballpit: createBallpit,
+    butterfly: createButterfly,
+    slide: createSlide,
+    hide: createHide,
+    balloon: createBalloon,
+    tower: createTower,
+    sleep: createSleep,
+  };
   const director = new Director(
-    [
-      createGather,
-      createMarch,
-      createTickle,
-      createBallpit,
-      createButterfly,
-      createSlide,
-      createHide,
-      createBalloon,
-      createTower,
-      createSleep,
-    ],
+    SCENE_ORDER.map((n) => factories[n]),
     { viewport, audio, sheet, props },
   );
   director.onSceneTint = (tint, seconds) => backdrop.fadeTo(tint, seconds);
@@ -124,7 +132,7 @@ async function boot(): Promise<void> {
     autoFired: () => director.autoAdvanceFired,
     advanceScene: () => director.advanceScene(),
     gotoScene: (index: number) => director.jumpTo(index),
-    sceneCount: () => 10,
+    sceneCount: () => SCENE_ORDER.length,
     finishScene: () => director.current?.finishNow(),
     idleHint: () => director.current?.onIdleHint(),
     autoAdvance: () => director.current?.onAutoAdvance(),

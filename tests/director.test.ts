@@ -7,6 +7,8 @@ import { Audio } from '../src/core/audio';
 import type { KidSheet } from '../src/art/kidSheet';
 import type { PropTextures } from '../src/art/props';
 import type { HandEvent } from '../src/core/input';
+import { SCENE_ORDER } from '../src/scenes/order';
+import { SCENE_TINTS } from '../src/art/palette';
 
 /** A scene that is done when told to be, and records what happened to it. */
 class StubScene extends Scene {
@@ -205,5 +207,76 @@ describe('director safety nets', () => {
     expect(made[0].hands).toBe(1);
     expect(made[1].hands).toBe(1);
     expect(made[1].handX + PAN_STEP).toBeCloseTo(made[0].handX, 6);
+  });
+});
+
+describe('the whole loop', () => {
+  it('runs the ten scenes of §4 in order and wraps back to the first', () => {
+    const { director, made } = makeDirector([...SCENE_ORDER]);
+    director.start();
+    const visited: string[] = [director.current!.name];
+    // Ten scenes finished in a row: the tenth wraps round to the first.
+    for (let i = 0; i < SCENE_ORDER.length; i++) {
+      (director.current as StubScene).done = true;
+      director.update(1 / 60);
+      run(director, PAN_SEC + 0.2);
+      visited.push(director.current!.name);
+    }
+    expect(visited).toEqual([...SCENE_ORDER, SCENE_ORDER[0]]);
+    expect(director.sceneIndex).toBe(0);
+    // Eleven scene objects were built; the ten that were left behind are gone.
+    expect(made.length).toBe(SCENE_ORDER.length + 1);
+    expect(made.filter((s) => s.exited === 1).length).toBe(SCENE_ORDER.length);
+    // The wrapped-to scene 1 is a brand new object: a complete reset (§10.3).
+    expect(made[SCENE_ORDER.length]).not.toBe(made[0]);
+    expect(made[SCENE_ORDER.length].entered).toBe(1);
+  });
+
+  it('is the order the plan asks for, and every scene has its own paper', () => {
+    expect(SCENE_ORDER).toEqual([
+      'gather',
+      'march',
+      'tickle',
+      'ballpit',
+      'butterfly',
+      'slide',
+      'hide',
+      'balloon',
+      'tower',
+      'sleep',
+    ]);
+    expect(SCENE_TINTS.length).toBe(SCENE_ORDER.length);
+    expect(new Set(SCENE_TINTS).size).toBeGreaterThan(SCENE_ORDER.length - 2);
+  });
+
+  it('gives every one of the ten its idle hint and its rescue', () => {
+    const { director, made } = makeDirector([...SCENE_ORDER]);
+    director.start();
+    for (let i = 0; i < SCENE_ORDER.length; i++) {
+      // Nobody touches anything for a full minute.
+      run(director, AUTO_ADVANCE_AFTER + 1);
+      expect(made[i].hints).toBe(1);
+      expect(made[i].autos).toBe(1);
+      (director.current as StubScene).done = true;
+      director.update(1 / 60);
+      run(director, PAN_SEC + 0.2);
+    }
+  });
+
+  it('never shows an empty screen: the camera step matches the pan', () => {
+    const { director } = makeDirector([...SCENE_ORDER]);
+    director.start();
+    let x = director.camera.x;
+    for (let i = 0; i < SCENE_ORDER.length; i++) {
+      (director.current as StubScene).done = true;
+      director.update(1 / 60);
+      // Mid-pan, both scenes are alive and the camera is between them.
+      run(director, PAN_SEC / 2);
+      expect(director.outgoing).not.toBe(null);
+      expect(director.camera.x).toBeGreaterThan(x);
+      expect(director.camera.x).toBeLessThan(x + PAN_STEP);
+      run(director, PAN_SEC / 2 + 0.2);
+      x = director.camera.x;
+    }
   });
 });

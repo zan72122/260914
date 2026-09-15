@@ -6,7 +6,12 @@
  */
 
 export const AWAKE = 0;
-export const ASLEEP = 1;
+/** Sitting up with both arms stretched over their head: a yawn. */
+export const YAWNING = 1;
+export const ASLEEP = 2;
+
+/** Seconds a kid spends yawning and stretching before they lie down. */
+export const YAWN_SEC = 0.55;
 
 /** How many kids one tap sends to sleep. */
 export const SLEEPERS_PER_TAP = 3;
@@ -35,6 +40,14 @@ export function mixColor(a: number, b: number, t: number): number {
 /** Twinkle brightness of a star, 0..1. */
 export function twinkle(time: number, phase: number): number {
   return 0.7 + 0.3 * Math.sin(time * 2.4 + phase);
+}
+
+/** 0..1 share of the crowd that is mid-yawn. */
+export function yawningFraction(states: readonly number[]): number {
+  if (states.length === 0) return 0;
+  let n = 0;
+  for (let i = 0; i < states.length; i++) if (states[i] === YAWNING) n++;
+  return n / states.length;
 }
 
 /** The completion condition of scene 10: everybody is asleep. */

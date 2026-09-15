@@ -18,12 +18,19 @@ export const POP_SEC = 0.5;
 /** How high the leap goes, in world units. */
 export const POP_LIFT = 150;
 
-/** Where bush `i` of `n` sits. A loose scatter, never a grid. */
+/**
+ * Where each bush sits. A loose scatter, never a grid.
+ *
+ * Every spot is chosen so the whole bush (BUSH_W x BUSH_H, centred here) stays
+ * inside the 1000-unit square safe zone: on an iPhone in portrait that square
+ * is exactly the visible world, and a bush with somebody in it that is half
+ * off the edge of the screen is a hiding place a child cannot find.
+ */
 export const BUSH_SPOTS: readonly (readonly [number, number])[] = [
-  [-330, -150],
+  [-320, -150],
   [40, -215],
-  [385, -120],
-  [-410, 95],
+  [355, -120],
+  [-350, 95],
   [-55, 40],
   [265, 105],
   [95, 285],

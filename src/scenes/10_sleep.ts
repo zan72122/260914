@@ -32,6 +32,8 @@ import { BGM_SLEEP } from '../core/audio';
 import {
   ASLEEP,
   AWAKE,
+  YAWNING,
+  YAWN_SEC,
   DAWN_SEC,
   MAX_STARS,
   MORNING_SEC,
@@ -59,6 +61,7 @@ export class SleepScene extends CrowdScene {
   private phase: Phase = 'night';
   private phaseTime = 0;
   private states: number[] = [];
+  private yawnT: number[] = [];
   private stars: Sprite[] = [];
   private starPhase: number[] = [];
   private starAge: number[] = [];
@@ -90,14 +93,17 @@ export class SleepScene extends CrowdScene {
       this.starAge.push(0);
     }
 
-    for (let i = 0; i < crowd.kids.length; i++) this.states.push(AWAKE);
+    for (let i = 0; i < crowd.kids.length; i++) {
+      this.states.push(AWAKE);
+      this.yawnT.push(0);
+    }
     this.fitToViewport();
     ctx.viewport.onChange(() => this.fitToViewport());
 
     // One star is already out...
     this.addStar(-260, -330);
     // ...and a couple of kids have already given up and gone to sleep.
-    for (let i = 0; i < ALREADY_ASLEEP; i++) this.sleep(i, false);
+    for (let i = 0; i < ALREADY_ASLEEP; i++) this.lieDown(i);
 
     ctx.audio.bgm.play(BGM_SLEEP);
   }
@@ -138,9 +144,28 @@ export class SleepScene extends CrowdScene {
     return best;
   }
 
-  /** One kid lies down and goes to sleep. */
+  /**
+   * One kid yawns. They stretch both arms over their head for YAWN_SEC and
+   * only then curl up — §4 row 10 asks for a yawn before the sleeping, and a
+   * 4-year-old reads the stretch as "sleepy" long before the lying down.
+   */
   private sleep(i: number, sound = true): boolean {
     if (this.states[i] !== AWAKE) return false;
+    const k = this.crowd.kids[i];
+    this.states[i] = YAWNING;
+    this.yawnT[i] = 0;
+    k.hasTarget = false;
+    k.vx = 0;
+    k.vy = 0;
+    k.locked = true;
+    // The two-arms-up drawing: the stretch at the top of a yawn.
+    k.setState('climb', true);
+    if (sound) this.ctx.audio.sfx.play('breath', { gain: 0.7, detune: (Math.random() - 0.5) * 300 });
+    return true;
+  }
+
+  /** The end of a yawn (or the start of the scene): curled up and asleep. */
+  private lieDown(i: number): void {
     const k = this.crowd.kids[i];
     this.states[i] = ASLEEP;
     k.hasTarget = false;
@@ -148,8 +173,6 @@ export class SleepScene extends CrowdScene {
     k.vy = 0;
     k.locked = true;
     k.setState('sleep', true);
-    if (sound) this.ctx.audio.sfx.play('breath', { gain: 0.7, detune: (Math.random() - 0.5) * 300 });
-    return true;
   }
 
   /** The `max` kids nearest to (x, y) who are still awake go to sleep. */
@@ -227,6 +250,12 @@ export class SleepScene extends CrowdScene {
           }
         }
       }
+      // Yawns run down into sleep.
+      for (let i = 0; i < this.states.length; i++) {
+        if (this.states[i] !== YAWNING) continue;
+        this.yawnT[i] += dt;
+        if (this.yawnT[i] >= YAWN_SEC) this.lieDown(i);
+      }
       // The awake ones potter about sleepily; nobody stands to attention.
       wander(this.crowd, this.time, dt, 12);
       // A soft breath from the sleeping ones, every few seconds.
@@ -284,7 +313,7 @@ export class SleepScene extends CrowdScene {
 
   override finishNow(): void {
     if (this.phase === 'night') {
-      for (let i = 0; i < this.states.length; i++) this.sleep(i, false);
+      for (let i = 0; i < this.states.length; i++) this.lieDown(i);
       this.phase = 'morning';
       this.phaseTime = 0;
       this.ctx.setTint(MORNING, DAWN_SEC);
@@ -320,10 +349,18 @@ export class SleepScene extends CrowdScene {
     return this.phase === 'done';
   }
 
+  /** Debug/e2e only: how many kids are asleep. */
+  debugAsleep(): number {
+    let n = 0;
+    for (let i = 0; i < this.states.length; i++) if (this.states[i] === ASLEEP) n++;
+    return n;
+  }
+
   override exit(): void {
     super.exit();
     this.stars.length = 0;
     this.states.length = 0;
+    this.yawnT.length = 0;
   }
 }
 
