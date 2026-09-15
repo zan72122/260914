@@ -96,20 +96,69 @@ export function makeGesture(name, opts) {
   return g(opts);
 }
 
-/** Lead offset (screen px) the nozzle is drawn ahead of the finger. */
-export const LEAD_PX = { portrait: 70, landscape: 60 };
+/**
+ * How far the MOUTH is ahead of the finger, in screen px.
+ *
+ * Two separate offsets, both of which the harness has to know about or it aims
+ * the middle of the head at the target instead of the mouth:
+ *   LEAD[pose].up   the head is drawn this far above the finger (screen px)
+ *   MOUTH_OFFSET    the mouth is this far in front of the head (DESIGN px, so
+ *                   it scales with the camera zoom)
+ * Both come straight from the vacuum, so they can never drift apart again.
+ */
+export { LEAD, MOUTH_OFFSET } from '../src/vacuum/vacuum.js';
+import { LEAD, MOUTH_OFFSET } from '../src/vacuum/vacuum.js';
+
+/** Screen-px offset from the finger to the mouth, for a given game state. */
+export function mouthLeadPx(state) {
+  const L = LEAD[state.pose] || LEAD.portrait;
+  const zoom = (state.camera && state.camera.zoom) || 1;
+  return L.up + MOUTH_OFFSET * zoom;
+}
 
 /**
  * Turn a debris selector into a finger destination, given a window.game.state()
  * dump. selector: 'auto' (first pending debris), an exact id ('bunny#3'), or a
- * type prefix ('crumb').
+ * type prefix ('crumb'). The returned point is where the FINGER goes so that
+ * the MOUTH lands on the debris' own aim point.
  */
 export function resolveTarget(state, selector = 'auto') {
-  const list = state.scene.debris.filter((d) => d.state !== 'in-cup');
+  const list = state.scene.debris.filter((d) => d.state !== 'in-cup' && !d.decor && !d.dormant);
   let d = null;
   if (!selector || selector === 'auto') d = list[0];
   else d = list.find((x) => x.id === selector) || list.find((x) => x.type === selector) || null;
   if (!d) return null;
-  const lead = (LEAD_PX[state.pose] || 70) / state.viewport.h;
-  return { x: d.nx, y: d.ny + lead, id: d.id };
+  return { x: d.nx, y: d.ny + mouthLeadPx(state) / state.viewport.h, id: d.id };
+}
+
+/**
+ * A waypoint path in normalized screen coords: [{x, y, hold}]. `seg` is the
+ * travel time between waypoints in ms and `hold` the dwell at each one. The
+ * finger goes down on the first point and stays down.
+ */
+export function makePath(points, opts = {}) {
+  const seg = opts.seg === undefined ? 700 : opts.seg;
+  const hold = opts.hold === undefined ? 0 : opts.hold;
+  const out = [];
+  if (!points.length) return out;
+  const p0 = points[0];
+  out.push({ t: 0, x: round(p0.x), y: round(p0.y), down: false });
+  let t = 40;
+  out.push({ t, x: round(p0.x), y: round(p0.y), down: true });
+  const dwell0 = p0.hold === undefined ? hold : p0.hold;
+  if (dwell0 > 0) { t += dwell0; out.push({ t, x: round(p0.x), y: round(p0.y), down: true }); }
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1], b = points[i];
+    const d = b.seg === undefined ? seg : b.seg;
+    const n = Math.max(1, Math.round(d / SAMPLE));
+    for (let k = 1; k <= n; k++) {
+      const u = ease(k / n);
+      out.push({ t: Math.round(t + (d * k) / n), x: round(mix(a.x, b.x, u)), y: round(mix(a.y, b.y, u)), down: true });
+    }
+    t += d;
+    const dwell = b.hold === undefined ? hold : b.hold;
+    if (dwell > 0) { t += dwell; out.push({ t: Math.round(t), x: round(b.x), y: round(b.y), down: true }); }
+  }
+  if (opts.release) out.push({ t: Math.round(t + 60), x: round(points[points.length - 1].x), y: round(points[points.length - 1].y), down: false });
+  return out;
 }

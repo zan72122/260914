@@ -16,7 +16,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startServer } from './serve.mjs';
-import { makeGesture, resolveTarget, gestureNames } from './gestures.mjs';
+import { makeGesture, makePath, resolveTarget, gestureNames } from './gestures.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OUT = join(ROOT, 'dev', 'out');
@@ -69,9 +69,11 @@ async function main() {
   const skip = parseInt(a.skip || '0', 10);   // ms of simulated time before the first frame
   const dim = DEVICES[deviceName];
   if (!dim) throw new Error('unknown device: ' + deviceName + ' (' + Object.keys(DEVICES).join(', ') + ')');
-  if (!gestureNames().includes(gestureName)) throw new Error('unknown gesture ' + gestureName + ' (' + gestureNames().join(', ') + ')');
+  if (!a.path && !gestureNames().includes(gestureName)) {
+    throw new Error('unknown gesture ' + gestureName + ' (' + gestureNames().join(', ') + ')');
+  }
 
-  const dirName = a.out || `${sceneId}-${deviceName}-${gestureName}`;
+  const dirName = a.out || (a.path ? `${sceneId}-${deviceName}-path` : `${sceneId}-${deviceName}-${gestureName}`);
   const dir = join(OUT, dirName);
   await rm(dir, { recursive: true, force: true });
   await mkdir(dir, { recursive: true });
@@ -94,16 +96,37 @@ async function main() {
   await page.evaluate(() => { window.game.pause(); window.game.step(0.25); });
 
   if (a.complete) {
-    // preview the completion camera move without playing the whole scene
+    // preview the completion camera move without playing the whole scene:
+    // the scene's own devFinish() if it has one (it knows what "finished"
+    // means for its floor and its finale), otherwise just empty the room
     await page.evaluate(() => {
       const sc = window.game._g.scene;
+      if (typeof sc.devFinish === 'function') { sc.devFinish(); return; }
       sc.debris.forEach((d) => { d.dormant = false; d.state = 'in-cup'; });
     });
   }
+  if (a.exec) {
+    // arbitrary setup in the page before the first frame: move something, flip
+    // a flag, jump a phase. `game`, `scene` and `vac` are in scope.
+    await page.evaluate((src) => {
+      const game = window.game, scene = game._g.scene, vac = game._g.vacuum;
+      // eslint-disable-next-line no-new-func
+      return new Function('game', 'scene', 'vac', src)(game, scene, vac);
+    }, String(a.exec));
+  }
   const state0 = await page.evaluate(() => window.game.state());
   const tgt = resolveTarget(state0, target);
-  const start = startPoint(state0, tgt);
-  const g = makeGesture(gestureName, { from: start, to: tgt || { x: 0.5, y: 0.55 } });
+  let g;
+  if (a.path) {
+    g = makePath(parsePath(a.path, state0), {
+      seg: parseInt(a.seg || '700', 10),
+      hold: parseInt(a.hold || '0', 10),
+      release: !!a.release,
+    });
+  } else {
+    const start = startPoint(state0, tgt);
+    g = makeGesture(gestureName, { from: start, to: tgt || { x: 0.5, y: 0.55 } });
+  }
   await page.evaluate((frames) => window.game.input.replay(frames), g);
 
   if (skip > 0) {
@@ -118,15 +141,42 @@ async function main() {
     states.push(await page.evaluate(() => window.game.state()));
   }
   await writeFile(join(dir, 'state.json'), JSON.stringify({
-    scene: sceneId, device: deviceName, gesture: gestureName, seed, every, target: tgt, gestureFrames: g, states,
+    scene: sceneId, device: deviceName, gesture: a.path ? 'path:' + a.path : gestureName,
+    seed, every, skip, exec: a.exec || null, target: tgt, gestureFrames: g, states,
   }, null, 1));
 
-  if (a.contact) await contactSheet(page, url, dirName, dir, frames, { sceneId, deviceName, gestureName, every });
+  if (a.contact) {
+    await contactSheet(page, url, dirName, dir, frames,
+      { sceneId, deviceName, gestureName: a.path ? 'path' : gestureName, every });
+  }
 
   await browser.close();
   server.close();
   console.log('wrote ' + frames + ' frames to ' + dir + (a.contact ? ' (+ contact.png)' : ''));
 }
+
+/**
+ * `--path=x,y;x,y;...` in normalized screen coords, with optional per-waypoint
+ * hold and segment time: `x,y,holdMs,segMs`. A waypoint written `@<selector>`
+ * (`@auto`, `@bunny#3`, `@crumb`) resolves to wherever the finger has to be for
+ * the MOUTH to land on that debris.
+ */
+function parsePath(spec, state) {
+  return String(spec).split(';').map((chunk) => {
+    const c = chunk.trim();
+    if (!c) return null;
+    if (c[0] === '@') {
+      const parts = c.slice(1).split(',');
+      const t = resolveTarget(state, parts[0] || 'auto');
+      if (!t) throw new Error('--path: no debris matches ' + c);
+      return { x: t.x, y: t.y, hold: num(parts[1]), seg: num(parts[2]) };
+    }
+    const n = c.split(',').map(Number);
+    if (!isFinite(n[0]) || !isFinite(n[1])) throw new Error('--path: bad waypoint "' + c + '"');
+    return { x: n[0], y: n[1], hold: num(n[2]), seg: num(n[3]) };
+  }).filter(Boolean);
+}
+const num = (v) => (v === undefined || v === '' || !isFinite(Number(v)) ? undefined : Number(v));
 
 /**
  * Where the finger starts. Default: exactly where the scene parks the vacuum,
