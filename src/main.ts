@@ -137,6 +137,9 @@ async function boot(): Promise<void> {
     idleHint: () => director.current?.onIdleHint(),
     autoAdvance: () => director.current?.onAutoAdvance(),
     fps: () => app.ticker.FPS,
+    // Debug/perf only: load the live scene up to n bodies. No UI, never used
+    // by the game; the performance harness in scripts/perf.mjs drives it.
+    stress: (n: number) => director.current?.debugStress(n) ?? 0,
     // Debug/e2e only: the procedural kid atlas, for eyeballing new poses.
     atlas: () => sheet.canvas.toDataURL(),
   };

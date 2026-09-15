@@ -14,46 +14,114 @@ export interface CrowdBounds {
   bottom: number;
 }
 
-/** Uniform grid bucket index map, reused frame to frame. */
+/**
+ * Uniform grid over the crowd, rebuilt every frame and allocating nothing
+ * while it does it.
+ *
+ * The obvious implementation — a Map of cell key to an array of indices —
+ * allocates on every single frame: emptying an array with `length = 0` lets
+ * the engine shrink its backing store, so the next frame's pushes grow it
+ * again, and a Map that is cleared and refilled reallocates too. At 150 kids
+ * and 60fps that is a steady drip of garbage for as long as the game is open.
+ *
+ * So the grid is three Int32Arrays instead: an open-addressed table of cells
+ * (`keys` + `stamps` + `heads`) and one singly-linked `next` chain over the
+ * kid indices. Clearing is a single increment of the generation counter.
+ * Nothing here allocates after construction.
+ */
 export class SpatialHash {
   readonly cell: number;
-  private buckets = new Map<number, number[]>();
+  private mask: number;
+  private keys: Int32Array;
+  private stamps: Int32Array;
+  private heads: Int32Array;
+  private next: Int32Array;
+  private generation = 1;
 
-  constructor(cell = 40) {
+  constructor(cell = 40, capacity = MAX_KIDS) {
     this.cell = cell;
+    // At most one cell per kid, so a table of twice that never passes half
+    // full and the linear probe stays short.
+    let slots = 16;
+    while (slots < capacity * 2) slots *= 2;
+    this.mask = slots - 1;
+    this.keys = new Int32Array(slots);
+    this.stamps = new Int32Array(slots);
+    this.heads = new Int32Array(slots);
+    this.next = new Int32Array(capacity);
   }
 
-  private key(cx: number, cy: number): number {
-    // Cantor-ish pairing on signed cell coords; collisions are harmless here
-    // because neighbour queries re-check real distances.
-    return (cx + 4096) * 8192 + (cy + 4096);
+  /**
+   * Exact cell identity (not a hash): cells are paired into a single integer,
+   * so two different cells can never be mistaken for one another.
+   */
+  private cellKey(cx: number, cy: number): number {
+    return (cx + 8192) * 16384 + (cy + 8192);
+  }
+
+  /** Slot for a cell key, linear-probed within the current generation. */
+  private slotOf(key: number, insert: boolean): number {
+    let slot = (Math.imul(key, 2654435761) >>> 17) & this.mask;
+    for (;;) {
+      if (this.stamps[slot] !== this.generation) {
+        if (!insert) return -1;
+        this.stamps[slot] = this.generation;
+        this.keys[slot] = key;
+        this.heads[slot] = -1;
+        return slot;
+      }
+      if (this.keys[slot] === key) return slot;
+      slot = (slot + 1) & this.mask;
+    }
   }
 
   clear(): void {
-    for (const arr of this.buckets.values()) arr.length = 0;
+    this.generation++;
+    if (this.generation === 0x7fffffff) {
+      this.stamps.fill(0);
+      this.generation = 1;
+    }
   }
 
   insert(index: number, x: number, y: number): void {
-    const k = this.key(Math.floor(x / this.cell), Math.floor(y / this.cell));
-    let arr = this.buckets.get(k);
-    if (!arr) {
-      arr = [];
-      this.buckets.set(k, arr);
+    if (index >= this.next.length) {
+      const grown = new Int32Array(index * 2 + 1);
+      grown.set(this.next);
+      this.next = grown;
     }
-    arr.push(index);
+    const slot = this.slotOf(this.cellKey(Math.floor(x / this.cell), Math.floor(y / this.cell)), true);
+    this.next[index] = this.heads[slot];
+    this.heads[slot] = index;
   }
 
-  /** Calls `fn` for every index in the 3x3 cell block around (x, y). */
-  forEachNear(x: number, y: number, fn: (index: number) => void): void {
+  /**
+   * Writes every index in the 3x3 cell block around (x, y) into `out` and
+   * returns how many there were.
+   *
+   * `out` is the caller's own reusable array, because this runs once per kid
+   * per frame: the neighbour query must not allocate, not even a closure. (It
+   * used to take a callback, which is one closure per kid per frame — nine
+   * thousand short-lived objects a second at 60fps.)
+   */
+  near(x: number, y: number, out: number[]): number {
     const cx = Math.floor(x / this.cell);
     const cy = Math.floor(y / this.cell);
+    let n = 0;
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
-        const arr = this.buckets.get(this.key(cx + dx, cy + dy));
-        if (!arr) continue;
-        for (let i = 0; i < arr.length; i++) fn(arr[i]);
+        const slot = this.slotOf(this.cellKey(cx + dx, cy + dy), false);
+        if (slot < 0) continue;
+        for (let i = this.heads[slot]; i >= 0; i = this.next[i]) out[n++] = i;
       }
     }
+    return n;
+  }
+
+  /** Convenience wrapper over `near`, for tests and cold paths only. */
+  forEachNear(x: number, y: number, fn: (index: number) => void): void {
+    const found: number[] = [];
+    const n = this.near(x, y, found);
+    for (let i = 0; i < n; i++) fn(found[i]);
   }
 }
 
@@ -119,7 +187,11 @@ export class Crowd {
     this.hash = new SpatialHash(Math.max(24, this.separationRadius * 1.5));
   }
 
-  spawn(count: number): void {
+  /**
+   * Appends `count` kids without moving anybody who is already here. Returns
+   * how many were actually added (the crowd is capped at MAX_KIDS).
+   */
+  add(count: number): number {
     const n = Math.min(count, MAX_KIDS - this.kids.length);
     for (let i = 0; i < n; i++) {
       const kid = new Kid();
@@ -130,6 +202,11 @@ export class Crowd {
       kid.setState('idle');
       this.kids.push(kid);
     }
+    return n;
+  }
+
+  spawn(count: number): void {
+    this.add(count);
     this.scatter(420, 360);
   }
 
@@ -150,6 +227,9 @@ export class Crowd {
     }
   }
 
+  /** Reused neighbour buffer, so `update` allocates nothing. */
+  private nearBuffer: number[] = new Array(MAX_KIDS).fill(0);
+
   private rebuildHash(): void {
     this.hash.clear();
     for (let i = 0; i < this.kids.length; i++) {
@@ -164,17 +244,22 @@ export class Crowd {
     this.rebuildHash();
 
     // Separation (each unordered pair handled once, via index ordering).
+    // Written as flat loops over the reused bucket buffer: nothing in here
+    // allocates, including no per-kid callback.
     const sr = this.separationRadius;
     const sf = this.separationForce;
+    const near = this.nearBuffer;
     for (let i = 0; i < kids.length; i++) {
       const a = kids[i];
       if (a.frozen) continue;
-      this.hash.forEachNear(a.x, a.y, (j) => {
-        if (j <= i) return;
+      const count = this.hash.near(a.x, a.y, near);
+      for (let c = 0; c < count; c++) {
+        const j = near[c];
+        if (j <= i) continue;
         const b = kids[j];
-        if (b.frozen) return;
+        if (b.frozen) continue;
         separate(a, b, sr, sf, dt);
-      });
+      }
     }
 
     // Target following + integration.

@@ -89,6 +89,41 @@ describe('spatial hash', () => {
     expect(seen).toContain(1);
     expect(seen).not.toContain(2);
   });
+
+  it('forgets everything when cleared, however many times it is reused', () => {
+    const hash = new SpatialHash(40, 8);
+    for (let frame = 0; frame < 500; frame++) {
+      hash.clear();
+      hash.insert(0, frame * 3, 0);
+      const out: number[] = [];
+      expect(hash.near(frame * 3, 0, out)).toBe(1);
+      expect(out[0]).toBe(0);
+      // Nobody from any earlier frame is still in the grid.
+      expect(hash.near(-9000, -9000, out)).toBe(0);
+    }
+  });
+
+  it('never merges two different cells into one', () => {
+    const hash = new SpatialHash(40, 64);
+    // A ring of cells all the same distance out: if the table confused any
+    // two of them, a query would return somebody else's index.
+    for (let i = 0; i < 40; i++) {
+      hash.insert(i, Math.cos(i) * 4000, Math.sin(i) * 4000);
+    }
+    const out: number[] = [];
+    for (let i = 0; i < 40; i++) {
+      const n = hash.near(Math.cos(i) * 4000, Math.sin(i) * 4000, out);
+      expect(n).toBeGreaterThanOrEqual(1);
+      expect(out.slice(0, n)).toContain(i);
+    }
+  });
+
+  it('holds more kids than it was built for rather than losing them', () => {
+    const hash = new SpatialHash(40, 4);
+    for (let i = 0; i < 40; i++) hash.insert(i, 0, 0);
+    const out: number[] = [];
+    expect(hash.near(0, 0, out)).toBe(40);
+  });
 });
 
 describe('behaviours', () => {

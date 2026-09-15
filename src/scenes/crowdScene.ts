@@ -11,8 +11,8 @@ import { Container, Sprite } from 'pixi.js';
 import { Scene } from '../core/scene';
 import type { SceneContext } from '../core/scene';
 import type { Hand, HandEvent } from '../core/input';
-import { Crowd } from '../crowd/crowd';
-import { applyAttention, applyDragForce } from '../crowd/behaviors';
+import { Crowd, MAX_KIDS } from '../crowd/crowd';
+import { applyAttention, applyDragForce, wander } from '../crowd/behaviors';
 import { FRAME_H, KID_WORLD_H, boilFrame } from '../art/kidSheet';
 import { buildRingTexture } from '../art/ring';
 import { Confetti } from './confetti';
@@ -34,6 +34,9 @@ import { PAN_STEP } from '../core/director';
 const RUN_OFF_SPEED = 780;
 const RUN_OFF_FORCE = 2600;
 
+/** Reused footstep options; `Sfx.play` reads it and keeps no reference. */
+const STEP_SOUND = { gain: 1, detune: 0 };
+
 interface Ripple {
   sprite: Sprite;
   age: number;
@@ -49,6 +52,15 @@ export abstract class CrowdScene extends Scene {
   protected confetti!: Confetti;
   private ripples: Ripple[] = [];
   private ripplePool: Sprite[] = [];
+  /**
+   * Extra bodies added by the performance harness (`__kids.stress(n)`), in
+   * their own crowd so that no scene's own bookkeeping can be confused by
+   * them. They are simulated and drawn exactly like the scene's own kids —
+   * same layer, same depth sort, same atlas — so they cost what a real kid
+   * costs. Empty in every real playthrough.
+   */
+  private stressCrowd: Crowd | null = null;
+  private stressSprites: Sprite[] = [];
   private ringTexture = buildRingTexture();
   protected spriteScale = 1;
   protected time = 0;
@@ -151,11 +163,14 @@ export abstract class CrowdScene extends Scene {
       for (let i = 0; i < this.sprites.length; i++) this.sprites[i].tint = this.kidTint;
     }
     if (steps > 0) {
-      this.ctx.audio.sfx.play('pote', {
-        gain: Math.min(1, 0.25 + steps * 0.05),
-        detune: (Math.random() - 0.5) * 400,
-      });
+      // Reused options object: this fires on most frames while a crowd walks,
+      // and a fresh literal each time is a fresh object 60 times a second.
+      STEP_SOUND.gain = Math.min(1, 0.25 + steps * 0.05);
+      STEP_SOUND.detune = (Math.random() - 0.5) * 400;
+      this.ctx.audio.sfx.play('pote', STEP_SOUND);
     }
+
+    this.updateStress(dt, boil);
 
     this.confetti.update(dt);
 
@@ -212,7 +227,66 @@ export abstract class CrowdScene extends Scene {
   }
 
   override debugKidCount(): number {
-    return this.crowd ? this.crowd.kids.length : 0;
+    const own = this.crowd ? this.crowd.kids.length : 0;
+    return own + (this.stressCrowd ? this.stressCrowd.kids.length : 0);
+  }
+
+  /**
+   * Debug/perf hook: load the scene up to `n` bodies and report the total.
+   *
+   * The extra kids live in a crowd of their own and mill about; the scene's
+   * own rules never see them, so this can be called in any scene without
+   * breaking anything. What it measures is the per-body cost that dominates
+   * the frame: separation over the spatial hash, integration, the pose state
+   * machine, the sprite write, and the depth sort of one more sprite in the
+   * same sorted container.
+   */
+  override debugStress(n: number): number {
+    if (!this.crowd) return 0;
+    const have = this.debugKidCount();
+    const want = Math.min(n, MAX_KIDS) - have;
+    if (want <= 0) return have;
+    if (!this.stressCrowd) {
+      this.stressCrowd = new Crowd({
+        separationRadius: this.crowd.separationRadius,
+        bounds: this.crowd.bounds,
+      });
+    }
+    const crowd = this.stressCrowd;
+    const before = crowd.kids.length;
+    crowd.add(want);
+    const b = this.crowd.bounds;
+    for (let i = before; i < crowd.kids.length; i++) {
+      const k = crowd.kids[i];
+      const a = i * 2.399963;
+      const t = Math.sqrt((i + 0.5) / crowd.kids.length);
+      k.x = (b.left + b.right) / 2 + Math.cos(a) * (b.right - b.left) * 0.34 * t;
+      k.y = (b.top + b.bottom) / 2 + Math.sin(a) * (b.bottom - b.top) * 0.34 * t;
+      const s = new Sprite(this.ctx.sheet.get(k.variant, k.pose, k.frame));
+      s.anchor.set(0.5, 1);
+      s.scale.set(this.spriteScale);
+      this.layer.addChild(s);
+      this.stressSprites.push(s);
+    }
+    return this.debugKidCount();
+  }
+
+  /** Drives the stress bodies. Does nothing at all unless one was asked for. */
+  private updateStress(dt: number, boil: number): void {
+    const crowd = this.stressCrowd;
+    if (!crowd) return;
+    wander(crowd, this.time, dt, 60);
+    crowd.update(dt);
+    const kids = crowd.kids;
+    const sheet = this.ctx.sheet;
+    for (let i = 0; i < kids.length; i++) {
+      const k = kids[i];
+      const s = this.stressSprites[i];
+      s.texture = sheet.get(k.variant, k.pose, k.frame, boil);
+      s.position.set(k.x, k.y);
+      s.scale.x = this.spriteScale * k.facing;
+      s.zIndex = k.y;
+    }
   }
 
   override exit(): void {
@@ -225,5 +299,7 @@ export abstract class CrowdScene extends Scene {
     this.ripplePool.length = 0;
     this.extraScale.length = 0;
     this.tilt.length = 0;
+    this.stressCrowd = null;
+    this.stressSprites.length = 0;
   }
 }

@@ -119,6 +119,7 @@ export function wander(crowd: Crowd, time: number, dt: number, strength = 28): v
 
 /** Reused between calls so contagion never allocates. */
 const HOT_SCRATCH: number[] = [];
+const NEAR_SCRATCH: number[] = [];
 
 /**
  * Generic contagion: a "hot" kid infects neighbours within `radius`.
@@ -144,16 +145,17 @@ export function spreadContagion(
   for (let i = 0; i < kids.length; i++) if (isHot(kids[i])) hot.push(i);
   for (let h = 0; h < hot.length; h++) {
     const a = kids[hot[h]];
-    crowd.hash.forEachNear(a.x, a.y, (j) => {
-      const b = kids[j];
-      if (isHot(b)) return;
+    const count = crowd.hash.near(a.x, a.y, NEAR_SCRATCH);
+    for (let c = 0; c < count; c++) {
+      const b = kids[NEAR_SCRATCH[c]];
+      if (isHot(b)) continue;
       const dx = a.x - b.x;
       const dy = a.y - b.y;
-      if (dx * dx + dy * dy > r2) return;
-      if (rand() > chance) return;
+      if (dx * dx + dy * dy > r2) continue;
+      if (rand() > chance) continue;
       infect(b);
       infected++;
-    });
+    }
   }
   return infected;
 }

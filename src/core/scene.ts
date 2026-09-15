@@ -70,6 +70,15 @@ export abstract class Scene {
     return 0;
   }
 
+  /**
+   * Debug/perf hook: bring the scene up to `n` kids and return the new total.
+   * Never used by the game, and there is no UI for it anywhere — it exists so
+   * the performance harness can load a real scene up to 150 bodies.
+   */
+  debugStress(_n: number): number {
+    return 0;
+  }
+
   /** Skips straight to the run-off ending (debug hook + auto-advance). */
   finishNow(): void {}
 
