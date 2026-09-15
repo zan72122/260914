@@ -100,7 +100,7 @@ export function drawPan(ctx, L, G, t, drawEgg) {
 function drawHandle(ctx, P) {
   const { cx, cy, r, ry, handleAngle } = P;
   const a = handleAngle == null ? 0 : handleAngle;
-  const len = r * 1.34, w = Math.max(10, r * 0.24);
+  const len = r * 1.05, w = Math.max(10, r * 0.24);
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(a);

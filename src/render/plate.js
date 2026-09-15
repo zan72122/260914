@@ -1,10 +1,14 @@
-// 皿・ライス・ケチャップ・混ぜ塗り
+// 皿・ライス（盛られたマウンド）・ケチャップ・混ぜ塗り
 // 皿の中身はすべて「皿ローカル正規化座標」で保持 → 画面回転しても残る
-import { TAU, clamp, makeRng, easeOutBack } from '../util.js';
+import { TAU, clamp, makeRng, easeOutBack, springWobble } from '../util.js';
 import { toScreen } from '../layout.js';
 import { glossyStroke } from './fx.js';
 
 export const LAYER = 256; // 皿ローカルのオフスクリーン解像度
+
+// ご飯のマウンド（皿ローカル正規化）。皿内径の約 72% 幅 / 62% 高さ。
+// 皿の内径は r*0.855 なので 0.855*0.72 ≒ 0.615。
+export const MOUND = { ru: 0.615, rv: 0.53, cv: -0.035 };
 
 export function makeLayer() {
   const cv = document.createElement('canvas');
@@ -14,117 +18,164 @@ export function makeLayer() {
 // 正規化(-1..1) → レイヤーpx
 export const l2p = (u) => (u + 1) * 0.5 * LAYER;
 
-// 白いご飯のテクスチャを焼く
-export function bakeRice(variant) {
+// マウンドの輪郭（ほんの少しだけデコボコさせて「盛った」感じに）
+export function moundOutline(ctx, cx, cy, rx, ry, k = 1) {
+  const N = 56;
+  ctx.beginPath();
+  for (let i = 0; i <= N; i++) {
+    const a = (i / N) * TAU;
+    const lump = 1 + Math.sin(a * 7 + 0.9) * 0.020 + Math.sin(a * 4 - 2.1) * 0.028;
+    const x = cx + Math.cos(a) * rx * k * lump;
+    const y = cy + Math.sin(a) * ry * k * lump;
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.closePath();
+}
+
+// 皿ローカル正規化 → 画面のマウンド楕円
+export function moundScreen(P, wob = 0) {
+  return {
+    cx: P.cx,
+    cy: P.cy + MOUND.cv * P.ry,
+    rx: P.r * MOUND.ru * (1 + wob * 0.30),
+    ry: P.ry * MOUND.rv * (1 - wob * 0.26),
+  };
+}
+
+// 皿ローカル座標がマウンドの中かどうか（0..1 の正規化半径を返す）
+export const moundRadius = (u, v) => Math.hypot(u / MOUND.ru, (v - MOUND.cv) / MOUND.rv);
+
+// --- ご飯のマウンドを焼く（白ご飯 / チキンライス共通） ---
+function bakeMound(pal, seed, grains) {
   const cv = makeLayer();
   const c = cv.getContext('2d');
   const R = LAYER * 0.5;
-  const rng = makeRng(101 + variant.id * 17);
-  const rx = R * 0.76, ry = R * 0.70;
+  const rng = makeRng(seed);
+  const cx = R, cy = R + MOUND.cv * R;
+  const rx = MOUND.ru * R, ry = MOUND.rv * R;
 
-  // 影
+  // 皿に落ちるやわらかい影（下側に広がる）
   c.save();
-  c.globalAlpha = 0.20;
-  c.fillStyle = '#6d5a48';
+  const sg = c.createRadialGradient(cx, cy + ry * 0.42, rx * 0.15, cx, cy + ry * 0.42, rx * 1.16);
+  sg.addColorStop(0, 'rgba(120,88,58,0.42)');
+  sg.addColorStop(0.62, 'rgba(120,88,58,0.22)');
+  sg.addColorStop(1, 'rgba(120,88,58,0)');
+  c.fillStyle = sg;
   c.beginPath();
-  c.ellipse(R + R * 0.02, R + R * 0.07, rx * 1.02, ry * 1.0, 0, 0, TAU);
+  c.ellipse(cx + rx * 0.03, cy + ry * 0.40, rx * 1.16, ry * 0.86, 0, 0, TAU);
   c.fill();
   c.restore();
 
-  const g = c.createRadialGradient(R - rx * 0.3, R - ry * 0.45, rx * 0.05, R, R, rx * 1.1);
-  g.addColorStop(0, '#ffffff');
-  g.addColorStop(0.55, '#fbf7ee');
-  g.addColorStop(0.85, '#eee5d4');
-  g.addColorStop(1, '#ddd0ba');
+  // 本体（ドーム）: 左上からの光
+  moundOutline(c, cx, cy, rx, ry);
+  const g = c.createRadialGradient(cx - rx * 0.34, cy - ry * 0.52, rx * 0.06, cx, cy + ry * 0.10, rx * 1.12);
+  g.addColorStop(0, pal.hi);
+  g.addColorStop(0.34, pal.mid);
+  g.addColorStop(0.74, pal.low);
+  g.addColorStop(1, pal.edge);
   c.fillStyle = g;
-  c.beginPath();
-  c.ellipse(R, R, rx, ry, 0, 0, TAU);
   c.fill();
+
+  c.save();
+  moundOutline(c, cx, cy, rx, ry);
+  c.clip();
+
+  // 下半分の落ち込み（山の側面）
+  const dg = c.createLinearGradient(0, cy - ry * 0.10, 0, cy + ry);
+  dg.addColorStop(0, 'rgba(90,50,20,0)');
+  dg.addColorStop(1, 'rgba(90,50,20,0.34)');
+  c.fillStyle = dg;
+  c.fillRect(0, 0, LAYER, LAYER);
 
   // 米粒
-  c.save();
-  c.beginPath();
-  c.ellipse(R, R, rx, ry, 0, 0, TAU);
-  c.clip();
-  for (let i = 0; i < 420; i++) {
+  for (let i = 0; i < grains.n; i++) {
     const a = rng() * TAU, rr = Math.sqrt(rng());
-    const x = R + Math.cos(a) * rx * rr, y = R + Math.sin(a) * ry * rr;
-    const gr = rng();
-    c.globalAlpha = 0.10 + gr * 0.22;
-    c.fillStyle = gr > 0.55 ? '#ffffff' : '#d9cdb6';
+    const x = cx + Math.cos(a) * rx * rr * 0.99;
+    const y = cy + Math.sin(a) * ry * rr * 0.99;
+    const k = rng();
+    // 上のほうほど明るい粒
+    const lift = clamp(1 - (y - (cy - ry)) / (ry * 2), 0, 1);
+    c.globalAlpha = (0.12 + k * 0.26) * (0.45 + lift * 0.75);
+    c.fillStyle = k > grains.hiAt ? grains.hi : k > grains.midAt ? grains.mid : grains.low;
     c.beginPath();
-    c.ellipse(x, y, LAYER * 0.011, LAYER * 0.006, rng() * TAU, 0, TAU);
+    c.ellipse(x, y, LAYER * (0.0095 + k * 0.006), LAYER * 0.0055, rng() * TAU, 0, TAU);
     c.fill();
   }
+  c.globalAlpha = 1;
+
+  // 上面のふんわりハイライト
+  const hg = c.createRadialGradient(cx - rx * 0.26, cy - ry * 0.46, 1, cx - rx * 0.26, cy - ry * 0.46, rx * 0.78);
+  hg.addColorStop(0, grains.gloss);
+  hg.addColorStop(1, 'rgba(255,255,255,0)');
+  c.globalAlpha = 0.55;
+  c.fillStyle = hg;
+  c.fillRect(0, 0, LAYER, LAYER);
   c.restore();
 
-  // 上からの艶
+  // 上の縁のリムライト（山の稜線）
   c.save();
-  c.globalAlpha = 0.5;
-  const hg = c.createRadialGradient(R - rx * 0.32, R - ry * 0.48, 1, R - rx * 0.32, R - ry * 0.48, rx * 0.6);
-  hg.addColorStop(0, 'rgba(255,255,255,0.85)');
-  hg.addColorStop(1, 'rgba(255,255,255,0)');
-  c.fillStyle = hg;
+  c.globalAlpha = 0.45;
+  c.strokeStyle = pal.hi;
+  c.lineWidth = LAYER * 0.012;
   c.beginPath();
-  c.ellipse(R, R, rx, ry, 0, 0, TAU);
-  c.fill();
+  c.ellipse(cx, cy, rx * 0.985, ry * 0.985, 0, Math.PI * 1.08, Math.PI * 1.92);
+  c.stroke();
   c.restore();
+
+  // 下の縁の締め
+  c.save();
+  c.globalAlpha = 0.30;
+  c.strokeStyle = pal.edge;
+  c.lineWidth = LAYER * 0.012;
+  c.beginPath();
+  c.ellipse(cx, cy, rx * 0.985, ry * 0.985, 0, Math.PI * 0.10, Math.PI * 0.90);
+  c.stroke();
+  c.restore();
+
   return cv;
 }
 
-// 混ざりきったチキンライス（ふくらんだ楕円）を焼く
+// 白いご飯のマウンド
+export function bakeRice(variant) {
+  return bakeMound(
+    { hi: '#ffffff', mid: '#fdf9f0', low: '#efe6d3', edge: '#d8c9ae' },
+    101 + variant.id * 17,
+    { n: 460, hi: '#ffffff', mid: '#fff8ea', low: '#d8cbb2', hiAt: 0.62, midAt: 0.34, gloss: 'rgba(255,255,255,0.92)' },
+  );
+}
+
+// 混ざりきったチキンライス（オレンジ寄りの赤・ふくらんだマウンド）
 export function bakeMixedRice(variant) {
-  const cv = makeLayer();
+  const Rp = variant.rice;
+  const cv = bakeMound(
+    Rp,
+    77 + variant.id * 31,
+    { n: 340, hi: '#ffe3c4', mid: '#f8b98c', low: Rp.edge, hiAt: 0.78, midAt: 0.52, gloss: 'rgba(255,238,220,0.85)' },
+  );
+  // 具（鶏肉・玉ねぎ・グリンピース）をぱらり
   const c = cv.getContext('2d');
   const R = LAYER * 0.5;
-  const rng = makeRng(77 + variant.id * 31);
-  const rx = R * 0.74, ry = R * 0.66;
-  const K = variant.ketchup;
-
+  const cx = R, cy = R + MOUND.cv * R;
+  const rx = MOUND.ru * R, ry = MOUND.rv * R;
+  const rng = makeRng(555 + variant.id * 13);
   c.save();
-  c.globalAlpha = 0.24;
-  c.fillStyle = '#7a3a22';
-  c.beginPath();
-  c.ellipse(R + R * 0.02, R + R * 0.08, rx * 1.03, ry * 1.02, 0, 0, TAU);
-  c.fill();
-  c.restore();
-
-  const g = c.createRadialGradient(R - rx * 0.30, R - ry * 0.50, rx * 0.05, R, R, rx * 1.12);
-  g.addColorStop(0, K.light);
-  g.addColorStop(0.42, K.body);
-  g.addColorStop(0.82, K.deep);
-  g.addColorStop(1, K.shadow);
-  c.fillStyle = g;
-  c.beginPath();
-  c.ellipse(R, R, rx, ry, 0, 0, TAU);
-  c.fill();
-
-  c.save();
-  c.beginPath();
-  c.ellipse(R, R, rx, ry, 0, 0, TAU);
+  moundOutline(c, cx, cy, rx, ry);
   c.clip();
-  // 具（鶏肉・玉ねぎ）と米粒感
-  for (let i = 0; i < 300; i++) {
-    const a = rng() * TAU, rr = Math.sqrt(rng());
-    const x = R + Math.cos(a) * rx * rr, y = R + Math.sin(a) * ry * rr;
+  for (let i = 0; i < 26; i++) {
+    const a = rng() * TAU, rr = Math.sqrt(rng()) * 0.9;
+    const x = cx + Math.cos(a) * rx * rr, y = cy + Math.sin(a) * ry * rr;
     const k = rng();
-    c.globalAlpha = 0.16 + k * 0.30;
-    c.fillStyle = k > 0.8 ? '#fff0dd' : k > 0.6 ? '#f8b48a' : K.deep;
+    c.globalAlpha = 0.55;
+    c.fillStyle = k > 0.72 ? '#f6ead0' : k > 0.42 ? '#c98a4e' : '#8fae5a';
     c.beginPath();
-    c.ellipse(x, y, LAYER * (0.010 + k * 0.007), LAYER * 0.0065, rng() * TAU, 0, TAU);
+    c.ellipse(x, y, LAYER * (0.012 + k * 0.008), LAYER * (0.009 + k * 0.005), rng() * TAU, 0, TAU);
+    c.fill();
+    c.globalAlpha = 0.35;
+    c.fillStyle = 'rgba(255,255,255,0.9)';
+    c.beginPath();
+    c.ellipse(x - LAYER * 0.004, y - LAYER * 0.004, LAYER * 0.005, LAYER * 0.003, 0, 0, TAU);
     c.fill();
   }
-  c.restore();
-
-  c.save();
-  c.globalAlpha = 0.45;
-  const hg = c.createRadialGradient(R - rx * 0.34, R - ry * 0.5, 1, R - rx * 0.34, R - ry * 0.5, rx * 0.65);
-  hg.addColorStop(0, 'rgba(255,240,225,0.9)');
-  hg.addColorStop(1, 'rgba(255,240,225,0)');
-  c.fillStyle = hg;
-  c.beginPath();
-  c.ellipse(R, R, rx, ry, 0, 0, TAU);
-  c.fill();
   c.restore();
   return cv;
 }
@@ -133,13 +184,13 @@ export function bakeMixedRice(variant) {
 export function paintMix(layer, u, v, radius, variant) {
   const c = layer.getContext('2d');
   const x = l2p(u), y = l2p(v), r = radius * 0.5 * LAYER;
-  const K = variant.ketchup;
-  const g = c.createRadialGradient(x, y, 0, x, y, r);
-  g.addColorStop(0, hexA(K.body, 0.95));
-  g.addColorStop(0.6, hexA(K.body, 0.72));
-  g.addColorStop(1, hexA(K.body, 0));
+  const K = variant.rice;
+  const g = c.createRadialGradient(x - r * 0.2, y - r * 0.25, 0, x, y, r);
+  g.addColorStop(0, hexA(K.mid, 0.98));
+  g.addColorStop(0.55, hexA(K.mid, 0.82));
+  g.addColorStop(1, hexA(K.low, 0));
   c.save();
-  c.globalAlpha = 0.85;
+  c.globalAlpha = 0.9;
   c.fillStyle = g;
   c.beginPath();
   c.arc(x, y, r, 0, TAU);
@@ -228,37 +279,52 @@ export function drawPlateDish(ctx, P, variant) {
   ctx.restore();
 }
 
-// --- 皿の中身（ご飯 → ケチャップ → 混ぜ → チキンライス） ---
+// --- 皿の中身（ご飯マウンド → ケチャップ → 混ぜ → チキンライス） ---
 export function drawPlateFood(ctx, P, G, t) {
   const { cx, cy, r, ry } = P;
   const m = G.mix.morph;
+  const o = G.omelet;
+  // 着地でライスも一緒にぷるん
+  const wob = (o.place === 'plate' && o.wobT < 4) ? springWobble(o.wobT, 13, 3.0) * o.wobA * 0.55 : 0;
+
   ctx.save();
+  // 皿の内側からははみ出さない
   ctx.beginPath();
   ctx.ellipse(cx, cy, r * 0.86, ry * 0.86, 0, 0, TAU);
   ctx.clip();
 
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(1 + wob * 0.30, 1 - wob * 0.26);
+  ctx.translate(-cx, -cy);
+
   if (m < 1) {
-    // 白ご飯
+    // 白ご飯のマウンド
     ctx.globalAlpha = 1;
     ctx.drawImage(G.assets.rice, cx - r, cy - ry, r * 2, ry * 2);
-    // 混ぜ塗りレイヤー
+    // 混ぜ塗り・ケチャップはマウンドの上だけ
+    ctx.save();
+    const M = moundScreen(P);
+    moundOutline(ctx, M.cx, M.cy, M.rx, M.ry, 0.995);
+    ctx.clip();
     ctx.globalAlpha = 0.95 * (1 - m);
     ctx.drawImage(G.assets.mixLayer, cx - r, cy - ry, r * 2, ry * 2);
-    // ケチャップの線（艶あり／混ざるほど薄くなる）
     const fade = (1 - G.mix.cover * 0.85) * (1 - m);
     for (const s of G.ketchup.strokes) drawLocalStroke(ctx, P, s, G.variant.ketchup, fade);
+    ctx.restore();
   }
   if (m > 0) {
     const e = easeOutBack(clamp(m, 0, 1), 1.9);
     ctx.save();
     ctx.globalAlpha = clamp(m * 1.6, 0, 1);
     ctx.translate(cx, cy);
-    const sc = 0.82 + 0.18 * e;
+    const sc = 0.86 + 0.14 * e;
     const puff = 1 + Math.sin(clamp(m, 0, 1) * Math.PI) * 0.10;
     ctx.scale(sc * puff, sc * (2 - puff));
     ctx.drawImage(G.assets.mixed, -r, -ry, r * 2, ry * 2);
     ctx.restore();
   }
+  ctx.restore();
   ctx.restore();
 }
 

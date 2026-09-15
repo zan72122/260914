@@ -1,7 +1,7 @@
 // 状態機械。レイアウトには一切依存しない（座標は正規化 or 毎フレーム layout から取る）。
 import { clamp, lerp, easeInOut, springWobble, TAU } from './util.js';
 import { toScreen, toLocal } from './layout.js';
-import { bakeRice, bakeMixedRice, makeLayer, paintMix } from './render/plate.js';
+import { bakeRice, bakeMixedRice, makeLayer, paintMix, MOUND, moundRadius } from './render/plate.js';
 import { sfx, unlock } from './audio.js';
 
 export const S = {
@@ -21,32 +21,40 @@ export const VARIANTS = [
     id: 0,
     plate: { rim: '#f6f4ef', mid: '#ded9d0', low: '#b9b1a4', pattern: '#c3d2e8', wellHi: '#ffffff', wellLo: '#ece8df' },
     ketchup: { light: '#f4694a', body: '#d8281b', deep: '#a3130c', shadow: '#6b0a05', gloss: 'rgba(255,220,205,0.95)' },
+    // チキンライス（オレンジ寄りの赤）
+    rice: { hi: '#f58a4a', mid: '#e85a2a', low: '#d9431e', edge: '#b23a15' },
     egg: {
       hi: '#fff6bd', mid: '#ffd84e', low: '#f5aa1d', edge: '#d8820f',
-      torHi: '#ffd979', torMid: '#fbb02f', torLow: '#ec8712', torEdge: '#c96708',
+      torHi: '#ffe89b', torMid: '#ffd24a', torLow: '#f7a928', torEdge: '#d8820f',
     },
   },
   {
     id: 1,
     plate: { rim: '#fdf3f4', mid: '#efdcdf', low: '#cdb4b8', pattern: '#f0b9c3', wellHi: '#ffffff', wellLo: '#f7ecec' },
     ketchup: { light: '#ff7f52', body: '#e8431f', deep: '#b32a08', shadow: '#7a1a03', gloss: 'rgba(255,228,208,0.95)' },
+    rice: { hi: '#ff9a5c', mid: '#f06a33', low: '#e04f22', edge: '#bd4014' },
     egg: {
       hi: '#fffad4', mid: '#ffe173', low: '#fbbc3a', edge: '#e09a24',
-      torHi: '#ffe49a', torMid: '#ffc04a', torLow: '#f79a1d', torEdge: '#d97a0d',
+      torHi: '#fff0ae', torMid: '#ffdb63', torLow: '#fbb53c', torEdge: '#e08d14',
     },
   },
   {
     id: 2,
     plate: { rim: '#fbf6e8', mid: '#e6dcc3', low: '#bfb191', pattern: '#bcd6bb', wellHi: '#fffdf4', wellLo: '#eee7d3' },
     ketchup: { light: '#e75a34', body: '#c11e14', deep: '#8d0d08', shadow: '#5c0704', gloss: 'rgba(255,210,190,0.92)' },
+    rice: { hi: '#ee7f3c', mid: '#dc5322', low: '#c63f17', edge: '#a2320e' },
     egg: {
       hi: '#ffeaa0', mid: '#ffc62f', low: '#ee930f', edge: '#c06c08',
-      torHi: '#fccc6a', torMid: '#f4a01c', torLow: '#dd7605', torEdge: '#b25904',
+      torHi: '#ffdf84', torMid: '#fdc543', torLow: '#ef9a1e', torEdge: '#c67405',
     },
   },
 ];
 
 const GRID = 32;
+// 皿に乗ったオムレツ：ライスマウンドの幅 85% / 高さ 70%、少し上に乗る
+export const OM_RX = MOUND.ru * 0.85;
+export const OM_RY = MOUND.rv * 0.72;
+export const OM_V = MOUND.cv - MOUND.rv * 0.16;
 const norm = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 export function createGame() {
@@ -63,7 +71,7 @@ export function createGame() {
     bowl: { x: 0, y: 0, tx: 0, ty: 0, angle: 0, grab: false, homed: false },
     mix: { cover: 0, grid: new Uint8Array(GRID * GRID), hit: 0, total: 0, morph: 0, done: false },
     egg: { spread: 0, gather: 0, seed: 1.7, pouring: false, poured: false },
-    omelet: { place: 'none', u: 0, v: -0.06, wobT: 99, wobA: 0, cut: 0, open: 0, tororo: 0, ridge: false, fly: 0 },
+    omelet: { place: 'none', u: 0, v: OM_V, wobT: 99, wobA: 0, cut: 0, open: 0, tororo: 0, ridge: false, fly: 0 },
     pan: { tilt: 0, prog: 0 },
     panAlpha: 1,
     draw: { strokes: [], cur: null },
@@ -84,7 +92,7 @@ function buildGrid(G) {
     for (let i = 0; i < GRID; i++) {
       const u = ((i + 0.5) / GRID) * 2 - 1;
       const v = ((j + 0.5) / GRID) * 2 - 1;
-      if (u * u + v * v <= 0.72 * 0.72) total++;
+      if (moundRadius(u, v) <= 1) total++;
     }
   }
   G.mix.total = total;
@@ -117,7 +125,7 @@ export function resetGame(G, variantId = G.variantId) {
   G.egg.pouring = false;
   G.egg.poured = false;
   G.egg.seed = 1 + Math.random() * 9;
-  Object.assign(G.omelet, { place: 'none', u: 0, v: -0.06, wobT: 99, wobA: 0, cut: 0, open: 0, tororo: 0, ridge: false, fly: 0 });
+  Object.assign(G.omelet, { place: 'none', u: 0, v: OM_V, wobT: 99, wobA: 0, cut: 0, open: 0, tororo: 0, ridge: false, fly: 0 });
   G.pan.tilt = 0;
   G.pan.prog = 0;
   G.panAlpha = 1;
@@ -222,8 +230,10 @@ function updKetchup(G, L, dt) {
 
 function squirt(G, L, x, y) {
   const P = L.plate;
-  const p = toLocal(P, x, y);
-  if (p.u * p.u + p.v * p.v > 0.95 * 0.95) { G.ketchup.cur = null; return; }
+  let p = toLocal(P, x, y);
+  const m = moundRadius(p.u, p.v);
+  if (m > 1.45) { G.ketchup.cur = null; return; }
+  if (m > 0.92) { const k = 0.92 / m; p = { u: p.u * k, v: MOUND.cv + (p.v - MOUND.cv) * k }; }
   const k = G.ketchup;
   if (!k.cur) { k.cur = { pts: [], w: 0.085 }; k.strokes.push(k.cur); }
   const last = k.cur.pts[k.cur.pts.length - 1];
@@ -239,7 +249,7 @@ function squirt(G, L, x, y) {
     k.full = true;
     G.bottle.grab = false;
     k.cur = null;
-    burst(G, x, y, 10, L.unit * 0.05);
+    burst(G, x, y, 10, L.unit * 0.07, L.unit * 0.020);
     sfx.ding();
   }
 }
@@ -269,17 +279,18 @@ function rub(G, L, x, y) {
   if (G.mix.done) return;
   const P = L.plate;
   const p = toLocal(P, x, y);
-  const rr = Math.hypot(p.u, p.v);
-  if (rr > 1.05) return;
-  const k = rr > 0.70 ? 0.70 / rr : 1;   // 縁の外へはみ出しても中へ吸着
-  const u = p.u * k, v = p.v * k;
-  paintMix(G.assets.mixLayer, u, v, 0.30, G.variant);
-  markGrid(G, u, v, 0.26);
+  if (Math.hypot(p.u, p.v) > 1.25) return;
+  // ご飯の山からはみ出しても、山の上へやわらかく吸着する
+  const m = moundRadius(p.u, p.v);
+  const k = m > 0.94 ? 0.94 / m : 1;
+  const u = p.u * k, v = MOUND.cv + (p.v - MOUND.cv) * k;
+  paintMix(G.assets.mixLayer, u, v, 0.26, G.variant);
+  markGrid(G, u, v, 0.22);
   sfx.rub();
   if (G.mix.cover >= 0.8 && !G.mix.done) {
     G.mix.done = true;
     G.spatula.grab = false;
-    burst(G, P.cx, P.cy, 14, L.unit * 0.07);
+    burst(G, P.cx, P.cy, 14, L.unit * 0.11, L.unit * 0.022);
     sfx.ding();
   }
 }
@@ -291,7 +302,7 @@ function markGrid(G, u, v, r) {
     if (Math.abs(cv - v) > r) continue;
     for (let i = 0; i < GRID; i++) {
       const cu = ((i + 0.5) / GRID) * 2 - 1;
-      if (cu * cu + cv * cv > 0.72 * 0.72) continue;
+      if (moundRadius(cu, cv) > 1) continue;
       const idx = j * GRID + i;
       if (g[idx]) continue;
       if (Math.hypot(cu - u, cv - v) <= r) { g[idx] = 1; G.mix.hit++; }
@@ -335,7 +346,7 @@ function updGather(G, L) {
     G.omelet.place = 'pan';
     G.omelet.wobT = 0;
     G.omelet.wobA = 0.11;
-    burst(G, L.pan.cx, L.pan.cy, 10, L.unit * 0.05);
+    burst(G, L.pan.cx, L.pan.cy, 10, L.unit * 0.09, L.unit * 0.020);
     sfx.ding();
     later(G, 1.0, () => setState(G, S.SLIDE));
   }
@@ -378,11 +389,11 @@ function updSlide(G, L, dt) {
     if (G.omelet.fly >= 1) {
       G.omelet.place = 'plate';
       G.omelet.u = 0;
-      G.omelet.v = -0.06;
+      G.omelet.v = OM_V;
       G.omelet.wobT = 0;
       G.omelet.wobA = 0.18;   // 着地でぷるん
       sfx.land();
-      burst(G, L.plate.cx, L.plate.cy, 12, L.unit * 0.05);
+      burst(G, L.plate.cx, L.plate.cy, 12, L.unit * 0.11, L.unit * 0.020);
       later(G, 1.15, () => { setState(G, S.CUT); G.omelet.ridge = true; });
     }
   } else {
@@ -428,12 +439,14 @@ function updOpen(G, L, dt) {
   const t = G.st;
   G.omelet.cut = 1;
   G.omelet.open = clamp((t - 0.30) / 0.30, 0, 1);
-  G.omelet.tororo = clamp((t - 0.55) / 0.50, 0, 1);
+  // 皮が開ききる少し前からとろとろが顔を出す
+  G.omelet.tororo = clamp((t - 0.48) / 0.52, 0, 1);
   if (t > 0.30 && t - dt <= 0.30) {
     sfx.paka();
-    burst(G, L.plate.cx, L.plate.cy, 16, L.unit * 0.06);
+    // 料理を隠さないよう、外周に小さくきらめかせる
+    burst(G, L.plate.cx, L.plate.cy, 12, L.unit * 0.13, L.unit * 0.020);
   }
-  if (t >= 1.15) setState(G, S.DRAW);
+  if (t >= 1.25) setState(G, S.DRAW);
 }
 
 // ---------- 8/9. 描く ----------
@@ -524,10 +537,10 @@ export function pointerMove(G, L, p) {
       // ノズルは指の少し先（指の影に隠れない位置）。皿から外れたら指の位置へ吸着。
       const nz = { x: G.bottle.tx, y: G.bottle.ty + L.toolR * 1.7 };
       const a = toLocal(P, nz.x, nz.y);
-      if (a.u * a.u + a.v * a.v < 0.95 * 0.95) squirt(G, L, nz.x, nz.y);
+      if (moundRadius(a.u, a.v) < 1.35) squirt(G, L, nz.x, nz.y);
       else {
         const b = toLocal(P, p.x, p.y);
-        if (b.u * b.u + b.v * b.v < 0.95 * 0.95) squirt(G, L, p.x, p.y);
+        if (moundRadius(b.u, b.v) < 1.35) squirt(G, L, p.x, p.y);
         else G.ketchup.cur = null;
       }
       break;
@@ -616,28 +629,28 @@ export function omeletScreen(G, L) {
   }
   if (o.place === 'fly') {
     const t = easeInOut(o.fly);
-    const a = toScreen(F, 0, 0), b = toScreen(P, 0, -0.06);
+    const a = toScreen(F, 0, 0), b = toScreen(P, 0, OM_V);
     return {
       x: lerp(a.x, b.x, t),
       y: lerp(a.y, b.y, t) - Math.sin(t * Math.PI) * L.unit * 0.05,
-      rx: lerp(F.r * 0.58, P.r * 0.53, t),
-      ry: lerp(F.ry * 0.54, P.ry * 0.50, t),
+      rx: lerp(F.r * 0.58, P.r * OM_RX, t),
+      ry: lerp(F.ry * 0.54, P.ry * OM_RY, t),
       rot: 0,
       wob: Math.sin(o.fly * 9) * 0.05,
     };
   }
   const c = toScreen(P, o.u, o.v);
-  return { x: c.x, y: c.y, rx: P.r * 0.53, ry: P.ry * 0.50, rot: 0, wob };
+  return { x: c.x, y: c.y, rx: P.r * OM_RX, ry: P.ry * OM_RY, rot: 0, wob };
 }
 
-export function burst(G, x, y, n, r) {
+export function burst(G, x, y, n, r, size = r) {
   for (let i = 0; i < n; i++) {
     const a = (i / n) * TAU + Math.random();
     const d = r * (0.6 + Math.random() * 1.6);
     G.sparkles.push({
       x: x + Math.cos(a) * d,
       y: y + Math.sin(a) * d * 0.7,
-      r: r * (0.4 + Math.random() * 0.6),
+      r: size * (0.4 + Math.random() * 0.6),
       t: 0,
       life: 0.5 + Math.random() * 0.4,
     });

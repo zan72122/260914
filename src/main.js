@@ -3,6 +3,7 @@ import { computeLayout } from './layout.js';
 import { attachInput } from './input.js';
 import { createGame, update, pointerDown, pointerMove, pointerUp, onLayout, omeletScreen, resetGame, S } from './state.js';
 import { render } from './render/scene.js';
+import { MOUND, moundScreen } from './render/plate.js';
 import { invalidateTable } from './render/table.js';
 
 const canvas = document.getElementById('stage');
@@ -51,11 +52,18 @@ attachInput(canvas, {
 resize();
 
 let prev = performance.now();
+// レビュー用のフレームキャプチャ（tests/frames.spec.js）で使う。通常は timeScale=1 / paused=false。
+let timeScale = 1;
+let paused = false;
+let manualDt = 0;
+
 function frame(now) {
-  const dt = Math.min(0.05, Math.max(0.0001, (now - prev) / 1000));
+  let dt = Math.min(0.05, Math.max(0.0001, (now - prev) / 1000));
   prev = now;
+  if (paused) { dt = manualDt; manualDt = 0; }
+  else dt *= timeScale;
   resize();
-  update(G, L, dt);
+  if (dt > 0) update(G, L, dt);
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   render(ctx, G, L);
@@ -78,6 +86,8 @@ const api = {
       tools: L.tools,
       toolR: L.toolR,
       buttons: L.buttons.map((b) => ({ id: b.id, x: b.x, y: b.y, r: b.r })),
+      handle: { x: L.pan.handleTip.x, y: L.pan.handleTip.y, w: L.pan.handleTip.w },
+      mound: (() => { const m = moundScreen(L.plate); return { x: m.cx, y: m.cy, rx: m.rx, ry: m.ry, ru: MOUND.ru, rv: MOUND.rv }; })(),
       omelet: { x: o.x, y: o.y, rx: o.rx, ry: o.ry, place: G.omelet.place },
     };
   },
@@ -119,5 +129,11 @@ const api = {
   // 皿ローカル正規化 → 画面座標（回転テストで使う）
   plateAt(u, v) { return { x: L.plate.cx + u * L.plate.r, y: L.plate.cy + v * L.plate.ry }; },
   reset(v) { resetGame(G, v == null ? G.variantId : v); onLayout(G, L); },
+  // --- 演出のフレームキャプチャ用 ---
+  get timeScale() { return timeScale; },
+  set timeScale(v) { timeScale = Math.max(0, Number(v) || 0); },
+  pause(v = true) { paused = !!v; manualDt = 0; },
+  // 一時停止中に dt(ms) ぶんだけ進める（描画は次フレーム）
+  step(ms = 16.7) { manualDt += Math.max(0, Number(ms) || 0) / 1000; },
 };
 window.__game = api;
