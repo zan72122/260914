@@ -121,6 +121,16 @@ function sweepPaths(cx, cy, r) {
   return paths;
 }
 
+/** 石の周りだけを切り取ったスクリーンショット */
+async function clipShot(page, file, sc, vp) {
+  const pad = Math.max(60, sc.r * 1.55);
+  const x = Math.max(0, Math.round(sc.x - pad));
+  const y = Math.max(0, Math.round(sc.y - pad));
+  const width = Math.min(vp.width - x, Math.round(pad * 2));
+  const height = Math.min(vp.height - y, Math.round(pad * 2));
+  await page.screenshot({ path: file, clip: { x, y, width, height } });
+}
+
 // ---------------- 1 方向ぶんの試遊 ----------------
 async function runOrientation(browser, label, viewport, outDir, log) {
   fs.mkdirSync(outDir, { recursive: true });
@@ -176,30 +186,58 @@ async function runOrientation(browser, label, viewport, outDir, log) {
   }
   log(`  窓を開けた: ${JSON.stringify(await stats())}`);
 
-  // ---- Stage 0: 転がして良い向きを探す（align を見ながら転がす） ----
+  // ---- Stage 0: 転がして良い向きを探す ----
+  // 吸い寄せは align > 0.60 でしか効かない（しかも弱い）ので、実際に転がして山登りする。
+  const bandTargets = [0.50, 0.75, 0.90];
+  let bandIdx = 0;
+  async function maybeBand(a) {
+    if (label !== 'portrait') return;
+    while (bandIdx < bandTargets.length && a >= bandTargets[bandIdx]) {
+      const s2 = await screen();
+      await clipShot(page, path.join(outDir, `band-${bandIdx + 1}.png`), s2, viewport);
+      log(`  帯: band-${bandIdx + 1}.png (align=${a.toFixed(3)})`);
+      bandIdx++;
+    }
+  }
+
+  const dirs = [[1, 0], [0, -1], [-1, 0], [0, 1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]];
+  let di = 0;
+  let prevA = (await stats()).align;
+  await maybeBand(prevA);
   const t0 = Date.now();
-  while ((await sync()).stage === 0 && Date.now() - t0 < 180000) {
+  while ((await sync()).stage === 0 && Date.now() - t0 < 300000) {
     sc = await screen();
-    const ang = Math.random() * Math.PI * 2;
-    const L = sc.r * (0.8 + Math.random() * 1.3);
-    const ux = Math.cos(ang), uy = Math.sin(ang);
+    const [ux, uy] = dirs[di];
+    const L = sc.r * 0.8;
+    // 転がしながら align を細かく見る（帯が動いていく途中の絵を撮るため）
     await f.down(sc.x - ux * L / 2, sc.y - uy * L / 2);
-    let near = false;
-    for (let k = 1; k <= 5; k++) {
-      await f.move(sc.x - ux * L / 2 + ux * L * (k / 5), sc.y - uy * L / 2 + uy * L * (k / 5));
-      if ((await stats()).align > 0.42) { near = true; break; }
+    let a = prevA;
+    for (let k = 1; k <= 10; k++) {
+      await f.move(sc.x - ux * L / 2 + ux * L * (k / 10), sc.y - uy * L / 2 + uy * L * (k / 10));
+      await sleep(18);
+      a = (await stats()).align;
+      await maybeBand(a);
     }
     await f.up();
     await sleep(60);
-    if (near) {
-      // 吸い寄せが効く圏内。軽く触り続けて石が向きを合わせるのを待つ
-      for (let k = 0; k < 30 && (await sync()).stage === 0; k++) {
+    a = (await stats()).align;
+    await maybeBand(a);
+    if (a <= prevA + 0.003) di = (di + 1) % dirs.length;   // 良くならない方向なら変える
+    prevA = a;
+    if (a > 0.62) {
+      // ここから先は弱い吸い寄せが効く。軽く触れ続けて石が向きを合わせるのを待つ
+      for (let k = 0; k < 40 && (await sync()).stage === 0; k++) {
         sc = await screen();
         await tap(page, sc.x, sc.y);
-        await sleep(90);
+        a = (await stats()).align;
+        await maybeBand(a);
+        if (a < 0.52) break;
+        await sleep(120);
       }
+      prevA = a;
     }
   }
+  log(`  良い向きへ: ${JSON.stringify(await stats())}`);
 
   // ---- Stage 1: 長押しで固定 ----
   for (let k = 0; k < 10 && (await sync()).stage === 1; k++) {
@@ -252,6 +290,31 @@ async function runOrientation(browser, label, viewport, outDir, log) {
   await sleep(700);
   await page.screenshot({ path: path.join(outDir, 'stage5-play.png') });
   log(`  完成後: ${JSON.stringify(await stats())}`);
+
+  // 画面のいろいろな場所から 3 種類のドラッグ（左へ / 右上へ / 下へ）。
+  // 指を置いたまま撮って、スターが指の動きで滑っていることを見る。
+  if (label === 'portrait') {
+    const W = viewport.width, H = viewport.height;
+    const tilts = [
+      { name: 1, from: [W * 0.82, H * 0.30], to: [W * 0.14, H * 0.30] },  // 左へ
+      { name: 2, from: [W * 0.20, H * 0.78], to: [W * 0.86, H * 0.34] },  // 右上へ
+      { name: 3, from: [W * 0.50, H * 0.18], to: [W * 0.50, H * 0.82] }   // 下へ
+    ];
+    for (const t of tilts) {
+      await f.down(t.from[0], t.from[1]);
+      for (let k = 1; k <= 12; k++) {
+        await f.move(t.from[0] + (t.to[0] - t.from[0]) * (k / 12),
+                     t.from[1] + (t.to[1] - t.from[1]) * (k / 12));
+        await sleep(22);
+      }
+      await sleep(160);                       // 指は置いたまま（戻りが始まる前に撮る）
+      const s5 = await screen();
+      await clipShot(page, path.join(outDir, `star-tilt-${t.name}.png`), s5, viewport);
+      log(`  傾け: star-tilt-${t.name}.png  ${JSON.stringify(await page.evaluate(() => window.__game.orientation()))}`);
+      await f.up();
+      await sleep(500);
+    }
+  }
 
   // ---- 縦のみ: リロード復元 と 再プレイ（新しい原石を迎える）を検証 ----
   if (label === 'portrait') {
