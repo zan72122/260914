@@ -40,7 +40,10 @@ class Game {
     this.worldCtx = {
       vacuum: this.vacuum, camera: this.camera, input: this.input,
       rng: this.rng, audio: this.audio,
-      world: { rng: this.rng, audio: this.audio, onCaptured: (d) => this._onCaptured(d) },
+      world: {
+        rng: this.rng, audio: this.audio, camera: this.camera,
+        onCaptured: (d) => this._onCaptured(d),
+      },
     };
 
     this.input.onFirstGesture(() => this.audio.start());
@@ -76,24 +79,21 @@ class Game {
     if (!initial && this.scene) this.relayout(poseChanged);
   }
 
+  /**
+   * Orientation change: the scene rebuilds its whole world for the new pose, so
+   * it has to be handed back what the player already achieved. `persist` keeps
+   * whatever the scene wants across the rebuild; saveProgress()/restoreProgress()
+   * put the cleared debris back (see Scene for the default).
+   */
   relayout() {
     const prev = this.scene;
     const persist = prev.persist;
-    let cleared = 0;
-    for (let i = 0; i < prev.debris.length; i++) {
-      const d = prev.debris[i];
-      if (!d.decor && d.state === State.DONE) cleared++;
-    }
+    const progress = prev.saveProgress();
     this.rng.reset(P.seed);
     prev.persist = persist;              // identities/progress the scene wants kept
     prev.layout(this.pose, this.w, this.h);
     prev.persist = persist;
-    // keep the player's progress across an orientation change
-    for (let i = 0; i < prev.debris.length && cleared > 0; i++) {
-      const d = prev.debris[i];
-      if (d.decor || d.dormant) continue;
-      d.state = State.DONE; cleared--;
-    }
+    prev.restoreProgress(progress);
     this._placeStart(prev, false);
   }
 
@@ -185,6 +185,7 @@ class Game {
     ctx.fillRect(0, 0, this.w, this.h);
     this.scene.draw(ctx, this.camera);
     this.vacuum.draw(ctx, this.camera);
+    this.scene.drawOver(ctx, this.camera);
     const L = this.scene.light;
     if (L) {
       L.setViewport(this.w, this.h);
@@ -255,7 +256,9 @@ class Game {
     const p = { x: 0, y: 0 };
     for (let i = 0; i < sn.debris.length; i++) {
       const d = sn.debris[i];
-      this.camera.toScreen(d.x, d.y, p);
+      // nx/ny are the AIM point, not the centre: that is where the harness has
+      // to put the mouth (a strand is taken by its tip, a trail by one grain)
+      this.camera.toScreen(d.ax === undefined ? d.x : d.ax, d.ay === undefined ? d.y : d.ay, p);
       d.nx = +(p.x / this.w).toFixed(4);
       d.ny = +(p.y / this.h).toFixed(4);
     }

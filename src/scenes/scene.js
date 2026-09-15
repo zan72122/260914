@@ -67,15 +67,54 @@ export class Scene {
    */
   clearStartZone(minDist = 240, leadPx = 92) {
     const p = this.parkPoint(leadPx);
+    const a = { x: 0, y: 0 };
     for (let i = 0; i < this.debris.length; i++) {
       const d = this.debris[i];
-      let dx = d.x - p.x, dy = d.y - p.y;
+      if (d.dormant || d.anchored) continue;        // hidden / tied down: leave it
+      d.aim(a);
+      let dx = a.x - p.x, dy = a.y - p.y;
       let l = Math.hypot(dx, dy);
       if (l >= minDist) continue;
       if (l < 1e-3) { dx = 0; dy = 1; l = 1; }
-      d.x = p.x + (dx / l) * minDist;
-      d.y = p.y + (dy / l) * minDist;
-      d.hx = d.x; d.hy = d.y;
+      d.translate((dx / l) * (minDist - l), (dy / l) * (minDist - l));
+    }
+  }
+
+  /**
+   * Progress across an orientation change.
+   *
+   * `layout()` rebuilds the world from scratch, so whatever the player already
+   * cleared has to be put back. The default remembers WHICH pieces were done
+   * (by index — layout is deterministic for a given seed, so index i is the
+   * same piece in both poses) and falls back to a count if the list changed
+   * length. A scene that keeps richer state in `persist` can override both to
+   * no-ops; a scene with its own erasures can extend them.
+   */
+  saveProgress() {
+    const done = [];
+    let cleared = 0;
+    for (let i = 0; i < this.debris.length; i++) {
+      const d = this.debris[i];
+      if (d.decor || d.state !== State.DONE) continue;
+      done.push(i); cleared++;
+    }
+    return { done, cleared, n: this.debris.length };
+  }
+
+  restoreProgress(p) {
+    if (!p) return;
+    if (p.done && p.n === this.debris.length) {
+      for (let i = 0; i < p.done.length; i++) {
+        const d = this.debris[p.done[i]];
+        if (d && !d.decor) d.state = State.DONE;
+      }
+      return;
+    }
+    let c = p.cleared || 0;
+    for (let i = 0; i < this.debris.length && c > 0; i++) {
+      const d = this.debris[i];
+      if (d.decor || d.dormant || d.state === State.DONE) continue;
+      d.state = State.DONE; c--;
     }
   }
 
@@ -106,6 +145,13 @@ export class Scene {
     this.drawFloor(ctx, cam);
     this.drawDebris(ctx, cam);
   }
+
+  /**
+   * Drawn AFTER the vacuum, so a scene can put something in front of the
+   * machine: the finale pour out of the dust cup, a strand still hanging out of
+   * the mouth, a highlight on the head. Camera transform is not applied.
+   */
+  drawOver(ctx, cam) {}
 
   /** Debris that still counts toward finishing (decor is excluded). */
   remaining() {
