@@ -20,7 +20,10 @@ src/debris/dustBunny.js fluff: per-fiber lean -> stretch -> break loose -> pop
 src/debris/crumb.js     stiction -> shiver -> skate -> tick
 src/floors/floor.js     offscreen base layer + erasable grime layer
 src/floors/wood.js      warm planks
-src/floors/tile.js      glossy tile, hidden motif, spill stain
+src/floors/tile.js      glossy tile, hidden motif, pale spill dusting
+src/props/prop.js       pushable / blocking rigid props + resolveProps()
+src/core/light.js       darkness overlay with cut-out lights (half-res offscreen)
+src/core/heightfield.js grid of heights with angle-of-repose relaxation (sand, pile)
 src/scenes/scene.js     Scene base (the contract below)
 src/scenes/index.js     ordered registry — the ONLY core file a new scene touches
 src/scenes/intro.js     scene 1
@@ -51,9 +54,17 @@ const f = vac.field(worldX, worldY, myScratchObject);
   edge to react before the far edge. `DustBunny` samples once per fiber.
 * Pass a reusable `out` object; debris loops must not allocate per frame.
 
-Rough calibration (at full power): `strength` ≈ 1.15 at ~80px from the mouth
-(dust bunnies break loose there), ≈ 0.34 at ~150px (crumbs break stiction),
-≈ 0.10 at ~230px (a faint lean, nothing moves).
+Calibration in DESIGN px (r = 110 idle, 138 at full power):
+
+| strength | idle (power 1.0) | full (power 2.2) | what happens there |
+|---------:|-----------------:|-----------------:|--------------------|
+| 1.20 | — | 100px | a full dust bunny lets go (threshold drops as it sheds fibers) |
+| 0.50 | — | 175px | a dust bunny starts shedding single fibers |
+| 0.34 | 65px | 205px | a crumb breaks stiction and skates |
+| 0.10 | 150px | 320px | fibers lean, nothing moves |
+
+A bunny is ~80 design px across and the head ~68, so "one head away" is roughly
+the break-loose distance — that is the scale everything is tuned against.
 
 ## Adding a debris type
 
@@ -122,8 +133,13 @@ export class MyScene extends Scene {
   (long floors, go around the legs). Do not scale one design into the other.
 * **Debris that only decorates** (a trail leading off-screen for the next scene)
   gets `d.decor = true`; `remaining()` ignores it.
-* **Never** place debris within ~150 design px of the parked nozzle, or the idle
-  airflow will eat it before the player touches the screen.
+* **Never** place debris inside the parked nozzle's idle airflow. Call
+  `this.clearStartZone(minDist)` at the end of `layout()`: ~150 for fluff (it
+  should already be swaying when the game opens), ~245 for anything with a low
+  threshold such as crumbs. `this.parkPoint()` gives you that mouth position.
+* **`this.persist`** is a plain object that survives `relayout()` (orientation
+  change). Put anything you want kept there — kitchen stores the list of wiped
+  spots, normalized to the spill, and replays them into the new floor.
 * **No UI.** Completion must be shown by the world: the camera moves, light
   spills through a door, grime is wiped away. `exit()` returns that camera move;
   `main.js` plays it, swaps the scene, then plays the next scene's `entry()`
@@ -154,3 +170,96 @@ travelling through the tube is literally on the tube path.
 `setSpeed(x)`, `dev(on)`.
 URL params: `?scene=`, `?seed=`, `?dev=1`, `?speed=`, `?pose=` (informational),
 `?mute=1`. See `dev/README.md`.
+
+
+## Core services for later scenes
+
+### Strand transit (thread, hair, noodles)
+
+```js
+vac.transit({
+  kind: 'strand',
+  points: [{x,y}, ...],   // world coords, points[0] goes in FIRST
+  color: '#e7e2d8',
+  width: 2.4,
+  size: 12,               // how big the coil in the cup ends up
+});
+```
+The tube knows its own arc length, so the strand runs in head-first: each vertex
+is on the tube once the head has travelled past its distance along the strand,
+and still sitting on the floor before that. It lands in the cup as a small
+tangle (`kind: 'coil'`). `vac.mouth()` → `{x, y, dirX, dirY}` is there so a
+strand can feed itself in from wherever the mouth currently is.
+
+### Props (`src/props/prop.js`)
+
+```js
+import { Prop, resolveProps } from '../props/prop.js';
+
+this.props.push(new Prop({
+  x, y,
+  shape: 'circle' | 'rect', r, w, h, angle,
+  mass: 1, friction: 6,
+  pushable: true,          // false = solid, the head slides along it
+  color, shadow: true,
+  draw: (ctx) => { ... },  // optional override, world coords
+  data: { ... },           // your payload
+}));
+
+// once per step, after vac.update():
+resolveProps(ctx.vacuum, this.props, dt);
+```
+Pushable props are shoved by the nozzle head (not by the airflow), slide, and
+grind to a halt; `prop.nudge` (0..1, decaying) is set on contact so you can rock
+or squash them. Non-pushable props push the head back out and cancel its inward
+velocity, so the head slides along the edge — that is how the intro table leg
+and the kitchen bowl work.
+
+### Lighting (`src/core/light.js`)
+
+```js
+import { LightLayer } from '../core/light.js';
+this.light = new LightLayer();      // in the constructor
+this.light.setDark(0.88);           // in layout()
+lights(L, cam, vac) {               // optional Scene hook, SCREEN coords
+  const p = {x:0,y:0}; cam.toScreen(lampX, lampY, p);
+  L.addLight(p.x, p.y, 150, 0.8);
+}
+vac.headlight.on = true;            // cone thrown forward from the mouth
+vac.headlight.r / .intensity / .cone;
+```
+`main.js` runs `begin()` → `addHeadlight()` → `scene.lights()` → `composite()`
+every frame when `scene.light` is set. One half-resolution offscreen canvas,
+`destination-out` cut-outs, no per-frame allocation.
+
+### Height field (`src/core/heightfield.js`)
+
+```js
+import { HeightField } from '../core/heightfield.js';
+const hf = new HeightField({x0,y0,x1,y1}, 48, 48);
+hf.addRadial(x, y, 60, 18);                 // heap it up
+const taken = -hf.addRadial(m.x, m.y, 26, -rate * dt * f.strength);
+hf.relax(dt, 0.55);                         // sides collapse into the crater
+hf.drawShaded(ctx, '#e9d8ad', '#c2a066', 20);
+```
+`relax()` conserves mass and only moves it where the slope exceeds the angle of
+repose, which is what makes a sucked crater cave in. `get/set/add` take world
+coordinates. Scenes are free to draw the grid themselves.
+
+### Gesture signals
+
+`input.rub` / `input.rubIntensity`, `input.circle` / `input.circleIntensity`
+(0..1, decaying) and, mirrored on the vacuum so debris never needs the Input
+object: `vac.rub`, `vac.circle`, and `vac.scrub` — the latter counts reversals
+of the HEAD's own motion, which is the right signal for a brush-roll / combing
+mechanic.
+
+### Dust bunny behaviour worth copying
+
+`DustBunny` is the reference implementation of "never static": in the flow but
+not yet free, it strains rhythmically (2-3 Hz elastic stretch and relax), sheds
+single fibers into the mouth as little wisps (each one a `kind:'wisp'` transit
+and a tick), thins as it loses them — which lowers its own break-loose
+threshold — then cocks ~80ms AWAY from the nozzle before snapping in. Any new
+debris type should have an equivalent "it is straining, and holding still will
+eventually win" loop rather than a static deformed pose.

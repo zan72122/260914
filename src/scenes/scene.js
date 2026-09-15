@@ -28,6 +28,12 @@ export class Scene {
     this.rest = { x: 0, y: 0, zoom: 1, tilt: 0 };
     this.startPointer = { x: 0.5, y: 0.72 };
     this.done = false;
+    /** Survives relayout() (orientation change). Put anything you want kept here. */
+    this.persist = {};
+    /** Optional: set to a LightLayer to make the scene dark. */
+    this.light = null;
+    /** Optional: props array; call resolveProps(vac, this.props, dt) from update(). */
+    this.props = [];
     this._sinceDone = 0;
     this.world = null;
   }
@@ -43,6 +49,34 @@ export class Scene {
     this.scale = Math.max(1, Math.min(2, Math.min(w, h) / 390));
     this.vw = w / this.scale;
     this.vh = h / this.scale;
+  }
+
+  /** Where the nozzle mouth sits before the player has touched anything. */
+  parkPoint(leadPx = 92) {
+    return {
+      x: (this.startPointer.x - 0.5) * this.vw,
+      y: (this.startPointer.y - 0.5) * this.vh - (leadPx - 22) / this.scale,
+    };
+  }
+
+  /**
+   * Push any debris that spawned inside the parked nozzle's idle airflow out to
+   * `minDist`. Call at the end of layout(): otherwise those pieces are eaten
+   * before the player touches the screen. ~150 design px still sways (good for
+   * fluff), ~240 is out of reach (use that for anything with a low threshold).
+   */
+  clearStartZone(minDist = 240, leadPx = 92) {
+    const p = this.parkPoint(leadPx);
+    for (let i = 0; i < this.debris.length; i++) {
+      const d = this.debris[i];
+      let dx = d.x - p.x, dy = d.y - p.y;
+      let l = Math.hypot(dx, dy);
+      if (l >= minDist) continue;
+      if (l < 1e-3) { dx = 0; dy = 1; l = 1; }
+      d.x = p.x + (dx / l) * minDist;
+      d.y = p.y + (dy / l) * minDist;
+      d.hx = d.x; d.hy = d.y;
+    }
   }
 
   /** Default: tick every debris and drop the finished ones. */
@@ -84,6 +118,9 @@ export class Scene {
   }
 
   isComplete() { return this.remaining() === 0; }
+
+  /** Optional hook: add scene lights when `this.light` is set (screen coords). */
+  lights(layer, cam, vac) {}
 
   exit() { return { to: { x: this.rest.x, y: this.rest.y, zoom: this.rest.zoom, tilt: this.rest.tilt }, dur: 1.2, next: null }; }
   entry() { return { x: this.rest.x, y: this.rest.y, zoom: this.rest.zoom, tilt: this.rest.tilt }; }

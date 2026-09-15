@@ -78,13 +78,16 @@ class Game {
 
   relayout() {
     const prev = this.scene;
+    const persist = prev.persist;
     let cleared = 0;
     for (let i = 0; i < prev.debris.length; i++) {
       const d = prev.debris[i];
       if (!d.decor && d.state === State.DONE) cleared++;
     }
     this.rng.reset(P.seed);
+    prev.persist = persist;              // identities/progress the scene wants kept
     prev.layout(this.pose, this.w, this.h);
+    prev.persist = persist;
     // keep the player's progress across an orientation change
     for (let i = 0; i < prev.debris.length && cleared > 0; i++) {
       const d = prev.debris[i];
@@ -113,7 +116,7 @@ class Game {
     this.camera.set(sc.rest.x, sc.rest.y, sc.rest.zoom, sc.rest.tilt);
     if (resetVacuum) {
       const p = { x: 0, y: 0 };
-      this.camera.toWorld(sp.x * this.w, sp.y * this.h - 70, p);
+      this.camera.toWorld(sp.x * this.w, sp.y * this.h - this.vacuum.leadUp, p);
       this.vacuum.reset(p.x, p.y);
     }
   }
@@ -182,6 +185,14 @@ class Game {
     ctx.fillRect(0, 0, this.w, this.h);
     this.scene.draw(ctx, this.camera);
     this.vacuum.draw(ctx, this.camera);
+    const L = this.scene.light;
+    if (L) {
+      L.setViewport(this.w, this.h);
+      L.begin();
+      L.addHeadlight(this.vacuum, this.camera);
+      this.scene.lights(L, this.camera, this.vacuum);
+      L.composite(ctx);
+    }
     this._drawVeil(ctx);
     if (this.dev) this._drawDev(ctx);
   }

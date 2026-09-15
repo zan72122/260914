@@ -36,6 +36,10 @@ export class Input {
   }
 
   setViewport(w, h) { this.viewW = w; this.viewH = h; }
+
+  /** Aliases: scrubbing / circling energy, 0..1, decaying. */
+  get rubIntensity() { return this.rub; }
+  get circleIntensity() { return this.circle; }
   onFirstGesture(fn) { this._onFirst = fn; }
 
   attach(el) {
