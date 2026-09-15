@@ -8,7 +8,8 @@
     "serve": "python3 -m http.server 8080",
     "test": "playwright test",
     "test:headed": "playwright test --headed",
-    "frames": "playwright test tests/frames.spec.js"
+    "frames": "playwright test tests/frames.spec.js",
+    "sheet": "node tests/sheet.js open screenshots/frames/sheet-open.png 0,60,390,280 && node tests/sheet.js slide screenshots/frames/sheet-slide.png 0,60,390,600"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0"

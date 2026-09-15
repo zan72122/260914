@@ -53,3 +53,8 @@ export function roundRect(ctx, x, y, w, h, r) {
 export function springWobble(t, freq = 10, damp = 3.4) {
   return Math.exp(-damp * t) * Math.sin(t * freq);
 }
+
+// 着地の潰れ（t=0 で最大に潰れ、減衰しながら戻る）
+export function landWobble(t, freq = 13, damp = 3.2) {
+  return Math.exp(-damp * t) * Math.cos(t * freq);
+}

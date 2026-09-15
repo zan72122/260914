@@ -1,6 +1,6 @@
 // 皿・ライス（盛られたマウンド）・ケチャップ・混ぜ塗り
 // 皿の中身はすべて「皿ローカル正規化座標」で保持 → 画面回転しても残る
-import { TAU, clamp, makeRng, easeOutBack, springWobble } from '../util.js';
+import { TAU, clamp, makeRng, easeOutBack, springWobble, landWobble } from '../util.js';
 import { toScreen } from '../layout.js';
 import { glossyStroke } from './fx.js';
 
@@ -285,7 +285,8 @@ export function drawPlateFood(ctx, P, G, t) {
   const m = G.mix.morph;
   const o = G.omelet;
   // 着地でライスも一緒にぷるん
-  const wob = (o.place === 'plate' && o.wobT < 4) ? springWobble(o.wobT, 13, 3.0) * o.wobA * 0.55 : 0;
+  const wobF = o.land ? landWobble : springWobble;
+  const wob = (o.place === 'plate' && o.wobT < 4) ? wobF(o.wobT, 13, 3.0) * o.wobA * 0.55 : 0;
 
   ctx.save();
   // 皿の内側からははみ出さない

@@ -1,5 +1,5 @@
 // 状態機械。レイアウトには一切依存しない（座標は正規化 or 毎フレーム layout から取る）。
-import { clamp, lerp, easeInOut, springWobble, TAU } from './util.js';
+import { clamp, lerp, smooth, springWobble, landWobble, TAU } from './util.js';
 import { toScreen, toLocal } from './layout.js';
 import { bakeRice, bakeMixedRice, makeLayer, paintMix, MOUND, moundRadius } from './render/plate.js';
 import { sfx, unlock } from './audio.js';
@@ -71,7 +71,7 @@ export function createGame() {
     bowl: { x: 0, y: 0, tx: 0, ty: 0, angle: 0, grab: false, homed: false },
     mix: { cover: 0, grid: new Uint8Array(GRID * GRID), hit: 0, total: 0, morph: 0, done: false },
     egg: { spread: 0, gather: 0, seed: 1.7, pouring: false, poured: false },
-    omelet: { place: 'none', u: 0, v: OM_V, wobT: 99, wobA: 0, cut: 0, open: 0, tororo: 0, ridge: false, fly: 0 },
+    omelet: { place: 'none', u: 0, v: OM_V, wobT: 99, wobA: 0, land: false, cut: 0, open: 0, tororo: 0, ridge: false, fly: 0 },
     pan: { tilt: 0, prog: 0 },
     panAlpha: 1,
     draw: { strokes: [], cur: null },
@@ -125,7 +125,7 @@ export function resetGame(G, variantId = G.variantId) {
   G.egg.pouring = false;
   G.egg.poured = false;
   G.egg.seed = 1 + Math.random() * 9;
-  Object.assign(G.omelet, { place: 'none', u: 0, v: OM_V, wobT: 99, wobA: 0, cut: 0, open: 0, tororo: 0, ridge: false, fly: 0 });
+  Object.assign(G.omelet, { place: 'none', u: 0, v: OM_V, wobT: 99, wobA: 0, land: false, cut: 0, open: 0, tororo: 0, ridge: false, fly: 0 });
   G.pan.tilt = 0;
   G.pan.prog = 0;
   G.panAlpha = 1;
@@ -346,6 +346,7 @@ function updGather(G, L) {
     G.omelet.place = 'pan';
     G.omelet.wobT = 0;
     G.omelet.wobA = 0.11;
+    G.omelet.land = false;
     burst(G, L.pan.cx, L.pan.cy, 10, L.unit * 0.09, L.unit * 0.020);
     sfx.ding();
     later(G, 1.0, () => setState(G, S.SLIDE));
@@ -377,21 +378,25 @@ function updSlide(G, L, dt) {
         G.pan.prog = clamp(G.pan.prog + dt * 0.9, 0, 1);   // 長押しでも傾く
       }
     }
-    G.pan.tilt = lerp(G.pan.tilt, G.pan.prog, 1 - Math.exp(-11 * dt));
-    if (G.pan.prog >= 1) {
+    // 実際の傾きは指より少し遅れて追いつく（倒れていく過程が見える）
+    G.pan.tilt = lerp(G.pan.tilt, G.pan.prog, 1 - Math.exp(-7 * dt));
+    // 傾ききってから滑り出す（卵が縁へ寄る間を見せる）
+    if (G.pan.prog >= 1 && G.pan.tilt >= 0.82) {
       G.omelet.place = 'fly';
       G.omelet.fly = 0;
       G.hold.active = false;
+      sfx.gather();
     }
   } else if (G.omelet.place === 'fly') {
     G.pan.tilt = lerp(G.pan.tilt, 1, 1 - Math.exp(-11 * dt));
-    G.omelet.fly = clamp(G.omelet.fly + dt / 0.55, 0, 1);
+    G.omelet.fly = clamp(G.omelet.fly + dt / 0.38, 0, 1);   // 短く低い滑り台
     if (G.omelet.fly >= 1) {
       G.omelet.place = 'plate';
       G.omelet.u = 0;
       G.omelet.v = OM_V;
       G.omelet.wobT = 0;
-      G.omelet.wobA = 0.18;   // 着地でぷるん
+      G.omelet.wobA = 0.20;   // 着地でぺしゃっと潰れてから戻る
+      G.omelet.land = true;
       sfx.land();
       burst(G, L.plate.cx, L.plate.cy, 12, L.unit * 0.11, L.unit * 0.020);
       later(G, 1.15, () => { setState(G, S.CUT); G.omelet.ridge = true; });
@@ -405,7 +410,7 @@ function updSlide(G, L, dt) {
 function updCut(G, L, dt) {
   if (G.omelet.cut > 0) {
     G.omelet.ridge = false;
-    G.omelet.cut = clamp(G.omelet.cut + dt / 0.2, 0, 1);
+    G.omelet.cut = clamp(G.omelet.cut + dt / 0.14, 0, 1);
     if (G.omelet.cut >= 1) setState(G, S.OPEN);
   } else {
     G.omelet.ridge = true;
@@ -438,15 +443,16 @@ function tryCut(G, L) {
 function updOpen(G, L, dt) {
   const t = G.st;
   G.omelet.cut = 1;
-  G.omelet.open = clamp((t - 0.30) / 0.30, 0, 1);
-  // 皮が開ききる少し前からとろとろが顔を出す
-  G.omelet.tororo = clamp((t - 0.48) / 0.52, 0, 1);
-  if (t > 0.30 && t - dt <= 0.30) {
-    sfx.paka();
-    // 料理を隠さないよう、外周に小さくきらめかせる
-    burst(G, L.plate.cx, L.plate.cy, 12, L.unit * 0.13, L.unit * 0.020);
+  // 間 0.28s → パカッ 0.34s（皮が倒れる）→ トロッ 0.55s（開き 40% から重なって流れ出す）
+  G.omelet.open = clamp((t - 0.28) / 0.34, 0, 1);
+  G.omelet.tororo = clamp((t - 0.38) / 0.55, 0, 1);
+  if (t > 0.28 && t - dt <= 0.28) sfx.paka();
+  // きらめきはライスの上ではなく、とろとろが広がりきった黄色い面の上に小さく数個だけ
+  if (t >= 1.00 && t - dt < 1.00) {
+    const o = omeletScreen(G, L);
+    burst(G, o.x, o.y - o.ry * 0.1, 5, o.rx * 0.46, L.unit * 0.013);
   }
-  if (t >= 1.25) setState(G, S.DRAW);
+  if (t >= 1.20) setState(G, S.DRAW);
 }
 
 // ---------- 8/9. 描く ----------
@@ -623,24 +629,45 @@ export function hitButton(L, x, y) {
 export function omeletScreen(G, L) {
   const P = L.plate, F = L.pan;
   const o = G.omelet;
-  const wob = o.wobT < 4 ? springWobble(o.wobT, 13, 3.0) * o.wobA : Math.sin(G.time * 1.9) * 0.014;
+  const wobF = o.land ? landWobble : springWobble;
+  const wob = o.wobT < 4 ? wobF(o.wobT, 13, 3.0) * o.wobA : Math.sin(G.time * 1.9) * 0.014;
+  // 皿へ向かう単位ベクトル（縦画面なら上、横画面なら右）
+  const dx = P.cx - F.cx, dy = P.cy - F.cy;
+  const dl = Math.hypot(dx, dy) || 1;
+  const ux = dx / dl, uy = dy / dl;
+
   if (o.place === 'pan') {
-    return { x: F.cx, y: F.cy, rx: F.r * 0.58, ry: F.ry * 0.54, rot: 0, wob };
+    const k = clamp(G.pan.tilt, 0, 1);
+    const slip = 0.16 * k + 0.44 * k * k;      // 傾くほど縁へじわっと寄る
+    const st = stretchTo(F.r * 0.58, F.ry * 0.54, ux, uy, 0.35 * k * k);
+    return { x: F.cx + ux * F.r * slip, y: F.cy + uy * F.ry * slip, rx: st.rx, ry: st.ry, rot: 0, wob };
   }
   if (o.place === 'fly') {
-    const t = easeInOut(o.fly);
-    const a = toScreen(F, 0, 0), b = toScreen(P, 0, OM_V);
-    return {
-      x: lerp(a.x, b.x, t),
-      y: lerp(a.y, b.y, t) - Math.sin(t * Math.PI) * L.unit * 0.05,
-      rx: lerp(F.r * 0.58, P.r * OM_RX, t),
-      ry: lerp(F.ry * 0.54, P.ry * OM_RY, t),
-      rot: 0,
-      wob: Math.sin(o.fly * 9) * 0.05,
-    };
+    const t = smooth(o.fly);                   // 縁を越えて、滑り台をなぞるように等速で滑り込む
+    const a = { x: F.cx + ux * F.r * 0.60, y: F.cy + uy * F.ry * 0.60 };
+    const b = toScreen(P, 0, OM_V);
+    const lift = Math.sin(t * Math.PI) * L.unit * 0.013;   // 低い滑り台（ほぼ跳ねない）
+    const st = stretchTo(
+      lerp(F.r * 0.58, P.r * OM_RX, t),
+      lerp(F.ry * 0.54, P.ry * OM_RY, t),
+      ux, uy,
+      (0.30 + 0.70 * Math.sin(t * Math.PI)) * (1 - t),     // 伸びながら滑り出し、着地前に戻る
+    );
+    return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) - lift, rx: st.rx, ry: st.ry, rot: 0, wob: 0 };
   }
   const c = toScreen(P, o.u, o.v);
   return { x: c.x, y: c.y, rx: P.r * OM_RX, ry: P.ry * OM_RY, rot: 0, wob };
+}
+
+// 進行方向へ伸ばし、直交方向は少し細くする（squash & stretch）
+// 縦画面／横画面のどちらでも同じくらい「伸びて見える」よう、目標の細長さで指定する
+function stretchTo(rxBase, ryBase, ux, uy, k) {
+  const ax = Math.abs(ux), ay = Math.abs(uy);
+  const ab = ax * rxBase + ay * ryBase;        // 進行方向の半径
+  const cb = ax * ryBase + ay * rxBase;        // 直交方向の半径
+  const along = lerp(ab, Math.max(ab * 1.25, cb * 1.50), clamp(k, 0, 1));
+  const cross = cb * (1 - 0.20 * clamp(k, 0, 1));
+  return { rx: ax * along + ay * cross, ry: ax * cross + ay * along };
 }
 
 export function burst(G, x, y, n, r, size = r) {

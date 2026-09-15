@@ -1,5 +1,5 @@
 // オムレツ本体：ぷるぷる／切れ目／パカッ（薄皮が左右へ倒れる）／トロッ（半熟が流れ広がる）
-import { TAU, clamp, lerp, easeOutCubic, easeOutBack } from '../util.js';
+import { TAU, clamp, lerp, smooth, easeOutCubic } from '../util.js';
 import { eggGloss } from './fx.js';
 
 function grad(ctx, rx, ry, K) {
@@ -58,101 +58,148 @@ export function drawOmelet(ctx, o, K, t) {
     return;
   }
 
-  // ---- パカッ：薄皮が左右へ倒れてライスの両脇に垂れる ----
-  const e = easeOutBack(easeOutCubic(open), 1.15);
+  // ---- パカッ：薄い卵のシートが左右へ倒れていく（途中が見えるよう素直な S 字）----
+  const e = smooth(open);
+
+  // 切り口の中身（半熟の断面）。開いた瞬間からライスの赤を隠す土台になる。
+  drawInside(ctx, o, rx, ry, K, e);
+
   for (const s of [-1, 1]) drawFlap(ctx, o, rx, ry, K, t, s, e);
 
-  // ---- トロッ：中央から半熟が流れ広がる ----
+  // ---- トロッ：切れ目から左右・手前へ流れ広がる ----
   if (tor > 0) drawTororo(ctx, o, rx, ry, K, t, tor);
 }
 
-// 倒れた薄皮（外側がまるく、下に影、内側は切り口の断面）
-function drawFlap(ctx, o, rx, ry, K, t, s, e) {
+// 開いた切り口の中身（やわらかい半熟の面）。皮ととろとろの下で赤を隠す。
+function drawInside(ctx, o, rx, ry, K, e) {
+  if (e <= 0.001) return;
   ctx.save();
   ctx.translate(o.x, o.y);
   ctx.rotate(o.rot || 0);
-
-  // 皮の下の影（ライスに落ちる）
+  ctx.globalAlpha = clamp(e * 2.4, 0, 1);
+  const iw = rx * (0.30 + 0.66 * e), ih = ry * (0.90 + 0.14 * e);
+  ctx.beginPath();
+  ctx.ellipse(0, ry * 0.06, iw, ih, 0, 0, TAU);
+  const g = ctx.createRadialGradient(-iw * 0.10, ry * 0.10, iw * 0.05, 0, ry * 0.10, iw * 1.15);
+  g.addColorStop(0, K.torMid);
+  g.addColorStop(0.52, K.torLow);
+  g.addColorStop(1, K.torEdge);
+  ctx.fillStyle = g;
+  ctx.fill();
+  // 切れ目の奥は影になっている（窪みに見せる）
   ctx.save();
-  ctx.globalAlpha = 0.26 * e;
+  ctx.clip();
+  ctx.globalAlpha = 0.45 * clamp(e * 2.4, 0, 1);
+  const sg = ctx.createLinearGradient(0, -ih, 0, ih * 0.35);
+  sg.addColorStop(0, 'rgba(112,52,4,0.95)');
+  sg.addColorStop(1, 'rgba(112,52,4,0)');
+  ctx.fillStyle = sg;
+  ctx.fillRect(-iw * 1.2, -ih * 1.2, iw * 2.4, ih * 2.4);
+  ctx.restore();
+  ctx.restore();
+}
+
+// パカッの皮：薄い卵のシートが外へめくれ、とろとろの両脇に三日月で寄り添う
+// s = -1/+1（左右）、e = 0..1（倒れ具合）
+function drawFlap(ctx, o, rx, ry, K, t, s, e) {
+  ctx.save();
+  ctx.translate(o.x, o.y + ry * 0.07 * e);
+  ctx.rotate(o.rot || 0);
+
+  const ix = rx * 0.70 * e;            // 内側（切り口側）の縁＝外へ逃げていく
+  const ox = rx * (1 + 0.20 * e);      // 外側の縁＝倒れて少し外へ伸びる
+  const oh = ry * (1 - 0.04 * e);
+  const tX = ox * 0.20, tY = oh * 0.85;   // 三日月の先端（上下）
+  const P = (x, y) => [s * x, y];
+
+  // 皮がライスに落とす影（倒れるほど外側・下へ）
+  ctx.save();
+  ctx.globalAlpha = 0.22 * e;
   ctx.fillStyle = 'rgba(96,48,8,1)';
   ctx.beginPath();
-  ctx.ellipse(s * rx * (0.30 + 0.46 * e), ry * 0.32, rx * 0.58, ry * 0.44, s * 0.2 * e, 0, TAU);
+  ctx.ellipse(s * (ix + ox) * 0.52, oh * 0.24, rx * 0.30, oh * 0.62, s * 0.18 * e, 0, TAU);
   ctx.fill();
   ctx.restore();
 
-  ctx.translate(s * rx * 0.74 * e, ry * 0.15 * e);
-  ctx.rotate(s * 0.34 * e);
-  // 倒れるほど奥行きで縮む（内側の切り口を軸に）
-  ctx.scale(1 - 0.24 * e, 1 + 0.10 * e);
+  ctx.rotate(s * 0.09 * e);
 
-  // 皮の輪郭：内側（切り口）はまっすぐ、外側はまるく垂れる
-  const fx = rx * 1.02, fy = ry * 1.0;
-  const p = (x, y) => [s * x, y];
-  // 外側のふち（ここだけ焼き色で縁取る。内側はとろとろの下に隠れる）
-  const outer = () => {
+  const outline = () => {
     ctx.beginPath();
-    ctx.moveTo(...p(0, -fy * 0.88));
-    ctx.bezierCurveTo(...p(fx * 0.72, -fy * 0.95), ...p(fx * 1.02, -fy * 0.36), ...p(fx * 1.0, fy * 0.10));
-    ctx.bezierCurveTo(...p(fx * 0.98, fy * 0.62), ...p(fx * 0.58, fy * 0.98), ...p(0, fy * 0.90));
+    ctx.moveTo(...P(tX, -tY));
+    ctx.bezierCurveTo(...P(ox * 0.74, -oh * 0.84), ...P(ox, -oh * 0.34), ...P(ox, oh * 0.06));
+    ctx.bezierCurveTo(...P(ox, oh * 0.58), ...P(ox * 0.66, oh * 0.92), ...P(tX, tY));
+    ctx.bezierCurveTo(...P(ix * 1.04, oh * 0.50), ...P(ix * 1.04, -oh * 0.50), ...P(tX, -tY));
+    ctx.closePath();
   };
-  outer();
-  ctx.bezierCurveTo(...p(fx * 0.16, fy * 0.56), ...p(fx * 0.16, -fy * 0.54), ...p(0, -fy * 0.88));
-  ctx.closePath();
+  const innerEdge = () => {
+    ctx.beginPath();
+    ctx.moveTo(...P(tX, tY));
+    ctx.bezierCurveTo(...P(ix * 1.04, oh * 0.50), ...P(ix * 1.04, -oh * 0.50), ...P(tX, -tY));
+  };
 
-  const g = ctx.createRadialGradient(-s * fx * 0.10, -fy * 0.44, fx * 0.05, s * fx * 0.30, fy * 0.10, fx * 1.20);
-  g.addColorStop(0, K.hi);
-  g.addColorStop(0.36, K.mid);
-  g.addColorStop(0.78, K.low);
-  g.addColorStop(1, K.edge);
+  // 面：内側（切り口側）は暗い焼き面、外へ行くほど艶
+  outline();
+  const g = ctx.createLinearGradient(s * ix, 0, s * ox, 0);
+  g.addColorStop(0, K.edge);
+  g.addColorStop(0.20, K.low);
+  g.addColorStop(0.52, K.mid);
+  g.addColorStop(0.74, K.hi);
+  g.addColorStop(0.90, K.mid);
+  g.addColorStop(1, K.low);
   ctx.fillStyle = g;
   ctx.fill();
 
   ctx.save();
-  ctx.clip();   // 直前の fill に使ったパスでクリップ
-  // 外側へ向かう丸み（下側に陰）
+  ctx.clip();
+  // 下側に回り込む陰（シートの丸み）
   ctx.globalAlpha = 0.34;
-  const sg = ctx.createLinearGradient(0, fy * 0.05, 0, fy);
+  const sg = ctx.createLinearGradient(0, oh * 0.02, 0, oh);
   sg.addColorStop(0, 'rgba(150,80,10,0)');
   sg.addColorStop(1, 'rgba(120,60,6,0.95)');
   ctx.fillStyle = sg;
-  ctx.fillRect(-fx * 1.3, -fy * 1.3, fx * 2.6, fy * 2.6);
-  // 切り口側（内側）のやわらかい暗がり
-  ctx.globalAlpha = 0.42 * e;
-  const ig = ctx.createLinearGradient(0, 0, s * fx * 0.46, 0);
-  ig.addColorStop(0, 'rgba(198,120,26,0.85)');
-  ig.addColorStop(1, 'rgba(198,120,26,0)');
-  ctx.fillStyle = ig;
-  ctx.fillRect(-fx * 1.3, -fy * 1.3, fx * 2.6, fy * 2.6);
-  // 焼き色のまだら
-  ctx.globalAlpha = 0.16;
+  ctx.fillRect(-ox * 1.4, -oh * 1.4, ox * 2.8, oh * 2.8);
+  // 焼き色のまだら（薄く）
+  ctx.globalAlpha = 0.13;
   ctx.fillStyle = K.edge;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 3; i++) {
     ctx.beginPath();
-    ctx.ellipse(s * fx * (0.34 + i * 0.16), fy * (-0.3 + i * 0.28), fx * 0.16, fy * 0.09, 0.4 * s, 0, TAU);
+    ctx.ellipse(s * ox * (0.52 + i * 0.16), oh * (-0.34 + i * 0.30), ox * 0.13, oh * 0.08, 0.4 * s, 0, TAU);
     ctx.fill();
   }
   ctx.restore();
 
-  // ふちの焼き色（外側だけ）
-  ctx.globalAlpha = 0.40;
+  // 外のふちの焼き色（薄いシートの厚みに見えるよう細く）
+  ctx.globalAlpha = 0.38;
   ctx.strokeStyle = K.edge;
-  ctx.lineWidth = Math.max(1.5, rx * 0.028);
+  ctx.lineWidth = Math.max(1.2, rx * 0.020);
   ctx.lineCap = 'round';
-  outer();
+  outline();
+  ctx.stroke();
+
+  // 内側（切り口）の縁：厚みのある断面に見せる一本の暗い線
+  ctx.globalAlpha = 0.42 * e;
+  ctx.strokeStyle = K.edge;
+  ctx.lineWidth = Math.max(1.2, rx * 0.024);
+  innerEdge();
+  ctx.stroke();
+  ctx.globalAlpha = 0.35 * e;
+  ctx.strokeStyle = K.hi;
+  ctx.lineWidth = Math.max(1, rx * 0.012);
+  innerEdge();
   ctx.stroke();
   ctx.globalAlpha = 1;
 
-  // 皮の艶
+  // 皮の艶（三日月に沿って細長く）
   ctx.save();
-  ctx.globalAlpha = 0.5;
+  const mid = (ix + ox) * 0.5;
+  ctx.globalAlpha = 0.26;
   ctx.fillStyle = 'rgba(255,255,236,0.9)';
   ctx.beginPath();
-  ctx.ellipse(s * fx * 0.46, -fy * 0.42, fx * 0.26, fy * 0.12, s * 0.5, 0, TAU);
+  ctx.ellipse(s * lerp(ox * 0.55, mid, e), -oh * 0.26, ox * 0.085, oh * 0.34, s * 0.22, 0, TAU);
   ctx.fill();
-  ctx.globalAlpha = 0.28;
+  ctx.globalAlpha = 0.14;
   ctx.beginPath();
-  ctx.ellipse(s * fx * 0.70, fy * 0.18, fx * 0.12, fy * 0.22, s * 0.25, 0, TAU);
+  ctx.ellipse(s * lerp(ox * 0.62, mid * 1.10, e), oh * 0.30, ox * 0.050, oh * 0.18, s * 0.16, 0, TAU);
   ctx.fill();
   ctx.restore();
 
@@ -206,24 +253,27 @@ function drawRidge(ctx, rx, ry, t) {
 // トロッ：半熟のとろとろが手前と左右へ広がり、ふっくらした丸い縁で止まる
 function drawTororo(ctx, o, rx, ry, K, t, tor) {
   const p = easeOutCubic(clamp(tor, 0, 1));
-  const w = rx * (0.22 + 0.86 * p);
-  const h = ry * (0.24 + 0.92 * p);
+  // 切れ目の線から左右へ広がり、手前へ垂れる（中央で楕円が膨らむのではない）
+  const w = rx * (0.34 + 0.66 * p);
+  const h = ry * (0.38 + 0.68 * p);
   ctx.save();
-  ctx.translate(o.x, o.y + ry * 0.06 * p);
+  ctx.translate(o.x, o.y + ry * (0.03 + 0.20 * p));
   ctx.rotate(o.rot || 0);
 
-  const N = 80;
+  const N = 96;
   const shape = (ctx2) => {
     ctx2.beginPath();
     for (let i = 0; i <= N; i++) {
       const a = (i / N) * TAU;
       const down = Math.max(0, Math.sin(a));            // 手前（下）ほど垂れる
+      const up = Math.max(0, -Math.sin(a));             // 切れ目（奥）は細いまま
       const lobe = 1
-        + Math.sin(a * 3 + 0.8) * 0.030 * p
-        + Math.sin(a * 2 - t * 0.7) * 0.016 * p;
-      const drip = 1 + down * down * (0.10 + 0.05 * Math.sin(a * 3 + 1.1)) * p;
-      const x = Math.cos(a) * w * lobe;
-      const y = Math.sin(a) * h * lobe * drip;
+        + Math.sin(a * 3 + 0.8) * 0.028 * p
+        + Math.sin(a * 5 - 1.4) * 0.014 * p
+        + Math.sin(a * 2 - t * 0.7) * 0.012 * p;
+      const drip = 1 + down * down * (0.14 + 0.05 * Math.sin(a * 4 + 1.1)) * p;
+      const x = Math.cos(a) * w * lobe * (1 - 0.30 * up * up);
+      const y = Math.sin(a) * h * lobe * (down ? drip : 0.80);
       i === 0 ? ctx2.moveTo(x, y) : ctx2.lineTo(x, y);
     }
     ctx2.closePath();
@@ -317,7 +367,7 @@ function drawTororo(ctx, o, rx, ry, K, t, tor) {
   ctx.beginPath();
   ctx.ellipse(w * 0.34, -h * 0.20, w * 0.12, h * 0.07, 0.35, 0, TAU);
   ctx.fill();
-  ctx.globalAlpha = 0.28;
+  ctx.globalAlpha = 0.28 * clamp((p - 0.72) / 0.28, 0, 1);
   for (let i = 0; i < 5; i++) {
     const a = i * 2.399 + 0.7;
     const rr = Math.sqrt((i + 0.4) / 5) * 0.62;

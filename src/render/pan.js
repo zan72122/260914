@@ -8,25 +8,29 @@ export function drawPan(ctx, L, G, t, drawEgg) {
   const dx = L.plate.cx - P.cx, dy = L.plate.cy - P.cy;
   const dlen = Math.hypot(dx, dy) || 1;
   const ux = dx / dlen, uy = dy / dlen;
-  const ang = Math.atan2(uy, ux);
+  // 傾いた面の中身は皿側へずれる（向こう側の内壁が見える＝縁が下がって見える）
+  const inx = cx + ux * r * 0.11 * tilt;
+  const iny = cy + uy * ry * 0.11 * tilt;
 
+  // 落ち影（傾けると皿側へ寄り、薄く小さくなる＝縁が下がって接地が変わる）
   ctx.save();
-  // 皿の方向へ「傾ける」：皿方向に少し寄りつつ、その軸方向に短縮＝面が起きて見える
-  ctx.translate(cx + ux * tilt * r * 0.16, cy + uy * tilt * ry * 0.16);
-  ctx.rotate(ang);
-  ctx.scale(1 - 0.26 * tilt, 1 + 0.06 * tilt);
-  ctx.rotate(-ang);
-  ctx.rotate(tilt * 0.14);
-  ctx.translate(-cx, -cy);
-
-  // 落ち影
-  ctx.save();
-  ctx.globalAlpha = 0.38;
+  ctx.globalAlpha = 0.38 - 0.12 * tilt;
   ctx.fillStyle = 'rgba(40,18,4,1)';
   ctx.beginPath();
-  ctx.ellipse(cx + r * 0.04, cy + ry * 0.16, r * 1.05, ry * 1.05, 0, 0, TAU);
+  ctx.ellipse(
+    cx + r * 0.04 + ux * r * 0.12 * tilt,
+    cy + ry * 0.16 + uy * ry * 0.12 * tilt,
+    r * (1.05 - 0.10 * tilt), ry * (1.05 - 0.26 * tilt), 0, 0, TAU,
+  );
   ctx.fill();
   ctx.restore();
+
+  ctx.save();
+  // 皿の方へ「はっきり傾ける」：約12°回して、皿方向へ最大18%寄せ、縦を 0.85 に潰す
+  ctx.translate(cx + ux * tilt * r * 0.18, cy + uy * tilt * ry * 0.18);
+  ctx.rotate((ux < -0.3 ? -1 : 1) * 0.21 * tilt);
+  ctx.scale(1, 1 - 0.15 * tilt);
+  ctx.translate(-cx, -cy);
 
   // 取っ手
   drawHandle(ctx, P);
@@ -43,13 +47,13 @@ export function drawPan(ctx, L, G, t, drawEgg) {
   ctx.fill();
 
   // 内面
-  const ig = ctx.createRadialGradient(cx - r * 0.3, cy - ry * 0.4, r * 0.05, cx, cy, r * 0.95);
+  const ig = ctx.createRadialGradient(inx - r * 0.3, iny - ry * 0.4, r * 0.05, inx, iny, r * 0.95);
   ig.addColorStop(0, '#41454c');
   ig.addColorStop(0.55, '#2b2e34');
   ig.addColorStop(1, '#191b1f');
   ctx.fillStyle = ig;
   ctx.beginPath();
-  ctx.ellipse(cx, cy, r * 0.87, ry * 0.87, 0, 0, TAU);
+  ctx.ellipse(inx, iny, r * 0.87, ry * 0.87, 0, 0, TAU);
   ctx.fill();
 
   // 内面の同心リング（鉄の質感）
@@ -59,7 +63,7 @@ export function drawPan(ctx, L, G, t, drawEgg) {
   for (let i = 1; i <= 4; i++) {
     ctx.lineWidth = Math.max(1, r * 0.006);
     ctx.beginPath();
-    ctx.ellipse(cx, cy, r * 0.87 * (i / 5), ry * 0.87 * (i / 5), 0, 0, TAU);
+    ctx.ellipse(inx, iny, r * 0.87 * (i / 5), ry * 0.87 * (i / 5), 0, 0, TAU);
     ctx.stroke();
   }
   ctx.restore();
@@ -79,7 +83,7 @@ export function drawPan(ctx, L, G, t, drawEgg) {
   // 中身（卵液）
   ctx.save();
   ctx.beginPath();
-  ctx.ellipse(cx, cy, r * 0.87, ry * 0.87, 0, 0, TAU);
+  ctx.ellipse(inx, iny, r * 0.87, ry * 0.87, 0, 0, TAU);
   ctx.clip();
   if (drawEgg) drawEgg(ctx);
   ctx.restore();
@@ -92,6 +96,16 @@ export function drawPan(ctx, L, G, t, drawEgg) {
   ctx.beginPath();
   ctx.ellipse(cx, cy, r * 0.965, ry * 0.965, 0, Math.PI * 1.02, Math.PI * 1.85);
   ctx.stroke();
+  if (tilt > 0.02) {
+    // 起き上がった側の内壁（傾きを読み取れるようにする）
+    ctx.globalAlpha = 0.30 * tilt;
+    ctx.strokeStyle = 'rgba(150,160,175,0.85)';
+    ctx.lineWidth = Math.max(2, r * 0.05 * tilt + 1);
+    const a0 = Math.atan2(-uy, -ux);
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, r * 0.90, ry * 0.90, 0, a0 - 1.0, a0 + 1.0);
+    ctx.stroke();
+  }
   ctx.restore();
 
   ctx.restore();
