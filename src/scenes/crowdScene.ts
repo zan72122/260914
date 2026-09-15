@@ -54,6 +54,12 @@ export abstract class CrowdScene extends Scene {
   protected time = 0;
   /** Per-kid extra sprite scale, used for the "waves bigger" hint. */
   protected extraScale: number[] = [];
+  /**
+   * Per-kid body lean, in radians, applied around the feet. Scenes write it to
+   * make the crowd look at something in the world (scene 5's whole crowd tilts
+   * its faces up towards the butterfly). Zero everywhere else.
+   */
+  protected tilt: number[] = [];
 
   /** Right-hand world x every crowd runs past on the way out. */
   protected exitX = 1400;
@@ -74,6 +80,7 @@ export abstract class CrowdScene extends Scene {
       this.layer.addChild(s);
       this.sprites.push(s);
       this.extraScale.push(1);
+      this.tilt.push(0);
     }
     this.layer.sortableChildren = true;
     this.confetti = new Confetti(ctx.props.confetti);
@@ -123,6 +130,7 @@ export abstract class CrowdScene extends Scene {
       const e = this.extraScale[i] * (1 + k.attention * 0.04);
       s.scale.x = this.spriteScale * k.facing * e;
       s.scale.y = this.spriteScale * e;
+      s.rotation = this.tilt[i];
       // Painter's algorithm: lower on screen = in front.
       s.zIndex = k.y;
       if (k.stepped) steps++;
@@ -206,5 +214,6 @@ export abstract class CrowdScene extends Scene {
     this.ripples.length = 0;
     this.ripplePool.length = 0;
     this.extraScale.length = 0;
+    this.tilt.length = 0;
   }
 }

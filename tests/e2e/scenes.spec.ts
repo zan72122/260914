@@ -12,7 +12,7 @@ import {
   waitForPhase,
 } from './helpers';
 import type { Geom } from './helpers';
-import { PLAY_ROUND } from './gestures';
+import { PHOTO_ROUND, PLAY_ROUND } from './gestures';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -43,9 +43,13 @@ const SCENES: SceneCase[] = [
   { name: 'sleep', end: ['morning'] },
 ];
 
-/** Plays a scene's own gesture the stated number of times. */
+/**
+ * Plays a scene's own gesture the stated number of times, using the
+ * photograph-friendly variant where one exists (see `PHOTO_ROUND`).
+ */
 async function play(page: Page, g: Geom, scene: SceneCase): Promise<void> {
-  for (let i = 0; i < (scene.rounds ?? 1); i++) await PLAY_ROUND[scene.name](page, g);
+  const round = PHOTO_ROUND[scene.name] ?? PLAY_ROUND[scene.name];
+  for (let i = 0; i < (scene.rounds ?? 1); i++) await round(page, g);
 }
 
 /** iPad portrait only needs three scenes; these are the three. */

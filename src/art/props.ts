@@ -11,6 +11,8 @@ import {
   BALLS,
   BUSH_DARK,
   BUSH_FILL,
+  BUTTERFLY_SPOT,
+  BUTTERFLY_TRAIL,
   BUTTERFLY_WING,
   BUTTERFLY_WING2,
   CONFETTI,
@@ -27,7 +29,15 @@ import {
   STAR_GLOW,
   hexToCss,
 } from './palette';
-import { crayonBlob, crayonEllipsePath, crayonLine, seededRandom, strokeStyle, softShadow } from './crayon';
+import {
+  crayonBlob,
+  crayonDot,
+  crayonEllipsePath,
+  crayonLine,
+  seededRandom,
+  strokeStyle,
+  softShadow,
+} from './crayon';
 import type { Ctx2D } from './crayon';
 import {
   BALLOON_H,
@@ -194,32 +204,67 @@ export function drawPath(ctx: Ctx2D): void {
   ctx.restore();
 }
 
-/** Scene 5's butterfly: two pastel wing pairs and a little brown body. */
+/**
+ * Scene 5's butterfly: the single most salient thing on its screen.
+ *
+ * It is drawn nearly to the edge of its 128px cell (a wingspan of about 108
+ * world units, roughly twice a kid's head) in vivid orange and yellow, with
+ * deep-orange spots and the same dark-brown crayon outline every kid has. The
+ * scene draws it in a layer ABOVE the whole crowd and never depth-sorts it
+ * with them, so it can never end up behind a head.
+ */
 export function drawButterfly(ctx: Ctx2D, frame: number): void {
   const s = BUTTERFLY_SIZE;
   const c = s / 2;
   ctx.clearRect(0, 0, s, s);
   const rng = seededRandom(17 + frame * 29);
-  // Frame 0 = wings spread wide, frame 1 = wings up and nearly closed.
-  const spread = frame === 0 ? 1 : 0.5;
-  const rise = frame === 0 ? 0 : -6;
+  // Frame 0 = wings spread wide, frame 1 = wings up and half folded.
+  const spread = frame === 0 ? 1 : 0.62;
+  const rise = frame === 0 ? 0 : -7;
   for (const side of [-1, 1] as const) {
-    crayonBlob(ctx, c + side * 20 * spread, c - 12 + rise, 20 * spread, 17, BUTTERFLY_WING, {
-      rng,
-      wobble: 1.6,
-      width: 3,
-    });
-    crayonBlob(ctx, c + side * 16 * spread, c + 10 + rise * 0.4, 15 * spread, 13, BUTTERFLY_WING2, {
-      rng,
-      wobble: 1.6,
-      width: 3,
-    });
+    // Upper wing.
+    const ux = c + side * 26 * spread;
+    const uy = c - 15 + rise;
+    crayonBlob(ctx, ux, uy, 26 * spread, 22, BUTTERFLY_WING, { rng, wobble: 2, width: 4.5 });
+    // Lower wing.
+    const lx = c + side * 20 * spread;
+    const ly = c + 15 + rise * 0.4;
+    crayonBlob(ctx, lx, ly, 19 * spread, 16, BUTTERFLY_WING2, { rng, wobble: 2, width: 4.5 });
+    // Spots: two on the upper wing, one on the lower. A pattern is what makes
+    // a shape read as a creature rather than as a coloured smudge.
+    crayonDot(ctx, ux + side * 7 * spread, uy - 4, 5 * spread + 1.2, BUTTERFLY_SPOT);
+    crayonDot(ctx, ux - side * 4 * spread, uy + 8, 3.4 * spread + 0.9, BUTTERFLY_SPOT);
+    crayonDot(ctx, lx + side * 4 * spread, ly + 2, 4 * spread + 1, BUTTERFLY_SPOT);
   }
-  crayonBlob(ctx, c, c, 5, 20, LINE, { rng, wobble: 1, width: 2.5 });
-  // Antennae.
+  // Body and head.
+  crayonBlob(ctx, c, c + 2, 6, 24, LINE, { rng, wobble: 1, width: 3 });
+  crayonBlob(ctx, c, c - 24, 6.5, 6, LINE, { rng, wobble: 1, width: 3 });
+  // Antennae, with a little club on the end of each.
   for (const side of [-1, 1] as const) {
-    crayonLine(ctx, c + side * 2, c - 17, c + side * 12, c - 30, { rng, width: 2.6, wobble: 0.8 });
+    const tipX = c + side * 15;
+    const tipY = c - 46;
+    crayonLine(ctx, c + side * 3, c - 27, tipX, tipY, { rng, width: 3, wobble: 0.8 });
+    crayonDot(ctx, tipX, tipY, 3, LINE);
   }
+}
+
+/** Texture pixel size of one dot of the butterfly's crayon trail. */
+export const TRAIL_SIZE = 28;
+
+/**
+ * One dot of the faint dotted trail the butterfly leaves behind it: a soft
+ * crayon smudge, no outline. The scene pools these and fades them out, so the
+ * path the butterfly has just flown is visible for about a second — which is
+ * what tells a child that the thing is moving *because of their finger*.
+ */
+export function drawTrailDot(ctx: Ctx2D): void {
+  const s = TRAIL_SIZE;
+  const c = s / 2;
+  ctx.clearRect(0, 0, s, s);
+  const rng = seededRandom(613);
+  crayonEllipsePath(ctx, c, c, c * 0.52, c * 0.46, { rng, wobble: 1.4 });
+  ctx.fillStyle = hexToCss(BUTTERFLY_TRAIL);
+  ctx.fill();
 }
 
 /** Scene 6's slide: a sky-blue ladder and frame with an apricot slope. */
@@ -399,6 +444,8 @@ export interface PropTextures {
   path: Texture;
   /** Scene 5: the butterfly, two flap frames. */
   butterfly: Texture[];
+  /** Scene 5: one dot of the butterfly's fading crayon trail. */
+  trailDot: Texture;
   /** Scene 6: ladder + platform + slope, one drawing. */
   slide: Texture;
   /** Scene 7: a bush to hide behind. */
@@ -433,6 +480,7 @@ export function buildProps(): PropTextures {
     butterfly: [0, 1].map((f) =>
       canvasTexture(BUTTERFLY_SIZE, BUTTERFLY_SIZE, (ctx) => drawButterfly(ctx, f)),
     ),
+    trailDot: canvasTexture(TRAIL_SIZE, TRAIL_SIZE, drawTrailDot),
     slide: canvasTexture(SLIDE_W * SLIDE_TEX_SCALE, SLIDE_H * SLIDE_TEX_SCALE, drawSlide),
     bush: canvasTexture(BUSH_W, BUSH_H, drawBush),
     balloons: BALLOONS.map((c, i) =>

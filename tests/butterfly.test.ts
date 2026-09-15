@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CROWD_LAG,
   DRIFT_AMP,
   FOLLOW_RATE,
   approach,
+  clearsHeads,
   driftTarget,
   leadProgress,
   leftThePicture,
 } from '../src/scenes/butterflyLogic';
+import { KID_WORLD_H } from '../src/art/kidSheet';
 
 describe('scene 5 butterfly: following a finger', () => {
   it('closes on the finger without ever overshooting it', () => {
@@ -49,5 +52,23 @@ describe('scene 5 butterfly: following a finger', () => {
     expect(leadProgress(200, -200, 600)).toBeCloseTo(0.5, 6);
     expect(leadProgress(9999, -200, 600)).toBe(1);
     expect(leadProgress(0, 600, 600)).toBe(1);
+  });
+});
+
+describe('scene 5 butterfly: it has to be findable', () => {
+  it('rests clear above the head of the nearest kid, at every point of its drift', () => {
+    const out = { x: 0, y: 0 };
+    for (let t = 0; t < 60; t += 0.25) {
+      driftTarget(t, out);
+      // The crowd follows CROWD_LAG below it, so the nearest kid's feet are
+      // there and their head is KID_WORLD_H above that.
+      expect(clearsHeads(out.y, out.y + CROWD_LAG, KID_WORLD_H)).toBe(true);
+    }
+  });
+
+  it('keeps the whole crowd below itself even while being led about', () => {
+    // A kid standing exactly where the butterfly is would hide it; the rule
+    // has to say so, or it is not testing anything.
+    expect(clearsHeads(0, KID_WORLD_H * 0.5, KID_WORLD_H)).toBe(false);
   });
 });

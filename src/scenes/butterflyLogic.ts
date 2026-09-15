@@ -50,3 +50,29 @@ export function leadProgress(x: number, startX: number, edgeX: number): number {
   const t = (x - startX) / (edgeX - startX);
   return t < 0 ? 0 : t > 1 ? 1 : t;
 }
+
+/**
+ * Roughly how wide (and tall) the butterfly is on screen, in world units.
+ *
+ * The drawing fills its 128px cell to about 108px across and the scene draws
+ * it at scale 1, so this is the number the "is it visible over the crowd"
+ * rule below is measured against. It is about twice the width of a kid's head.
+ */
+export const BUTTERFLY_SPAN = 108;
+
+/**
+ * How far below the butterfly the crowd gathers, in world units.
+ *
+ * The whole point of the scene is that the butterfly can be picked out from
+ * the crowd at a glance, so the crowd is kept a clear body's length beneath
+ * it. `clearsHeads` is the rule this number has to satisfy.
+ */
+export const CROWD_LAG = 250;
+
+/**
+ * True when a butterfly hovering at `by` is completely above the head of a kid
+ * whose feet are at `ky`. (A kid's sprite grows upwards from its feet.)
+ */
+export function clearsHeads(by: number, ky: number, kidHeight: number): boolean {
+  return by + BUTTERFLY_SPAN / 2 < ky - kidHeight;
+}

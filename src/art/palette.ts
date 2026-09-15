@@ -50,9 +50,22 @@ export const NIGHT_KID_TINT = 0xc8c3e8;
 export const PATH_FILL = 0xf6e3bd;
 export const PATH_EDGE = 0xd8b78a;
 
-/** Scene 5: the butterfly's wings and body. */
-export const BUTTERFLY_WING = 0xffc7e6;
-export const BUTTERFLY_WING2 = 0xfff0a8;
+/**
+ * Scene 5: the butterfly.
+ *
+ * The only saturated colours in the whole palette, and deliberately so. Every
+ * other thing in this game may be a soft pastel because it is allowed to sit
+ * in the crowd; the butterfly is the one object a 4-year-old has to FIND among
+ * thirty faces, so it is warm orange and sunflower yellow with deep-orange
+ * spots, at roughly twice the size of a kid's head. A pastel butterfly the
+ * size of a head simply vanished into the crowd (see docs/04.md).
+ */
+export const BUTTERFLY_WING = 0xffa22b;
+export const BUTTERFLY_WING2 = 0xffd23f;
+/** The spots on the wings: a pattern reads as "creature", not "blob". */
+export const BUTTERFLY_SPOT = 0xe0621a;
+/** The faint dotted crayon trail it leaves behind while it flies. */
+export const BUTTERFLY_TRAIL = 0xffb14a;
 
 /** Scene 6: the slide — apricot slope on a sky-blue frame. */
 export const SLIDE_SLOPE = 0xffcf9b;

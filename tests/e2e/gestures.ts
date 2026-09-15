@@ -61,7 +61,7 @@ export async function sweepInwards(page: Page, g: Geom): Promise<void> {
   }
 }
 
-type Round = (page: Page, g: Geom) => Promise<void>;
+export type Round = (page: Page, g: Geom) => Promise<void>;
 
 /** One round of playing, per scene. Repeat it until the scene gives way. */
 export const PLAY_ROUND: Record<string, Round> = {
@@ -135,5 +135,31 @@ export const PLAY_ROUND: Record<string, Round> = {
   // Tap the sky for stars, and the kids under the finger yawn and curl up.
   sleep: async (page, g) => {
     await tapGrid(page, g, 3, 3);
+  },
+};
+
+/**
+ * Overrides used only when a screenshot has to catch a scene in the MIDDLE of
+ * being played. `PLAY_ROUND` is written to finish a scene, which is right for
+ * the playthrough but wrong for a photograph: the butterfly round led the
+ * butterfly all the way off the edge, so by the time the shutter went the
+ * director had already panned and the "butterfly" photo was of the slide.
+ *
+ * This round leads the butterfly two thirds of the way across and stops short
+ * of the edge, so the picture is of the chase itself.
+ */
+export const PHOTO_ROUND: Record<string, Round> = {
+  butterfly: async (page, g) => {
+    const toX = g.width * 0.68;
+    const toY = g.cy - g.height * 0.1;
+    await page.mouse.move(g.cx * 0.6, g.cy + g.height * 0.08);
+    await page.mouse.down();
+    for (let i = 1; i <= 16; i++) {
+      const t = i / 16;
+      await page.mouse.move(g.cx * 0.6 + (toX - g.cx * 0.6) * t, g.cy + g.height * 0.08 + (toY - g.cy - g.height * 0.08) * t);
+      await page.waitForTimeout(18);
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(250);
   },
 };

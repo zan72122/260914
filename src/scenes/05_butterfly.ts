@@ -20,7 +20,7 @@
  * and comes back, which is exactly the gesture the player has to copy.
  * Auto-advance (30s): it simply flies out and the crowd follows.
  */
-import { Sprite } from 'pixi.js';
+import { Container, Sprite } from 'pixi.js';
 import { CrowdScene } from './crowdScene';
 import type { SceneContext } from '../core/scene';
 import type { Hand, HandEvent } from '../core/input';
@@ -31,6 +31,7 @@ import { KID_WORLD_H } from '../art/kidSheet';
 import { BGM_BUTTERFLY } from '../core/audio';
 import { allExited } from './gatherLogic';
 import {
+  CROWD_LAG,
   DRIFT_RATE,
   FOLLOW_RATE,
   approach,
@@ -39,15 +40,34 @@ import {
   leftThePicture,
 } from './butterflyLogic';
 
-const KID_COUNT = 34;
+/**
+ * A deliberately small crowd. This scene is the one that asks a child to find
+ * a single object among the kids, so the kids have to be sparse enough for it
+ * to be found: 28 leaves real paper between the heads.
+ */
+const KID_COUNT = 28;
 const RUN_TIMEOUT = 4;
 /** Butterfly flap rate, frames per second. */
 const FLAP_FPS = 9;
 /** How far above the kids' heads the butterfly likes to fly. */
 const HOVER_LIFT = 40;
-/** World size of the butterfly sprite. */
-/** A touch bigger than life: it has to read at a glance over a crowd. */
-const BUTTERFLY_SCALE = 1.35;
+/**
+ * World scale of the butterfly sprite. The drawing is about 108px wide inside
+ * its 128px cell, so at 1.0 the wingspan is ~108 world units: about twice the
+ * width of a kid's head (~45 units) and two thirds of a whole kid.
+ */
+const BUTTERFLY_SCALE = 1;
+/** How far the butterfly flies between two dots of its trail, in world units. */
+const TRAIL_SPACING = 22;
+/** How long one dot of the trail takes to fade away, in seconds. */
+const TRAIL_LIFE = 1.1;
+/** Size of the trail pool. Enough for the whole visible trail at any speed. */
+const TRAIL_MAX = 40;
+/** Peak opacity of a trail dot: a hint of a path, never a drawn line. */
+const TRAIL_ALPHA = 0.62;
+/** How far a kid leans towards the butterfly, at most, in radians. */
+const MAX_TILT = 0.2;
+
 
 type Phase = 'chase' | 'running' | 'done';
 
@@ -58,6 +78,8 @@ export class ButterflyScene extends CrowdScene {
   private phase: Phase = 'chase';
   private phaseTime = 0;
   private sprite!: Sprite;
+  /** Its own layer, added last: nothing in the game is ever drawn over it. */
+  private skyLayer = new Container();
   private bx = 0;
   private by = -220;
   private startX = 0;
@@ -70,6 +92,12 @@ export class ButterflyScene extends CrowdScene {
   private autoOut = false;
   private drift = 0;
   private laidOut = false;
+  /** Pooled dots of the crayon trail; nothing here is allocated per frame. */
+  private trail: Sprite[] = [];
+  private trailAge: number[] = [];
+  private trailNext = 0;
+  private lastDropX = 0;
+  private lastDropY = 0;
   /** Reused so the per-frame maths allocates nothing. */
   private tmp = { x: 0, y: 0 };
 
@@ -83,11 +111,27 @@ export class ButterflyScene extends CrowdScene {
     crowd.spawn(KID_COUNT);
     this.setupCrowd(ctx, crowd);
 
+    // The trail goes into the same layer, before the butterfly, so the dots
+    // are over the crowd but under the butterfly itself.
+    for (let i = 0; i < TRAIL_MAX; i++) {
+      const dot = new Sprite(ctx.props.trailDot);
+      dot.anchor.set(0.5);
+      dot.visible = false;
+      this.fxLayer.addChild(dot);
+      this.trail.push(dot);
+      this.trailAge.push(TRAIL_LIFE);
+    }
+
     this.sprite = new Sprite(ctx.props.butterfly[0]);
     this.sprite.anchor.set(0.5);
     this.sprite.scale.set(BUTTERFLY_SCALE);
-    // Above everything: a butterfly is the only thing in this game that flies.
-    this.fxLayer.addChild(this.sprite);
+    // Above everything, and never depth-sorted with the crowd: its own layer
+    // is added after the kids and after the finger rings, and sorts nothing,
+    // so the butterfly is in front of every kid on the screen, always.
+    ctx.stage.addChild(this.skyLayer);
+    this.skyLayer.addChild(this.sprite);
+    this.lastDropX = this.bx;
+    this.lastDropY = this.by;
 
     this.startX = this.bx;
     this.fitToViewport();
@@ -180,19 +224,32 @@ export class ButterflyScene extends CrowdScene {
       for (let i = 0; i < kids.length; i++) {
         const k = kids[i];
         const a = i * 2.399963;
-        const spread = 60 + 22 * Math.sqrt(i);
+        // A roomy fan, not a huddle: with 28 kids the outermost ring lands
+        // about 300 units out, which is wide enough that there is paper
+        // between the heads and the butterfly above them has somewhere to be.
+        const spread = 95 + 40 * Math.sqrt(i);
         k.targetX = this.bx + Math.cos(a) * spread;
-        k.targetY = this.by + 110 + Math.sin(a) * spread * 0.55;
+        k.targetY = this.by + CROWD_LAG + Math.sin(a) * spread * 0.55;
         k.hasTarget = true;
-        // Looking up at it: the head-turn feedback, driven by the world.
-        if (k.attention < 0.35) k.attention = 0.35;
-        if (Math.abs(this.bx - k.x) > 8) k.facing = this.bx > k.x ? 1 : -1;
+        // Every face is turned up at it. This is the ordinary attention
+        // mechanism (the same one a finger triggers) held on permanently by
+        // the world itself: the crowd is the arrow pointing at the butterfly.
+        if (k.attention < 0.6) k.attention = 0.6;
+        const dx = this.bx - k.x;
+        if (Math.abs(dx) > 8) k.facing = dx > 0 ? 1 : -1;
+        // ...and the bodies lean after it, which is what reads as "looking up"
+        // at 58px on a phone. Leaning is proportional to how far away it is,
+        // and capped, so nobody ever looks like they are falling over.
+        const lean = Math.max(-MAX_TILT, Math.min(MAX_TILT, dx / 900)) * k.attention;
+        this.tilt[i] = lean;
       }
 
       if (leftThePicture(this.bx, this.edgeX)) this.beginRun();
     } else {
-      // On the way out the butterfly leads from the front.
+      // On the way out the butterfly leads from the front and everybody
+      // straightens up to run after it.
       this.bx += 460 * dt;
+      for (let i = 0; i < this.tilt.length; i++) this.tilt[i] *= Math.exp(-4 * dt);
     }
 
     this.crowd.update(dt);
@@ -207,12 +264,50 @@ export class ButterflyScene extends CrowdScene {
     this.flapTime += dt * FLAP_FPS;
     const frame = Math.floor(this.flapTime) % 2;
     this.sprite.texture = this.ctx.props.butterfly[frame];
-    this.sprite.position.set(this.bx, this.by + Math.sin(this.time * 5) * 9);
+    const drawY = this.by + Math.sin(this.time * 5) * 9;
+    this.sprite.position.set(this.bx, drawY);
+    this.updateTrail(dt, drawY);
 
     this.syncSprites(dt);
   }
 
   private anyHandDown = false;
+
+  /**
+   * The dotted crayon trail: one soft dot every TRAIL_SPACING units of flight,
+   * fading out over a second. It is what makes the butterfly's path readable
+   * at a glance, and it is the visible proof that the finger is moving it.
+   *
+   * Pooled and ring-buffered: no allocation, and never more than TRAIL_MAX
+   * sprites in the scene.
+   */
+  private updateTrail(dt: number, drawY: number): void {
+    const dx = this.bx - this.lastDropX;
+    const dy = drawY - this.lastDropY;
+    if (dx * dx + dy * dy >= TRAIL_SPACING * TRAIL_SPACING) {
+      const dot = this.trail[this.trailNext];
+      dot.position.set(this.lastDropX, this.lastDropY);
+      dot.visible = true;
+      this.trailAge[this.trailNext] = 0;
+      this.trailNext = (this.trailNext + 1) % this.trail.length;
+      this.lastDropX = this.bx;
+      this.lastDropY = drawY;
+    }
+    for (let i = 0; i < this.trail.length; i++) {
+      const age = this.trailAge[i];
+      if (age >= TRAIL_LIFE) continue;
+      const next = age + dt;
+      this.trailAge[i] = next;
+      const dot = this.trail[i];
+      if (next >= TRAIL_LIFE) {
+        dot.visible = false;
+        continue;
+      }
+      const t = next / TRAIL_LIFE;
+      dot.alpha = (1 - t) * (1 - t) * TRAIL_ALPHA;
+      dot.scale.set(1 - t * 0.45);
+    }
+  }
 
   /** The scripted loop used by the idle hint. */
   private flyScript(dt: number): void {
@@ -271,6 +366,13 @@ export class ButterflyScene extends CrowdScene {
 
   override isDone(): boolean {
     return this.phase === 'done';
+  }
+
+  override exit(): void {
+    super.exit();
+    this.skyLayer.destroy({ children: true });
+    this.trail.length = 0;
+    this.trailAge.length = 0;
   }
 }
 
