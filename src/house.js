@@ -259,7 +259,15 @@ export function createHouse(opts) {
   const woodMat = new THREE.MeshStandardMaterial({ map: T.woodTexture(st.trim), roughness: 0.9 });
 
   // --- merged static geometry: body ---
-  const bodyParts = [boxAt(W, H, D, 0, H / 2, 0)];
+  // The shell leaves a real doorway hole in the front wall, so an open door
+  // shows a room instead of flat siding.
+  const DW = 0.6, DH = 2.02, FT = 1.6;   // doorway half width / height, hall depth
+  const fwz = D / 2 - FT / 2;
+  const sideW = W / 2 - DW;
+  const bodyParts = [boxAt(W, H, D - FT, 0, H / 2, -FT / 2)];
+  bodyParts.push(boxAt(sideW, H, FT, -(DW + sideW / 2), H / 2, fwz));
+  bodyParts.push(boxAt(sideW, H, FT, DW + sideW / 2, H / 2, fwz));
+  bodyParts.push(boxAt(DW * 2, H - DH, FT, 0, DH + (H - DH) / 2, fwz));
   // chimney
   bodyParts.push(boxAt(0.6, 1.5, 0.6, -W * 0.28, H + 0.8, -0.6));
   const bodyMesh = new THREE.Mesh(mergeGeometries(bodyParts, false), bodyMat);
@@ -285,8 +293,9 @@ export function createHouse(opts) {
   for (const s of [-1, 1]) {
     woodParts.push(cylAt(0.1, 0.1, 2.6, 6, s * 1.65, 1.3, D / 2 + 2.05)); // posts
   }
-  // door frame
-  woodParts.push(boxAt(1.5, 2.2, 0.16, 0, 1.1, D / 2 + 0.03));
+  // door frame: two jambs and a header, so the opening stays open
+  for (const s2 of [-1, 1]) woodParts.push(boxAt(0.14, 2.24, 0.18, s2 * 0.69, 1.12, D / 2 + 0.02));
+  woodParts.push(boxAt(1.56, 0.16, 0.18, 0, 2.32, D / 2 + 0.02));
   // fence
   const fz = D / 2 + 4.2;
   for (let i = -4; i <= 4; i++) {
@@ -313,6 +322,24 @@ export function createHouse(opts) {
   const winMesh = new THREE.Mesh(mergeGeometries(winParts, false), winMat);
   root.add(winMesh);
 
+  // --- the room behind the door ---
+  const interiorMat = new THREE.MeshBasicMaterial({
+    map: T.doorInteriorTexture(), transparent: true, opacity: 0, depthWrite: false, fog: false
+  });
+  const interiorBack = new THREE.Mesh(new THREE.PlaneGeometry(2.1, 2.3), interiorMat);
+  interiorBack.position.set(0, 1.13, D / 2 - 1.5);
+  interiorBack.visible = false;
+  root.add(interiorBack);
+  const interiorFloorMat = new THREE.MeshBasicMaterial({
+    color: 0xc98a4a, transparent: true, opacity: 0, depthWrite: false,
+    blending: THREE.AdditiveBlending, fog: false
+  });
+  const interiorFloor = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.5), interiorFloorMat);
+  interiorFloor.rotation.x = -Math.PI / 2;
+  interiorFloor.position.set(0, 0.235, D / 2 - 0.78);
+  interiorFloor.visible = false;
+  root.add(interiorFloor);
+
   // --- door (pivot group) ---
   const doorPivot = new THREE.Group();
   doorPivot.position.set(-0.62, 0, D / 2 + 0.06);
@@ -333,32 +360,53 @@ export function createHouse(opts) {
   }));
   doorGlow.position.set(0, 1.05, D / 2 + 0.02);
   root.add(doorGlow);
+  const doorSpill = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 2.6), new THREE.MeshBasicMaterial({
+    map: glowTex(), color: 0xffb968, transparent: true, opacity: 0,
+    depthWrite: false, blending: THREE.AdditiveBlending
+  }));
+  doorSpill.rotation.x = -Math.PI / 2;
+  doorSpill.position.set(0, 0.24, D / 2 + 1.35);
+  doorSpill.visible = false;
+  root.add(doorSpill);
   const doorLight = new THREE.PointLight(0xffb060, 0, 7, 2);
   doorLight.visible = false;
   doorLight.position.set(0, 1.5, D / 2 - 1.15);
   root.add(doorLight);
 
-  // --- doorbell ---
+  // --- doorbell: a big amber button at child eye height ---
   const doorbell = new THREE.Group();
-  const bellPlate = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.3, 0.06),
-    new THREE.MeshStandardMaterial({ color: 0x8a8f9c, roughness: 0.4, metalness: 0.6 }));
+  const bellPlate = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.07, 18),
+    new THREE.MeshStandardMaterial({ color: 0x6d7280, roughness: 0.45, metalness: 0.55 }));
+  bellPlate.rotation.x = Math.PI / 2;
   doorbell.add(bellPlate);
   const bellBtnMat = new THREE.MeshStandardMaterial({
-    color: 0xffe2a0, roughness: 0.3,
-    emissive: new THREE.Color(0xffc45e), emissiveIntensity: 0
+    color: 0xffd98a, roughness: 0.25,
+    emissive: new THREE.Color(0xffb43c), emissiveIntensity: 0.4
   });
-  const bellBtn = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8), bellBtnMat);
-  bellBtn.position.z = 0.05;
+  // a disc ~0.35 world units across, standing proud of the plate
+  const bellBtn = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.175, 0.1, 20), bellBtnMat);
+  bellBtn.rotation.x = Math.PI / 2;
+  bellBtn.position.z = 0.06;
   doorbell.add(bellBtn);
+  const bellFaceMat = new THREE.MeshBasicMaterial({
+    color: 0xffe9b0, transparent: true, opacity: 0.2, depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
+  const bellFace = new THREE.Mesh(new THREE.CircleGeometry(0.175, 20), bellFaceMat);
+  bellFace.position.z = 0.115;
+  doorbell.add(bellFace);
   const bellHalo = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: glowTex(), color: 0xffd27a, transparent: true, depthWrite: false,
+    map: glowTex(), color: 0xffc258, transparent: true, depthWrite: false,
     blending: THREE.AdditiveBlending, opacity: 0
   }));
-  bellHalo.scale.set(2.6, 2.6, 1);
-  bellHalo.position.z = 0.06;
+  bellHalo.scale.set(1.55, 1.55, 1);
+  bellHalo.position.z = 0.1;
   doorbell.add(bellHalo);
-  doorbell.position.set(1.02, 1.3, D / 2 + 0.12);
-  doorbell.userData = { kind: 'doorbell', house: index, btnMat: bellBtnMat, halo: bellHalo, hitRadius: 0.45, base: doorbell.position.clone() };
+  doorbell.position.set(1.0, 1.05, D / 2 + 0.11);
+  doorbell.userData = {
+    kind: 'doorbell', house: index, btnMat: bellBtnMat, halo: bellHalo,
+    faceMat: bellFaceMat, hitRadius: 1.3, base: doorbell.position.clone()
+  };
   root.add(doorbell);
 
   // --- porch light ---
@@ -411,7 +459,9 @@ export function createHouse(opts) {
 
   const h = {
     index, root, style: st, isHome,
-    doorbell, doorPivot, doorGlow, doorLight, porchLampMat, porchHalo, porchLight,
+    doorbell, doorPivot, doorGlow, doorLight, doorSpill,
+    interiorBack, interiorFloor, interiorMat, interiorFloorMat,
+    porchLampMat, porchHalo, porchLight,
     winMat, lanterns, resident, porchSpot, doorWorld,
     position: position.clone(), facing,
     lit: 0, litTarget: 0,
@@ -450,6 +500,13 @@ export function resetHouse(h) {
   h.residentOut = 0; h.residentTarget = 0;
   h.windowFlash = 0; h.pulseBoost = 0;
   h.doorPivot.rotation.y = 0;
+  h.interiorMat.opacity = 0;
+  h.interiorFloorMat.opacity = 0;
+  h.doorSpill.material.opacity = 0;
+  h.interiorBack.visible = false;
+  h.interiorFloor.visible = false;
+  h.doorSpill.visible = false;
+  h.doorbell.scale.setScalar(1);
   if (h.resident) {
     h.resident.visible = false;
     h.resident.userData.hop = 0;
@@ -484,19 +541,33 @@ export function updateHouse(h, dt, t) {
   // door
   h.doorOpen += (h.doorTarget - h.doorOpen) * Math.min(1, dt * 2.2);
   h.doorPivot.rotation.y = h.doorOpen * 1.5;
-  h.doorGlow.material.opacity = h.doorOpen * 0.55;
+  h.doorGlow.material.opacity = h.doorOpen * 0.2;
   h.doorLight.visible = h.doorTarget > 0.5 || h.doorOpen > 0.02;
-  h.doorLight.intensity = h.doorOpen * 5.5;
+  h.doorLight.intensity = h.doorOpen * 3.0;
+  // the room behind the door, and its light on the porch boards; kept out of
+  // the draw list entirely while the door is shut
+  const open = h.doorOpen > 0.012;
+  h.interiorBack.visible = open;
+  h.interiorFloor.visible = open;
+  h.doorSpill.visible = open;
+  if (open) {
+    h.interiorMat.opacity = Math.min(1, h.doorOpen * 1.8);
+    h.interiorFloorMat.opacity = Math.min(0.5, h.doorOpen * 0.8);
+    h.doorSpill.material.opacity = h.doorOpen * 0.5 * (0.88 + 0.12 * Math.sin(t * 2.7));
+  }
 
   // doorbell
   h.bellGlow += (h.bellTarget - h.bellGlow) * Math.min(1, dt * 3.5);
-  const bp = 0.6 + 0.4 * Math.sin(t * 4.4);
-  h.doorbell.userData.btnMat.emissiveIntensity = h.bellGlow * (1.6 + bp * 3.0);
-  h.doorbell.userData.halo.material.opacity = h.bellGlow * (0.35 + bp * 0.6);
+  const bp = 0.55 + 0.45 * Math.sin(t * 4.4);
+  const bud = h.doorbell.userData;
+  bud.btnMat.emissiveIntensity = 0.4 + h.bellGlow * (1.5 + bp * 2.4);
+  bud.halo.material.opacity = h.bellGlow * (0.3 + bp * 0.35);
+  bud.faceMat.opacity = 0.16 + h.bellGlow * (0.22 + bp * 0.3);
+  h.doorbell.scale.setScalar(1 + h.bellGlow * (0.08 + bp * 0.07));
   h.bellShake = Math.max(0, h.bellShake - dt * 2.0);
-  const wob = h.bellGlow * 0.012 * Math.sin(t * 13) + h.bellShake * 0.05 * Math.sin(t * 40);
-  h.doorbell.position.x = h.doorbell.userData.base.x + wob;
-  h.doorbell.position.y = h.doorbell.userData.base.y + wob * 0.6;
+  const wob = h.bellGlow * 0.014 * Math.sin(t * 13) + h.bellShake * 0.05 * Math.sin(t * 40);
+  h.doorbell.position.x = bud.base.x + wob;
+  h.doorbell.position.y = bud.base.y + wob * 0.6;
 
   // resident
   if (h.resident) {
