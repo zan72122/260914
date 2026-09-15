@@ -1,4 +1,5 @@
 import { State } from '../debris/base.js';
+import { LEAD } from '../vacuum/vacuum.js';
 
 /**
  * Scene contract (this is all a new scene has to implement).
@@ -57,6 +58,34 @@ export class Scene {
       x: (this.startPointer.x - 0.5) * this.vw,
       y: (this.startPointer.y - 0.5) * this.vh - (leadPx - 22) / this.scale,
     };
+  }
+
+  /**
+   * The world rectangle the nozzle can actually reach at this scene's rest
+   * camera.
+   *
+   * The finger is clamped to the glass and the head is drawn a fixed distance
+   * AHEAD of it, so there is a band at every edge — a wide one along the bottom,
+   * the whole lead offset — that the head can never enter. Debris placed in that
+   * band can never be collected, and the room can never be finished. Anything
+   * laying out debris near an edge should filter against this. Conservative: it
+   * ignores the extra reach the mouth gets from leaning into a drag.
+   */
+  reachRect(out, margin = 24) {
+    const L = LEAD[this.pose] || LEAD.portrait;
+    const r = this.rest;
+    const zoom = r.zoom || 1;
+    const yScale = zoom * (1 - 0.45 * (r.tilt || 0));
+    const push = (r.tilt || 0) * this.h * 0.12;
+    const M = 34;                          // the head is kept this far on-screen
+    const sx0 = M, sx1 = this.w - M;
+    const sy0 = Math.max(M, -L.up);
+    const sy1 = Math.min(this.h - M, this.h - L.up);
+    out.x0 = (sx0 - this.w * 0.5) / zoom + r.x + margin;
+    out.x1 = (sx1 - this.w * 0.5) / zoom + r.x - margin;
+    out.y0 = (sy0 - this.h * 0.5 - push) / yScale + r.y + margin;
+    out.y1 = (sy1 - this.h * 0.5 - push) / yScale + r.y - margin;
+    return out;
   }
 
   /**

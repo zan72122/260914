@@ -99,6 +99,10 @@ export class SandScene extends Scene {
     // ---- the grit walked in from the door --------------------------------
     const grit = new GritTrail(rng);
     const park = this.parkPoint(92);
+    // the head cannot reach the last ~80px along the bottom edge (that is the
+    // lead offset), and grit down there would make the hall unfinishable
+    const reach = this.reachRect({ x0: 0, y0: 0, x1: 0, y1: 0 }, 34);
+    const canReach = (x, y) => x > reach.x0 && x < reach.x1 && y > reach.y0 && y < reach.y1;
     // The trail is a path with three stations: it is walked IN through the door,
     // tracked across the hall past the pile, and carried on toward the viewer.
     const A = gritFrom, B = { x: mat.x, y: mat.y }, C = gritNear;
@@ -113,6 +117,7 @@ export class SandScene extends Scene {
       const y = by + rng.range(-spread * 0.8, spread * 0.8) + Math.cos(t * 4.7) * 16;
       if (pile.heightAt(x, y) > 0.4) continue;                // that one is under the pile
       if (Math.hypot(x - park.x, y - park.y) < 150) continue; // not close enough to be eaten before the first touch
+      if (!canReach(x, y)) continue;                          // and never out of the head's reach
       grit.add(x, y);
     }
     // a few strays scattered wider across the tataki: something to chase
@@ -122,6 +127,7 @@ export class SandScene extends Scene {
         : this._p(rng.range(0.10, 0.70), rng.range(0.10, 0.90));
       if (pile.heightAt(p.x, p.y) > 0.4) continue;
       if (Math.hypot(p.x - park.x, p.y - park.y) < 150) continue;
+      if (!canReach(p.x, p.y)) continue;
       grit.add(p.x, p.y);
     }
     this.grit = grit;
@@ -136,7 +142,10 @@ export class SandScene extends Scene {
       });
       this.props.push(this.rack);
       // sand kicked up against the rack's feet
-      for (let i = 0; i < 8; i++) grit.add(r.x + rng.range(-100, 100), r.y + rng.range(40, 62));
+      for (let i = 0; i < 8; i++) {
+        const gx = r.x + rng.range(-100, 100), gy = r.y + rng.range(40, 62);
+        if (canReach(gx, gy)) grit.add(gx, gy);
+      }
     } else {
       // portrait: a pair of shoes stands beside the mat instead
       const r = this._p(0.16, 0.235);
