@@ -511,7 +511,8 @@ export function toyMannequin(pos, costume, rotY = 0) {
   const colors = { witch: 0x6a3f9a, ghost: 0xe9edf6, pumpkin: 0xdd6a1e, cat: 0x2a2530 };
   const c = colors[costume];
   const bodyMat = new THREE.MeshStandardMaterial({
-    color: c, roughness: 0.7, emissive: new THREE.Color(c), emissiveIntensity: 0.45
+    color: c, roughness: 0.7, emissive: new THREE.Color(c),
+    emissiveIntensity: costume === 'ghost' ? 0.16 : 0.34
   });
   const figure = [];
   const dg = new THREE.CylinderGeometry(0.16, 0.36, 0.7, 12); dg.translate(0, 1.05, 0);
@@ -538,9 +539,9 @@ export function toyMannequin(pos, costume, rotY = 0) {
   }), false), bodyMat));
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({
     map: T.glowTexture(), color: c, transparent: true, depthWrite: false,
-    blending: THREE.AdditiveBlending, opacity: 0.35
+    blending: THREE.AdditiveBlending, opacity: 0.22
   }));
-  halo.scale.set(2.2, 2.2, 1); halo.position.y = 1.2;
+  halo.scale.set(2.0, 2.0, 1); halo.position.y = 1.2;
   g.add(halo);
 
   const t = baseToy('mannequin', g, 0.9);
@@ -548,9 +549,10 @@ export function toyMannequin(pos, costume, rotY = 0) {
   t.pop = 0;
   t.update = (dt, time) => {
     t.pop = Math.max(0, t.pop - dt * 1.6);
-    const pulse = 0.35 + 0.2 * Math.sin(time * 2 + pos.x) + t.pop * 0.6;
+    const pulse = 0.2 + 0.12 * Math.sin(time * 2 + pos.x) + t.pop * 0.5;
     halo.material.opacity = pulse;
-    bodyMat.emissiveIntensity = 0.4 + 0.2 * Math.sin(time * 2 + pos.x) + t.pop;
+    const base = costume === 'ghost' ? 0.16 : 0.34;
+    bodyMat.emissiveIntensity = base + 0.12 * Math.sin(time * 2 + pos.x) + t.pop * 0.8;
     g.position.y = pos.y + Math.sin(time * 1.5 + pos.x) * 0.03;
     g.scale.setScalar(1 + t.pop * 0.1);
   };

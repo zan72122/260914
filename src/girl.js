@@ -239,8 +239,8 @@ export function createGirl() {
   const rim = new THREE.PointLight(0xa8ccff, 3.2, 6.0, 2);
   rim.position.set(-0.9, 2.0, -1.2);
   root.add(rim);
-  const keyLight = new THREE.PointLight(0xffe0b8, 1.35, 5.0, 2);
-  keyLight.position.set(0.6, 1.9, 1.4);
+  const keyLight = new THREE.PointLight(0xffe0b8, 2.4, 6.5, 2);
+  keyLight.position.set(0.7, 1.8, 1.7);
   root.add(keyLight);
 
   // sparkle ring (used during reveal)
@@ -263,7 +263,7 @@ export function createGirl() {
     // motion
     pos: new THREE.Vector3(0, 0, 0),
     heading: Math.PI,
-    speed: 0,
+    speed: 0, speedScale: 1,
     path: null, pathI: 0,
     walkPhase: 0,
     t: 0,
@@ -328,14 +328,18 @@ export function updateGirl(g, dt, t) {
     const target = g.path[g.pathI];
     _tmp.copy(target).sub(g.pos); _tmp.y = 0;
     const d = _tmp.length();
-    if (d < 0.18) {
+    const sp = 3.0 * (g.speedScale || 1);
+    g.speed += (sp - g.speed) * Math.min(1, dt * 4);
+    const step = g.speed * dt;
+    if (d <= step + 0.12) {
+      // snap on arrival so a long frame can never make her orbit a waypoint
+      g.pos.copy(target); g.pos.y = 0;
       g.pathI++;
       if (g.pathI >= g.path.length) { g.path = null; }
+      moving = true;
     } else {
       _tmp.normalize();
-      const sp = 3.0;
-      g.speed += (sp - g.speed) * Math.min(1, dt * 4);
-      g.pos.addScaledVector(_tmp, g.speed * dt);
+      g.pos.addScaledVector(_tmp, step);
       const want = Math.atan2(_tmp.x, _tmp.z);
       let diff = want - g.heading;
       while (diff > Math.PI) diff -= Math.PI * 2;
@@ -380,7 +384,7 @@ export function updateGirl(g, dt, t) {
       g.ringGlow = Math.max(g.ringGlow, Math.sin(k * Math.PI));
       if (k >= 1) { g.anim = null; }
     } else if (g.anim === 'sit') {
-      const e = Math.min(1, k * 2);
+      const e = Math.min(1, g.animT / 0.8);   // hold the pose once seated
       g.rig.position.y = -0.42 * e;
       g.legs[0].rotation.x = -1.5 * e;
       g.legs[1].rotation.x = -1.5 * e;
@@ -390,7 +394,7 @@ export function updateGirl(g, dt, t) {
       g.arms[1].rotation.x = -0.4 - eat * 1.1;
       g.arms[0].rotation.x = -0.5;
       g.head.rotation.x = 0.1 + eat * 0.12;
-      if (k >= 1) g.animDur = 1e9;
+      g.animDur = 1e9;
     } else if (g.anim === 'cheer') {
       const e = Math.sin(k * Math.PI);
       armPose = [-2.6 * e, -2.6 * e];
@@ -406,7 +410,7 @@ export function updateGirl(g, dt, t) {
   g.root.rotation.y = g.heading + spin;
 
   // --- walk / idle animation ---
-  const sp = g.speed / 3.0;
+  const sp = Math.min(1.35, g.speed / 3.0);
   g.walkPhase += dt * (4.0 + sp * 5.0) * (0.25 + sp);
   if (g.anim !== 'sit') {
     const swing = Math.sin(g.walkPhase) * 0.72 * sp;

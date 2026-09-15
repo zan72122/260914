@@ -18,6 +18,9 @@ export class FollowCamera {
     this.pan = null;
     this.shake = 0;
     this.zoom = 1;
+    this.orbit = 0;      // swing the camera sideways for porch close-ups
+    this.eyeScale = 1;   // lower the eye line for close-ups
+    this.orbitCur = 0;
     this.snapNext = true;
   }
 
@@ -46,7 +49,7 @@ export class FollowCamera {
     const target = gp.clone();
     if (this.focus) {
       _b.copy(this.focus).sub(gp);
-      const maxBias = (this.portrait ? 1.6 : 3.0) * this.focusWeight * 2;
+      const maxBias = (this.portrait ? 2.4 : 3.6) * this.focusWeight * 2;
       if (_b.length() > maxBias) _b.setLength(maxBias);
       target.add(_b);
     }
@@ -67,8 +70,11 @@ export class FollowCamera {
       }
     }
 
+    this.orbitCur += (this.orbit - this.orbitCur) * (this.snapNext ? 1 : Math.min(1, dt * 1.8));
+    if (Math.abs(this.orbitCur) > 1e-4) behind.applyAxisAngle(UP, this.orbitCur);
+
     let dist = (this.portrait ? 10.4 : 8.6) * this.zoom;
-    let height = (this.portrait ? 5.6 : 4.4) * (0.62 + this.zoom * 0.38);
+    let height = (this.portrait ? 5.6 : 4.4) * (0.62 + this.zoom * 0.38) * this.eyeScale;
 
     // make sure the girl herself never leaves the frame horizontally
     _view.copy(behind).negate();

@@ -159,20 +159,20 @@ function makeResident(kind) {
   body.position.y = 0.5;
   g.add(body);
 
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 14, 12), new THREE.MeshStandardMaterial({
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.34, 16, 12), new THREE.MeshStandardMaterial({
     color: p.head, roughness: 0.8,
     transparent: kind === 'ghost', opacity: kind === 'ghost' ? 0.9 : 1,
     emissive: kind === 'ghost' ? 0x2a3550 : 0x000000, emissiveIntensity: kind === 'ghost' ? 0.6 : 0
   }));
-  head.position.y = 1.2;
+  head.position.y = 1.22;
   if (kind === 'pumpkin') head.scale.set(1.05, 0.9, 1.05);
   g.add(head);
 
   const faceKind = kind === 'pumpkin' ? 'pumpkinhead' : kind;
-  const face = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), new THREE.MeshBasicMaterial({
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.58), new THREE.MeshBasicMaterial({
     map: T.faceTexture(faceKind), transparent: true, depthWrite: false
   }));
-  face.position.set(0, 1.21, 0.295);
+  face.position.set(0, 1.22, 0.335);
   g.add(face);
 
   if (kind === 'cat') {
@@ -214,7 +214,7 @@ function makeResident(kind) {
     const a = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.42, 3, 6), armMat);
     a.position.y = -0.24;
     arm.add(a);
-    arm.position.set(s * 0.33, 1.0, 0.02);
+    arm.position.set(s * 0.44, 1.02, 0.06);
     arm.rotation.z = s * 0.18;
     g.add(arm);
     arms.push(arm);
@@ -270,6 +270,8 @@ export function createHouse(opts) {
   const rg = gableRoofGeometry(W + 0.7, 1.9, D + 0.6);
   rg.translate(0, H, 0);
   roofParts.push(rg);
+  // porch canopy: a shallow shed roof, shingled like the main roof
+  roofParts.push(boxAt(4.2, 0.16, 2.9, 0, 2.62, D / 2 + 1.25, -0.16).toNonIndexed());
   const roofMesh = new THREE.Mesh(mergeGeometries(roofParts, false), roofMat);
   roofMesh.castShadow = true; roofMesh.receiveShadow = true;
   root.add(roofMesh);
@@ -280,9 +282,8 @@ export function createHouse(opts) {
   woodParts.push(boxAt(3.6, 0.22, 2.2, 0, 0.11, D / 2 + 1.0));          // porch deck
   woodParts.push(boxAt(3.9, 0.12, 0.5, 0, 0.05, D / 2 + 2.15));          // step
   for (const s of [-1, 1]) {
-    woodParts.push(cylAt(0.1, 0.1, 2.5, 6, s * 1.6, 1.3, D / 2 + 1.85)); // posts
+    woodParts.push(cylAt(0.1, 0.1, 2.6, 6, s * 1.65, 1.3, D / 2 + 2.05)); // posts
   }
-  woodParts.push(boxAt(3.9, 0.22, 2.6, 0, 2.55, D / 2 + 1.2));           // porch roof
   // door frame
   woodParts.push(boxAt(1.5, 2.2, 0.16, 0, 1.1, D / 2 + 0.03));
   // fence
@@ -338,24 +339,24 @@ export function createHouse(opts) {
 
   // --- doorbell ---
   const doorbell = new THREE.Group();
-  const bellPlate = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.24, 0.06),
+  const bellPlate = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.3, 0.06),
     new THREE.MeshStandardMaterial({ color: 0x8a8f9c, roughness: 0.4, metalness: 0.6 }));
   doorbell.add(bellPlate);
   const bellBtnMat = new THREE.MeshStandardMaterial({
     color: 0xffe2a0, roughness: 0.3,
     emissive: new THREE.Color(0xffc45e), emissiveIntensity: 0
   });
-  const bellBtn = new THREE.Mesh(new THREE.SphereGeometry(0.058, 10, 8), bellBtnMat);
+  const bellBtn = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8), bellBtnMat);
   bellBtn.position.z = 0.05;
   doorbell.add(bellBtn);
   const bellHalo = new THREE.Sprite(new THREE.SpriteMaterial({
     map: glowTex(), color: 0xffd27a, transparent: true, depthWrite: false,
     blending: THREE.AdditiveBlending, opacity: 0
   }));
-  bellHalo.scale.set(0.9, 0.9, 1);
+  bellHalo.scale.set(2.6, 2.6, 1);
   bellHalo.position.z = 0.06;
   doorbell.add(bellHalo);
-  doorbell.position.set(0.95, 1.25, D / 2 + 0.1);
+  doorbell.position.set(1.02, 1.3, D / 2 + 0.12);
   doorbell.userData = { kind: 'doorbell', house: index, btnMat: bellBtnMat, halo: bellHalo, hitRadius: 0.45, base: doorbell.position.clone() };
   root.add(doorbell);
 
@@ -463,8 +464,8 @@ export function updateHouse(h, dt, t) {
   // doorbell
   h.bellGlow += (h.bellTarget - h.bellGlow) * Math.min(1, dt * 3.5);
   const bp = 0.6 + 0.4 * Math.sin(t * 4.4);
-  h.doorbell.userData.btnMat.emissiveIntensity = h.bellGlow * (1.2 + bp * 2.2);
-  h.doorbell.userData.halo.material.opacity = h.bellGlow * (0.25 + bp * 0.45);
+  h.doorbell.userData.btnMat.emissiveIntensity = h.bellGlow * (1.6 + bp * 3.0);
+  h.doorbell.userData.halo.material.opacity = h.bellGlow * (0.35 + bp * 0.6);
   h.bellShake = Math.max(0, h.bellShake - dt * 2.0);
   const wob = h.bellGlow * 0.012 * Math.sin(t * 13) + h.bellShake * 0.05 * Math.sin(t * 40);
   h.doorbell.position.x = h.doorbell.userData.base.x + wob;

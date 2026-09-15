@@ -69,6 +69,8 @@ export class Chain {
         girl.offerTarget = 0;
         cam.setFocus(h.doorWorld, 0.26);
         cam.zoom = 1;
+        cam.orbit = 0;
+        cam.eyeScale = 1;
         fireflies.flowTo(h.doorWorld);
         break;
       }
@@ -77,6 +79,8 @@ export class Chain {
         girl.lookAt = null;
         cam.setFocus(h.doorWorld, 0.34);
         cam.zoom = 1;
+        cam.orbit = 0;
+        cam.eyeScale = 1;
         break;
       }
       case 'BELL': {
@@ -84,8 +88,10 @@ export class Chain {
         h.bellTarget = 1;
         h.bellShake = 1;
         girl.lookAt = h.doorbell.getWorldPosition(new THREE.Vector3());
-        cam.setFocus(h.doorbell.getWorldPosition(new THREE.Vector3()), 0.45);
-        cam.zoom = 0.9;
+        cam.setFocus(h.doorbell.getWorldPosition(new THREE.Vector3()), 0.6);
+        cam.zoom = 0.95;
+        cam.orbit = 0.62;
+        cam.eyeScale = 0.62;
         fireflies.flowTo(h.doorbell.getWorldPosition(new THREE.Vector3()));
         this.ctx.sparkles.burst(h.doorbell.getWorldPosition(new THREE.Vector3()), 10, 0xffd27a, 0.5, 0.2);
         break;
@@ -113,8 +119,10 @@ export class Chain {
         girl.lookAt = h.doorWorld.clone();
         girl.ringGlow = 1;
         this.ctx.sparkles.ring(girl.pos.clone().setY(0.7), 28, 1.0, 0xfff0b0);
-        cam.setFocus(h.doorWorld, 0.3);
-        cam.zoom = 0.82;
+        cam.setFocus(h.doorWorld, 0.6);
+        cam.zoom = 0.9;
+        cam.orbit = 0.55;
+        cam.eyeScale = 0.6;
         this.ctx.fireflies.flowTo(girl.pos.clone().setY(1.2));
         break;
       }
@@ -122,8 +130,10 @@ export class Chain {
         this.busy = false;
         girl.bucketHaloTarget = 1;
         if (h.resident) h.resident.userData.candy.visible = true;
-        cam.setFocus(h.doorWorld, 0.3);
-        cam.zoom = 0.78;
+        cam.setFocus(h.doorWorld, 0.6);
+        cam.zoom = 0.88;
+        cam.orbit = 0.5;
+        cam.eyeScale = 0.58;
         this.ctx.fireflies.flowTo(girlWorldPoint(this.ctx.girl, 'bucket'));
         break;
       }
@@ -168,6 +178,8 @@ export class Chain {
         setHouseLit(nh, true);
         nh.pulseBoost = 1;
         A.sfxTwinkleUp();
+        cam.orbit = 0;
+        cam.eyeScale = 1;
         cam.panTo(nh.doorWorld, 2.6);
         this.ctx.fireflies.flowTo(nh.doorWorld);
         this.ctx.sparkles.burst(nh.doorWorld.clone().add(new THREE.Vector3(0, 1.2, 0)), 20, 0xffc25e, 1.2, 0.3);
@@ -181,21 +193,20 @@ export class Chain {
       case 'ENDING': {
         this.busy = true;
         this.endingT = 0;
+        this.seatedT = 0;
         this.restartReady = false;
         world.lightAll();
         world.moonSmile.opacity = 0;
         A.sfxSparkle();
         const home = world.houses[0];
         const spot = world.offsetPoint(0.075, home.side * 6.4);
-        setPath(girl, [
-          world.offsetPoint(this.house.curveT, this.house.side * 5.2),
-          world.offsetPoint(0.3, 0),
-          world.offsetPoint(0.12, home.side * 3),
-          new THREE.Vector3(spot.x, 0, spot.z)
-        ]);
+        setPath(girl, this.routeTo(new THREE.Vector3(spot.x, 0, spot.z)));
         girl.lookAt = null;
+        girl.speedScale = 2.4;   // a happy skip home past every lit house
         cam.setFocus(null);
         cam.zoom = 1.15;
+        cam.orbit = 0.5;
+        cam.eyeScale = 0.85;
         this.ctx.bats.flock(world.moonDir.clone().multiplyScalar(40).setY(22), new THREE.Vector3(0.2, -0.1, 1), 14);
         A.sfxBats();
         break;
@@ -388,6 +399,9 @@ export class Chain {
 
   restart() {
     const { world } = this.ctx;
+    this.ctx.girl.speedScale = 1;
+    this.ctx.cam.orbit = 0;
+    this.ctx.cam.eyeScale = 1;
     world.moonSmile.opacity = 0;
     this.ctx.girl.anim = null;
     this.ctx.girl.rig.position.y = 0;
@@ -432,25 +446,33 @@ export class Chain {
       this.endingT += dt;
       world.moonSmile.opacity = Math.min(0.75, this.endingT * 0.25);
       const home = world.houses[0];
+      if (girl.path && this.endingT > 34) girl.path = null;   // never strand her
       if (!girl.path && girl.anim !== 'sit' && this.endingT > 1) {
-        girl.heading = Math.PI * 0.85;
+        girl.speedScale = 1;
+        girl.heading = home.facing;
         playAnim(girl, 'sit', 1.0);
         girl.bucketHaloTarget = 0.6;
         girl.candyCount = 90; girl.candyMesh.count = 90;
         girl.candyMesh.instanceMatrix.needsUpdate = true;
-        cam.setFocus(girl.pos.clone().setY(1.0), 0.35);
+        cam.setFocus(home.doorWorld, 0.35);
+        cam.zoom = 0.85;
+        cam.eyeScale = 0.75;
+        // a beat looking up at the big smiling moon
+        this.after(1.4, () => cam.panTo(world.moon.position.clone(), 3.4));
+        this.ctx.sparkles.ring(girl.pos.clone().setY(0.6), 30, 1.2, 0xffd88a);
       }
+      if (girl.anim === 'sit') this.seatedT += dt;
       if (this.endingT > 1.2 && this.fw === undefined) this.fw = 0;
       if (this.fw !== undefined) {
         this.fw -= dt;
         if (this.fw <= 0) {
           this.fw = 1.6 + Math.random() * 1.6;
-          const p = world.offsetPoint(0.25 + Math.random() * 0.5, (Math.random() - 0.5) * 20);
+          const p = world.offsetPoint(Math.random() * 0.22, (Math.random() - 0.5) * 26);
           this.ctx.fireworks.launch(p.x, p.z);
           A.sfxFirework();
         }
       }
-      if (this.endingT > 10 && !this.restartReady) {
+      if (this.seatedT > 4 && !this.restartReady) {
         this.restartReady = true;
         this.busy = false;
         if (this.ctx.debug) console.log('[state] restart-ready');
@@ -464,6 +486,15 @@ export class Chain {
     }
 
     // ---------------------------------------------------------- attractor
+    if (this.state === 'BELL') {
+      this.bellSpark = (this.bellSpark || 0) - dt;
+      if (this.bellSpark <= 0) {
+        this.bellSpark = 1.1;
+        const p = this.house.doorbell.getWorldPosition(new THREE.Vector3());
+        this.ctx.sparkles.burst(p, 6, 0xffd88a, 0.35, 0.15);
+      }
+    }
+
     this.idle += dt;
     if (this.idle > IDLE_ATTRACT) {
       this.idle = IDLE_ATTRACT - 3.2;
