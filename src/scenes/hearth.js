@@ -27,10 +27,11 @@ const REVEAL = {
   FRAGMENT: 1.30,
   DEPART: 1.60
 };
-const HOLD_SECONDS = 3.0;      // coloured-flame window where the spectroscope can be used
+const HOLD_FREE = 1.2;         // §S coloured-flame wait when nobody is touching the screen
+const HOLD_BUSY = 3.0;         // §S ...extended while a finger is down (the child is reaching)
 const SNAP_RATIO = 0.18;       // §1.4 magnetic snap radius
 const SPECTRO_SNAP = 0.20;     // §3 spectroscope snap radius
-const IDLE_WIRE_AFTER = 8.0;   // §1.3 wire loop descends after 8s
+const IDLE_WIRE_AFTER = 4.0;   // §C wire loop descends after 4s (8s was far too long)
 const TAP_MOVE_RATIO = 0.09;   // §1.4 a press that strays less than this (of S) counts as a tap
 const WOBBLE_BOOST_SEC = 3.2;  // §1.7 how long the "play me next" dish jumps after a return
 const HOP_SEC = 1.8;           // §1.7 how long ヒノコ hops after a world comes home
@@ -59,62 +60,136 @@ export function drawDiorama(g, def, x, y, r, alpha = 1, time = 0) {
   g.clip();
   const k = time;
   switch (def.id) {
-    case 'lithium': {                                  // a rover keeps driving
-      const px = x - r * 0.7 + ((k * 0.35) % 1) * r * 1.4;
-      g.fillStyle = withAlpha('#c9a27a', 0.5);
-      g.fillRect(x - r, y + r * 0.3, r * 2, r * 0.6);
-      g.fillStyle = def.flameColor;
-      fillRoundRect(g, px - r * 0.2, y + r * 0.02, r * 0.4, r * 0.26, r * 0.1);
-      glowCircle(g, px + r * 0.24, y + r * 0.12, r * 0.4, '#ffd9a0', 0.8);
-      break;
-    }
-    case 'copper': {                                   // windows blink on a dark town
-      for (let i = 0; i < 5; i++) {
-        const wx = x - r * 0.6 + i * r * 0.3;
-        const on = (Math.sin(k * 2 + i * 1.9) + 1) / 2;
-        g.fillStyle = withAlpha('#0e1a20', 0.9);
-        fillRoundRect(g, wx - r * 0.1, y - r * 0.1 - i % 2 * r * 0.1, r * 0.2, r * 0.5, r * 0.05);
-        g.fillStyle = withAlpha(def.flameColor, 0.3 + on * 0.7);
-        fillRoundRect(g, wx - r * 0.05, y - r * 0.02 - i % 2 * r * 0.1, r * 0.1, r * 0.12, r * 0.03);
+    case 'lithium': {
+      // a rover keeps driving across the dune, headlight first
+      g.fillStyle = withAlpha('#c9a27a', 0.45);
+      g.beginPath();
+      g.moveTo(x - r, y + r * 0.72);
+      g.quadraticCurveTo(x, y + r * 0.26, x + r, y + r * 0.62);
+      g.lineTo(x + r, y + r);
+      g.lineTo(x - r, y + r);
+      g.closePath();
+      g.fill();
+      const px = x - r * 0.78 + ((k * 0.3) % 1) * r * 1.56;
+      const py = y + r * 0.28;
+      // headlight beam
+      g.fillStyle = withAlpha('#ffd9a0', 0.30);
+      g.beginPath();
+      g.moveTo(px + r * 0.3, py - r * 0.06);
+      g.lineTo(px + r * 1.15, py - r * 0.34);
+      g.lineTo(px + r * 1.15, py + r * 0.30);
+      g.closePath();
+      g.fill();
+      // body + sensor mast
+      g.fillStyle = shade(def.flameColor, 0.9);
+      fillRoundRect(g, px - r * 0.42, py - r * 0.30, r * 0.84, r * 0.34, r * 0.12);
+      g.fillStyle = withAlpha('#5d4a52', 0.95);
+      fillRoundRect(g, px - r * 0.06, py - r * 0.56, r * 0.12, r * 0.28, r * 0.05);
+      g.fillStyle = def.glowColor;
+      g.beginPath(); g.arc(px + r * 0.02, py - r * 0.58, r * 0.09, 0, Math.PI * 2); g.fill();
+      // three wheels
+      g.fillStyle = '#2b2026';
+      for (const o of [-0.34, 0, 0.34]) {
+        g.beginPath(); g.arc(px + r * o, py + r * 0.10, r * 0.13, 0, Math.PI * 2); g.fill();
       }
+      glowCircle(g, px + r * 0.44, py - r * 0.12, r * 0.34, '#ffd9a0', 0.85);
       break;
     }
-    case 'sodium': {                                   // a street lamp glows yellow
-      g.strokeStyle = withAlpha('#4a4030', 0.9);
-      g.lineWidth = r * 0.09;
-      g.beginPath(); g.moveTo(x, y + r * 0.6); g.lineTo(x, y - r * 0.2); g.stroke();
-      const on = 0.6 + 0.4 * Math.sin(k * 1.6);
-      glowCircle(g, x, y - r * 0.28, r * 0.85, def.flameColor, 0.55 + on * 0.4);
+    case 'copper': {
+      // lit windows on a dark town, and a little train running along the line
+      g.strokeStyle = withAlpha(def.flameColor, 0.5);
+      g.lineWidth = Math.max(1, r * 0.05);
+      g.beginPath(); g.moveTo(x - r, y + r * 0.52); g.lineTo(x + r, y + r * 0.52); g.stroke();
+      for (let i = 0; i < 4; i++) {
+        const wx = x - r * 0.66 + i * r * 0.44;
+        const hgt = r * (0.42 + (i % 2) * 0.24);
+        g.fillStyle = withAlpha('#0e1a20', 0.95);
+        fillRoundRect(g, wx - r * 0.16, y + r * 0.5 - hgt, r * 0.32, hgt, r * 0.05);
+        for (let j = 0; j < 2; j++) {
+          const on = (Math.sin(k * 2.1 + i * 1.7 + j * 2.3) + 1) / 2;
+          g.fillStyle = withAlpha(def.flameColor, 0.22 + on * 0.78);
+          fillRoundRect(g, wx - r * 0.08, y + r * 0.34 - hgt * 0.55 + j * r * 0.20, r * 0.16, r * 0.12, r * 0.03);
+        }
+      }
+      const tx = x - r * 0.95 + ((k * 0.34) % 1) * r * 1.9;
+      g.fillStyle = def.glowColor;
+      fillRoundRect(g, tx - r * 0.22, y + r * 0.34, r * 0.44, r * 0.16, r * 0.06);
+      g.fillStyle = withAlpha('#0b1416', 0.8);
+      fillRoundRect(g, tx - r * 0.10, y + r * 0.37, r * 0.08, r * 0.08, r * 0.02);
+      glowCircle(g, tx + r * 0.26, y + r * 0.42, r * 0.26, def.flameColor, 0.9);
       break;
     }
-    case 'strontium': {        // two phase-offset bursts: the slot is never empty
+    case 'sodium': {
+      // a lamp post throwing a yellow cone onto wet ground
+      g.strokeStyle = withAlpha('#4a4030', 0.95);
+      g.lineWidth = Math.max(1, r * 0.10);
+      g.beginPath(); g.moveTo(x + r * 0.05, y + r * 0.72); g.lineTo(x + r * 0.05, y - r * 0.18); g.stroke();
+      g.beginPath(); g.moveTo(x + r * 0.05, y - r * 0.18); g.quadraticCurveTo(x - r * 0.1, y - r * 0.34, x - r * 0.28, y - r * 0.30); g.stroke();
+      const on = 0.72 + 0.28 * Math.sin(k * 1.6);
+      // light cone
+      g.fillStyle = withAlpha(def.flameColor, 0.16 + 0.16 * on);
+      g.beginPath();
+      g.moveTo(x - r * 0.28, y - r * 0.24);
+      g.lineTo(x - r * 0.86, y + r * 0.78);
+      g.lineTo(x + r * 0.32, y + r * 0.78);
+      g.closePath();
+      g.fill();
+      g.fillStyle = withAlpha(def.flameColor, 0.22 + 0.2 * on);
+      g.beginPath(); g.ellipse(x - r * 0.28, y + r * 0.76, r * 0.58, r * 0.12, 0, 0, Math.PI * 2); g.fill();
+      glowCircle(g, x - r * 0.28, y - r * 0.24, r * 0.62, def.flameColor, 0.6 + on * 0.5);
+      break;
+    }
+    case 'strontium': {        // two phase-offset shells: drooping arms, the slot is never empty
       for (let b = 0; b < 2; b++) {
         const ph = ((k * 0.5) + b * 0.5) % 1;
         const fade = Math.max(0, 1 - ph);
-        const rr = r * 0.2 + ph * r * 0.7;
-        g.strokeStyle = withAlpha(def.flameColor, fade * 0.9);
-        g.lineWidth = r * 0.08;
-        for (let i = 0; i < 8; i++) {
-          const a = (i / 8) * Math.PI * 2 + b * 0.39;
+        const rr = r * 0.16 + ph * r * 0.72;
+        g.strokeStyle = withAlpha(def.flameColor, fade * 0.95);
+        g.lineWidth = Math.max(1, r * 0.075);
+        g.lineCap = 'round';
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * Math.PI * 2 + b * 0.31;
+          const droop = ph * ph * r * 0.42;               // the arms fall as the shell opens
           g.beginPath();
-          g.moveTo(x + Math.cos(a) * rr * 0.5, y + Math.sin(a) * rr * 0.5);
-          g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+          g.moveTo(x + Math.cos(a) * rr * 0.42, y + Math.sin(a) * rr * 0.42 + droop * 0.25);
+          g.quadraticCurveTo(
+            x + Math.cos(a) * rr * 0.8, y + Math.sin(a) * rr * 0.8 + droop * 0.5,
+            x + Math.cos(a) * rr, y + Math.sin(a) * rr + droop
+          );
           g.stroke();
         }
-        glowCircle(g, x, y, r * 0.4 * fade, def.glowColor, 0.8 * fade);
+        glowCircle(g, x, y, r * 0.42 * fade, def.glowColor, 0.85 * fade);
       }
       break;
     }
-    default: {                                         // barium: a green ripple spreads
+    default: {
+      // barium: a wide, low green curtain spreading sideways over the ground
       for (let j = 0; j < 2; j++) {
         const ph = ((k * 0.4) + j * 0.5) % 1;
         g.strokeStyle = withAlpha(def.flameColor, (1 - ph) * 0.8);
-        g.lineWidth = r * 0.07;
+        g.lineWidth = Math.max(1, r * 0.07);
         g.beginPath();
-        g.ellipse(x, y + r * 0.2, r * ph, r * 0.4 * ph, 0, 0, Math.PI * 2);
+        g.ellipse(x, y + r * 0.42, r * ph, r * 0.34 * ph, 0, 0, Math.PI * 2);
         g.stroke();
       }
-      glowCircle(g, x, y + r * 0.2, r * 0.4, def.glowColor, 0.5);
+      const spread = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(k * 0.9));
+      g.fillStyle = withAlpha(def.flameColor, 0.32);
+      g.beginPath();
+      g.moveTo(x - r * spread, y - r * 0.10);
+      g.quadraticCurveTo(x, y - r * 0.62 * spread, x + r * spread, y - r * 0.10);
+      g.quadraticCurveTo(x, y + r * 0.10, x - r * spread, y - r * 0.10);
+      g.closePath();
+      g.fill();
+      for (let i = -3; i <= 3; i++) {                     // the curtain's falling strands
+        const sx = x + i * r * 0.26 * spread;
+        g.strokeStyle = withAlpha(def.glowColor, 0.45);
+        g.lineWidth = Math.max(1, r * 0.045);
+        g.beginPath();
+        g.moveTo(sx, y - r * 0.24 * spread);
+        g.lineTo(sx, y + r * 0.10 * spread);
+        g.stroke();
+      }
+      glowCircle(g, x, y - r * 0.15, r * 0.7, def.glowColor, 0.45);
       break;
     }
   }
@@ -183,13 +258,13 @@ export function createHearth(engine, handoff, finish) {
 
     if (portrait) {
       lay.flame = { x: w * 0.5, y: h * 0.415, hw: S * 0.125, hh: S * 0.325 };
-      lay.shelf = { x: w * 0.5, y: h * 0.630, w: Math.min(w * 0.96, S * 2.0), h: S * 0.085, vertical: false };
+      lay.shelf = { x: w * 0.5, y: h * 0.630, w: Math.min(w * 0.96, S * 2.0), h: S * 0.125, vertical: false };
       lay.dishArcX = w * 0.360;
       lay.dishBaseY = h * 0.80;
       lay.dishLift = h * 0.040;
       lay.dishR = S * 0.084;
       lay.hinoko = { x: w * 0.5 + S * 0.255, y: h * 0.405 - S * 0.025, r: S * 0.058 };
-      lay.spectro = { x: w * 0.155, y: h * 0.485, r: S * 0.062 };
+      lay.spectro = { x: w * 0.845, y: h * 0.485, r: S * 0.062 };   // §O right side = thumb reach
     } else {
       lay.flame = { x: w * 0.36, y: h * 0.60, hw: S * 0.125, hh: S * 0.32 };
       lay.shelf = { x: w * 0.105, y: h * 0.50, w: S * 0.21, h: Math.min(h * 0.80, S * 1.1), vertical: true };
@@ -229,7 +304,7 @@ export function createHearth(engine, handoff, finish) {
         lay.slots.push({ x: q.x, y: q.y, r: slotR });
       } else {
         const x = lay.shelf.x - lay.shelf.w / 2 + pitch * (i + 0.5);
-        const q = engine.clampSafe(x, lay.shelf.y - slotR * 0.42, slotR * 1.15);
+        const q = engine.clampSafe(x, lay.shelf.y - slotR * 0.22, slotR * 1.15);
         lay.slots.push({ x: q.x, y: q.y, r: slotR });
       }
     }
@@ -403,7 +478,46 @@ export function createHearth(engine, handoff, finish) {
 
   // ---------------------------------------------------------------- gestures
 
+  /**
+   * §A The first finger of a 4-year-old goes to the biggest, brightest, moving thing: the flame.
+   * Touching it (or ヒノコ) must never be a dead end — the flame throws sparks at the dish it
+   * wants, kicks that dish into a big wobble and drops the wire loop over it right away.
+   */
+  function pointAtDish() {
+    touched();
+    const d = L.dishes[targetDish];
+    if (!d) return;
+    if (dishAnim[targetDish]) { dishAnim[targetDish].wob = 1; dishAnim[targetDish].boost = 1; }
+    idleT = IDLE_WIRE_AFTER + 0.001;              // the loop comes down immediately
+    hinoko.gx = d.x; hinoko.gy = d.y;
+    engine.audio.play('whoosh');
+    const fx = L.flame.x, fy = L.flame.y - L.flame.hh * 0.35;
+    const ang = Math.atan2(d.y - fy, d.x - fx);
+    for (let i = 0; i < 26; i++) {
+      const a = ang + rng.sym(0.55);
+      const sp = rng.range(0.55, 1.15) * Math.hypot(d.x - fx, d.y - fy);
+      engine.particles.emit({
+        x: fx + rng.sym(L.S * 0.03), y: fy + rng.sym(L.S * 0.03),
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - L.S * 0.15,
+        r: rng.range(1.4, 3.6), life: rng.range(0.5, 1.0),
+        color: rng.next() < 0.5 ? d.def.glowColor : HEARTH.glowColor,
+        gravity: L.S * 0.5, drag: 0.94, shape: rng.next() < 0.4 ? 'spark' : 'dot'
+      });
+    }
+  }
+
   function installGestures() {
+    // flame: always answers
+    rec.onTap(
+      (p) => (phase === 'idle' || phase === 'carry') && flameDist(p.x, p.y) <= L.S * 0.21,
+      () => pointAtDish()
+    );
+    // ヒノコ: same answer, plus a hop, so poking the character is rewarding too
+    rec.onTap(
+      (p) => phase === 'idle' && Math.hypot(p.x - hinoko.x, p.y - hinoko.y) <= L.hinoko.r * 2.1,
+      () => { hinoko.hop = HOP_SEC * 0.55; engine.audio.play('hop'); pointAtDish(); }
+    );
+
     rec.onTap((p) => Math.hypot(p.x - L.mute.x, p.y - L.mute.y) <= L.mute.r * 1.8, () => {
       touched();
       const m = engine.audio.toggleMuted();
@@ -422,6 +536,7 @@ export function createHearth(engine, handoff, finish) {
           pressPt = { x: p.x, y: p.y }; pressMax = 0;
           if (spectroGrabbable() && Math.hypot(p.x - spectro.x, p.y - spectro.y) <= L.spectro.r * 1.9) {
             spectro.held = true;
+            holdFlameForScope();
             engine.audio.play('pick');
             return;
           }
@@ -433,7 +548,7 @@ export function createHearth(engine, handoff, finish) {
           if (pressPt) pressMax = Math.max(pressMax, Math.hypot(p.x - pressPt.x, p.y - pressPt.y));
           if (spectro.held) {
             spectro.x = p.x; spectro.y = p.y;
-            if (phase === 'hold' && flameDist(p.x, p.y) <= L.S * SPECTRO_SNAP) {
+            if (scopeCanEnterFlame() && flameDist(p.x, p.y) <= L.S * SPECTRO_SNAP) {
               spectro.held = false;
               gotoSpectroscope();
             }
@@ -454,7 +569,8 @@ export function createHearth(engine, handoff, finish) {
           const moved = Math.max(pressMax, pressPt ? Math.hypot(p.x - pressPt.x, p.y - pressPt.y) : 0);
           if (spectro.held) {
             spectro.held = false;
-            if (phase === 'hold' && flameDist(p.x, p.y) <= L.S * SPECTRO_SNAP) { gotoSpectroscope(); return; }
+            if (scopeCanEnterFlame() && flameDist(p.x, p.y) <= L.S * SPECTRO_SNAP) { gotoSpectroscope(); return; }
+            holdT = 0;                 // §R released without looking: the hold restarts, no punishment
             spectro.returning = true;
             return;
           }
@@ -476,8 +592,25 @@ export function createHearth(engine, handoff, finish) {
     );
   }
 
+  /** §R "picked it up" must always mean "gets to look": reveal counts too. */
   function spectroGrabbable() {
-    return spectroActive() && spectro.shown && (phase === 'idle' || phase === 'hold' || phase === 'carry');
+    return spectroActive() && spectro.shown &&
+      (phase === 'idle' || phase === 'hold' || phase === 'carry' || phase === 'reveal');
+  }
+
+  /** §R the flame accepts the spectroscope through the whole coloured-flame stretch */
+  function scopeCanEnterFlame() {
+    return !!element && (phase === 'hold' || phase === 'reveal');
+  }
+
+  /** §R grabbing the scope pins the flame at "fully coloured" until it is let go */
+  function holdFlameForScope() {
+    if (!element) return;
+    if (phase === 'reveal') {
+      revealT = Math.min(revealT, REVEAL.FULL);
+      phase = 'hold';
+      holdT = 0;
+    }
   }
 
   // ---------------------------------------------------------------- lifecycle
@@ -603,7 +736,7 @@ export function createHearth(engine, handoff, finish) {
         const k = damp(0.86, dt);
         spectro.x = lerp(spectro.x, spectro.hx, k);
         spectro.y = lerp(spectro.y, spectro.hy, k);
-        spectro.roll = Math.sin(t * 2.1) * (phase === 'hold' ? 0.22 : 0.09);
+        spectro.roll = Math.sin(t * 2.1) * (scopeCanEnterFlame() ? 0.22 : 0.09);
       }
     }
 
@@ -636,9 +769,13 @@ export function createHearth(engine, handoff, finish) {
       }
       if (revealT >= REVEAL.DEPART) beginDeparture();
     } else if (phase === 'hold') {
-      holdT += dt;
-      // a child who ignores the spectroscope simply flows on after the hold
-      if (holdT >= HOLD_SECONDS) { holdUsed = true; phase = 'reveal'; }
+      // §R while the scope is in a hand the flame simply waits — holding it always earns a look.
+      // §S otherwise: 1.2s if nobody is touching, stretched to 3.0s while a finger is down.
+      if (revealT < REVEAL.FULL) revealT = Math.min(REVEAL.FULL, revealT + dt);
+      if (spectro.held) holdT = 0;
+      else holdT += dt;
+      const limit = engine.input.down ? HOLD_BUSY : HOLD_FREE;
+      if (!spectro.held && holdT >= limit) { holdUsed = true; phase = 'reveal'; }
     } else if (phase === 'outbound') {
       revealT += dt;
     }
@@ -781,27 +918,62 @@ export function createHearth(engine, handoff, finish) {
     }
   }
 
+  /**
+   * §C The wire must read as "a ring you put things in", not as a stick. It hangs as a slack
+   * rope with a sag, and the ring at the end pulses in the TARGET DISH's own colour once it has
+   * come down, so the eye connects ring -> dish without a word.
+   */
   function drawWire(g) {
     const S = L.S;
     const topY = Math.max(L.portrait ? L.h * 0.10 : L.h * 0.12, engine.insets.top + 8);
+    const descended = phase === 'idle' && idleT > IDLE_WIRE_AFTER;
+    const tgt = L.dishes[targetDish];
+    const hot = wire.hot;
+    const pulse = 0.5 + 0.5 * Math.sin(t * 3.2);
+    const ringCol = hot > 0
+      ? lerpColor(HEARTH.platinum, '#ffd08a', hot)
+      : descended && tgt ? lerpColor(HEARTH.platinum, tgt.def.glowColor, 0.35 + 0.45 * pulse)
+        : HEARTH.platinum;
+
+    // rope: two passes (dark core + light highlight) with a real sag
+    // The rope hangs from above the FLAME and drapes sideways to the ring, so the eye follows
+    // "flame -> rope -> ring -> dish" instead of seeing a vertical stick.
+    const ax = L.flame.x + (wire.x - L.flame.x) * 0.22;
+    const sag = Math.min(S * 0.16, Math.abs(wire.x - ax) * 0.42 + S * 0.03);
+    const cx = (ax + wire.x) / 2;
+    const cy = topY + (wire.y - topY) * 0.62 + sag;
     g.save();
     g.lineCap = 'round';
-    g.strokeStyle = withAlpha(HEARTH.platinum, 0.75);
-    g.lineWidth = S * 0.011;
+    g.strokeStyle = withAlpha('#6b6f78', 0.85);
+    g.lineWidth = S * 0.018;
     g.beginPath();
-    g.moveTo(L.flame.x + (wire.x - L.flame.x) * 0.92, topY);
-    g.quadraticCurveTo(wire.x, topY + (wire.y - topY) * 0.55, wire.x, wire.y - S * 0.05);
+    g.moveTo(ax, topY);
+    g.quadraticCurveTo(cx, cy, wire.x, wire.y - S * 0.045);
+    g.stroke();
+    g.strokeStyle = withAlpha(HEARTH.platinum, 0.8);
+    g.lineWidth = S * 0.008;
+    g.beginPath();
+    g.moveTo(ax, topY);
+    g.quadraticCurveTo(cx, cy, wire.x, wire.y - S * 0.045);
     g.stroke();
 
-    const hot = wire.hot;
-    const loopCol = hot > 0 ? lerpColor(HEARTH.platinum, '#ffd08a', hot) : HEARTH.platinum;
-    g.strokeStyle = loopCol;
-    g.lineWidth = S * 0.013;
+    // the ring itself: thick, open, unmistakably a hole
+    g.strokeStyle = withAlpha('#3b3f47', 0.9);
+    g.lineWidth = S * 0.026;
     g.beginPath();
-    g.ellipse(wire.x, wire.y, S * 0.045, S * 0.022, 0, 0, Math.PI * 2);
+    g.ellipse(wire.x, wire.y, S * 0.052, S * 0.026, 0, 0, Math.PI * 2);
+    g.stroke();
+    g.strokeStyle = ringCol;
+    g.lineWidth = S * 0.017;
+    g.beginPath();
+    g.ellipse(wire.x, wire.y, S * 0.052, S * 0.026, 0, 0, Math.PI * 2);
     g.stroke();
     g.restore();
-    if (hot > 0.02) glowCircle(g, wire.x, wire.y, S * 0.1 * hot, '#ffd08a', 0.7 * hot);
+
+    if (hot > 0.02) glowCircle(g, wire.x, wire.y, S * 0.11 * hot, '#ffd08a', 0.75 * hot);
+    if (descended && tgt) {
+      glowCircle(g, wire.x, wire.y, S * (0.075 + 0.035 * pulse), tgt.def.glowColor, 0.30 + 0.35 * pulse);
+    }
   }
 
   // ---- sample shapes (§1.2): shape + texture + idle motion, never colour alone
@@ -935,6 +1107,9 @@ export function createHearth(engine, handoff, finish) {
         boost > 0.02 ? d.def.glowColor : HEARTH.glowColor, 0.28 * wob + 0.5 * boost);
     }
 
+    // §D every dish carries a faint rim light so all five are findable on the dark floor
+    glowCircle(g, 0, d.r * 0.30, d.r * 1.25, d.def.glowColor, 0.13);
+
     // dish bowl
     g.fillStyle = shade(HEARTH.stone, 1.5);
     g.beginPath();
@@ -948,6 +1123,11 @@ export function createHearth(engine, handoff, finish) {
     g.beginPath();
     g.ellipse(0, d.r * 0.20, d.r * 0.70, d.r * 0.24, 0, 0, Math.PI * 2);
     g.fill();
+    g.strokeStyle = withAlpha(d.def.glowColor, 0.42);
+    g.lineWidth = Math.max(1, d.r * 0.055);
+    g.beginPath();
+    g.ellipse(0, d.r * 0.22, d.r * 0.88, d.r * 0.32, 0, Math.PI * 1.04, Math.PI * 1.96);
+    g.stroke();
 
     if (!held) {
       drawSample(g, d.def, 0, -d.r * 0.02, d.r);
@@ -985,6 +1165,12 @@ export function createHearth(engine, handoff, finish) {
     void S;
   }
 
+  /**
+   * ヒノコ — eyes and hands only, never a mouth, never a word (§1.3).
+   * §B At phone size a few pixels of pupil offset is invisible, so the WHOLE BODY leans
+   * 8-10 degrees toward whatever they are looking at, the pupils are large with a white
+   * sclera, and the hands swing to the side they are pointing at.
+   */
   function drawHinoko(g) {
     const S = L.S;
     const r = L.hinoko.r;
@@ -994,48 +1180,71 @@ export function createHearth(engine, handoff, finish) {
     const y = hinoko.y - hop + Math.sin(t * 1.6) * S * 0.006;
     const cheer = hinoko.cheer > 0 ? 1 : 0;
 
+    const gx = hinoko.gx || x, gy = hinoko.gy || y;
+    const dx = gx - x, dy = gy - y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const dirX = Math.max(-1, Math.min(1, dx / Math.max(S * 0.18, dist)));
+    const lean = cheer ? 0 : dirX * 0.17;                 // up to ~10 degrees
+
+    g.save();
+    g.translate(x, y + r * 0.9);
+    g.rotate(lean);
+    g.translate(-x, -(y + r * 0.9));
+
     // ember body
     glowCircle(g, x, y, r * 2.4, HEARTH.hinoko, 0.5);
     softDisc(g, x, y, r, '#ffe9b0', withAlpha(HEARTH.hinoko, 0.1));
     g.save();
     g.fillStyle = withAlpha('#ffb54a', 0.9);
     g.beginPath();
-    g.ellipse(x, y + r * 0.1, r * 0.82, r * 0.86, 0, 0, Math.PI * 2);
+    g.ellipse(x, y + r * 0.1, r * 0.86, r * 0.9, 0, 0, Math.PI * 2);
     g.fill();
     g.fillStyle = withAlpha('#fff0c8', 0.95);
     g.beginPath();
-    g.ellipse(x, y, r * 0.66, r * 0.7, 0, 0, Math.PI * 2);
+    g.ellipse(x, y, r * 0.70, r * 0.74, 0, 0, Math.PI * 2);
     g.fill();
     g.restore();
 
-    // eyes follow the gaze target (no mouth, ever)
-    const gx = hinoko.gx || x, gy = hinoko.gy || y;
-    const ang = Math.atan2(gy - y, gx - x);
-    const look = Math.min(r * 0.24, Math.hypot(gx - x, gy - y) * 0.12);
+    // eyes: big sclera + big pupils so the direction is legible on a phone
+    const ang = Math.atan2(dy, dx);
+    const look = Math.min(r * 0.20, dist * 0.14);
     const ex = Math.cos(ang) * look, ey = Math.sin(ang) * look;
-    const eo = r * 0.28;
-    const blink = hinoko.blink > 0 ? 0.18 : 1;
-    for (const s of [-1, 1]) {
+    const eo = r * 0.30;
+    const blink = hinoko.blink > 0 ? 0.16 : 1;
+    for (const sgn of [-1, 1]) {
+      const cxE = x + sgn * eo + dirX * r * 0.06;
       g.fillStyle = '#ffffff';
       g.beginPath();
-      g.ellipse(x + s * eo, y - r * 0.06, r * 0.19, r * 0.22 * blink, 0, 0, Math.PI * 2);
+      g.ellipse(cxE, y - r * 0.05, r * 0.27, r * 0.30 * blink, 0, 0, Math.PI * 2);
       g.fill();
-      g.fillStyle = '#2a1410';
+      g.fillStyle = withAlpha('#2a1410', 0.25);
       g.beginPath();
-      g.ellipse(x + s * eo + ex, y - r * 0.06 + ey, r * 0.10, r * 0.12 * blink, 0, 0, Math.PI * 2);
+      g.ellipse(cxE, y - r * 0.05, r * 0.27, r * 0.30 * blink, 0, 0, Math.PI * 2);
+      g.stroke();
+      g.fillStyle = '#231108';
+      g.beginPath();
+      g.ellipse(cxE + ex, y - r * 0.05 + ey, r * 0.16, r * 0.19 * blink, 0, 0, Math.PI * 2);
       g.fill();
+      if (blink > 0.5) {                                   // catch-light: makes the eye read as an eye
+        g.fillStyle = withAlpha('#ffffff', 0.9);
+        g.beginPath();
+        g.arc(cxE + ex + r * 0.05, y - r * 0.11 + ey, r * 0.05, 0, Math.PI * 2);
+        g.fill();
+      }
     }
 
-    // hands: little embers, raised when cheering (§1.7)
-    const hy = cheer ? y - r * 0.95 : y + r * 0.35;
-    for (const s of [-1, 1]) {
-      const hx = x + s * r * (cheer ? 0.95 : 1.05);
-      glowCircle(g, hx, hy + Math.sin(t * 6 + s) * r * 0.06 * (cheer ? 1 : 0.35), r * 0.5, HEARTH.hinoko, 0.5);
+    // hands: raised when cheering, otherwise swung toward what ヒノコ is looking at
+    const hy = cheer ? y - r * 1.0 : y + r * 0.38;
+    for (const sgn of [-1, 1]) {
+      const hx = x + sgn * r * (cheer ? 0.95 : 1.05) + (cheer ? 0 : dirX * r * 0.35);
+      const bob = Math.sin(t * 6 + sgn) * r * 0.06 * (cheer ? 1 : 0.35);
+      glowCircle(g, hx, hy + bob, r * 0.55, HEARTH.hinoko, 0.5);
       g.fillStyle = withAlpha('#ffd98a', 0.95);
       g.beginPath();
-      g.arc(hx, hy + Math.sin(t * 6 + s) * r * 0.06 * (cheer ? 1 : 0.35), r * 0.2, 0, Math.PI * 2);
+      g.arc(hx, hy + bob, r * 0.22, 0, Math.PI * 2);
       g.fill();
     }
+    g.restore();
   }
 
   // ---- shelf and mini dioramas (§1.7)
@@ -1088,7 +1297,7 @@ export function createHearth(engine, handoff, finish) {
     const r = L.spectro.r;
     const intro = easeOutCubic(spectro.intro);
     const x = spectro.x, y = spectro.y - (1 - intro) * S * 0.12;
-    const glow = phase === 'hold' ? 0.5 + 0.5 * Math.sin(t * 5) : 0.12;
+    const glow = scopeCanEnterFlame() ? 0.5 + 0.5 * Math.sin(t * 5) : 0.12;
     g.save();
     g.translate(x, y);
     g.rotate(spectro.roll + (1 - intro) * 2.4);
@@ -1119,7 +1328,7 @@ export function createHearth(engine, handoff, finish) {
     g.ellipse(-r * 1.02, 0, r * 0.2, r * 0.36, 0, 0, Math.PI * 2);
     g.fill();
     g.restore();
-    if (phase === 'hold') {
+    if (scopeCanEnterFlame()) {
       // it leans toward the coloured flame
       const a = Math.atan2(L.flame.y - y, L.flame.x - x);
       glowCircle(g, x + Math.cos(a) * r * 1.4, y + Math.sin(a) * r * 1.4, r * 0.7, element ? element.glowColor : '#fff', 0.5 * glow);
@@ -1190,7 +1399,10 @@ export function createHearth(engine, handoff, finish) {
     const k = norm(revealT, REVEAL.FLOOD, REVEAL.DEPART + 0.8);
     if (k <= 0) return;
     const r = lerp(S * 0.2, Math.hypot(w, h) * 1.1, easeOutCubic(k));
-    radialFlood(g, L.flame.x, L.flame.y - L.flame.hh * 0.5, r, element.flameColor, 0.35 + 0.6 * k);
+    // §L the flood used to saturate the screen to one flat colour for ~1s. Peak alpha is now
+    // ~0.75x and it eases back down after the peak, so both scenes stay readable. Still no cut.
+    const peak = k < 0.5 ? k / 0.5 : 1 - (k - 0.5) / 0.5 * 0.45;
+    radialFlood(g, L.flame.x, L.flame.y - L.flame.hh * 0.5, r, element.flameColor, 0.20 + 0.42 * peak);
     // §1.5 t=1.30 the particles gather into the fragment
     if (revealT >= REVEAL.FRAGMENT) {
       engine.particles.attract(L.flame.x, L.flame.y - L.flame.hh * 0.6, 900, 1 / 60);
@@ -1239,7 +1451,7 @@ export function createHearth(engine, handoff, finish) {
     // incoming-from-spectroscope wash
     if (ambientFade > 0) {
       g.save();
-      g.globalAlpha = ambientFade * 0.5;
+      g.globalAlpha = ambientFade * 0.34;
       radialFlood(g, w / 2, h / 2, Math.hypot(w, h) * 0.7, ambientColor, 0.6);
       g.restore();
     }
