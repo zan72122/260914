@@ -2,6 +2,7 @@
 // One gesture = one result. No double tap, no multi-finger requirement, no long press.
 
 import { springBack, wiggle } from './fx.js';
+import { audio } from './audio.js';
 
 export const DRAG_THRESHOLD = 8;   // px (docs 2.7)
 
@@ -54,6 +55,7 @@ export class InputController {
     if (stack[stack.length - 1] !== tile.id) return;   // only the top tile is grabbable
 
     e.preventDefault();
+    audio.lift();
     this.active = {
       tile, at, pointerId: e.pointerId,
       sx: e.clientX, sy: e.clientY,
@@ -112,6 +114,7 @@ export class InputController {
     }
 
     if (this.board.isEmpty(cell.r, cell.c)) {
+      audio.drop();
       this.board.moveTo(a.tile.id, cell.r, cell.c);
       wiggle(a.tile.el, 2, 260);
       return;
@@ -119,10 +122,12 @@ export class InputController {
 
     const top = this.board.topAt(cell.r, cell.c);
     if (top && top.hole && this.board.slideUnder(a.tile.id, cell.r, cell.c)) {
+      audio.drop();
       wiggle(top.el, 2, 260);
       return;
     }
 
+    audio.drop();
     springBack(a.tile.el, from, a.tile.restTransform());   // rule 5: no failure state
   };
 

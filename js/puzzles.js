@@ -6,6 +6,7 @@
 // be solved before P1.
 
 import { wiggle } from './fx.js';
+import { audio } from './audio.js';
 import { stageP1, stageP2, stageP3, stageEnding } from './staging.js';
 
 /* ---------------- predicates ---------------- */
@@ -134,6 +135,7 @@ export class PuzzleRunner {
     this.solved.add(p.id);
     this.index++;
     this.board.busy = true;
+    audio.snap();
     document.dispatchEvent(new CustomEvent('puzzle:solved', { detail: { id: p.id } }));
     try {
       for (const id of p.focus) {

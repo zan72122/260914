@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- App icon: the seed and the flower of the story, on the parchment ground.
+       No text anywhere (docs/01.md 2.1). Safe area for maskable use is the
+       central 80% circle, so everything important stays inside r=205. -->
+  <rect x="0" y="0" width="512" height="512" fill="#efe6d2"/>
+  <circle cx="256" cy="256" r="196" fill="#f6efdd" stroke="#d3c5a4" stroke-width="8"/>
+  <g stroke="#46423a" stroke-width="12" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M256 330 q-8 -62 -6 -104" fill="none" stroke="#5d8a46" stroke-width="16"/>
+    <path d="M250 296 q-54 -14 -68 -54 q52 -6 72 36 z" fill="#8fb56a"/>
+    <path d="M254 268 q52 -12 64 -48 q-50 -8 -68 32 z" fill="#a3c47d"/>
+    <ellipse cx="256" cy="168" rx="34" ry="46" fill="#e0a49c"/>
+    <ellipse cx="306" cy="204" rx="46" ry="32" fill="#d9958d" transform="rotate(18 306 204)"/>
+    <ellipse cx="206" cy="204" rx="46" ry="32" fill="#d9958d" transform="rotate(-18 206 204)"/>
+    <ellipse cx="286" cy="252" rx="38" ry="30" fill="#e6b0a6" transform="rotate(38 286 252)"/>
+    <ellipse cx="226" cy="252" rx="38" ry="30" fill="#e6b0a6" transform="rotate(-38 226 252)"/>
+    <circle cx="256" cy="218" r="24" fill="#efc871"/>
+  </g>
+  <g stroke="#46423a" stroke-width="12" stroke-linejoin="round">
+    <path d="M176 342 h160 l-20 88 h-120 z" fill="#cbd5d8"/>
+    <rect x="160" y="310" width="192" height="34" rx="12" fill="#b7c4c8"/>
+  </g>
+  <path d="M188 344 h136 l-5 30 h-126 z" fill="#6f5334"/>
+</svg>
