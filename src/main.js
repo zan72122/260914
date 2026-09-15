@@ -46,10 +46,10 @@ class Game {
       },
     };
 
-    this.input.onFirstGesture(() => this.audio.start());
+    this.input.onFirstGesture(() => this.audio.unlock());
     this.input.attach(this.canvas);
-    window.addEventListener('resize', () => this.resize());
-    window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 120));
+    this._installViewportHandlers();
+    this._installLifecycleHandlers();
 
     this.loop = new Loop((dt) => this.sim(dt), (a) => this.render(a));
     this.loop.speed = P.speed;
@@ -61,10 +61,75 @@ class Game {
 
   // -------------------------------------------------------------- lifecycle
 
+  /**
+   * iOS Safari changes the viewport for reasons that are not a rotation (the
+   * URL bar sliding away, the keyboard, entering/leaving standalone), reports
+   * the OLD size for a moment after `orientationchange`, and fires `resize` in
+   * bursts. So: debounce, and trust `visualViewport` over `innerWidth/Height`
+   * when it exists, because that is the box actually being painted.
+   */
+  _installViewportHandlers() {
+    let timer = 0;
+    const kick = (delay) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { timer = 0; this.resize(); }, delay);
+    };
+    window.addEventListener('resize', () => kick(90));
+    window.addEventListener('orientationchange', () => kick(220));
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', () => kick(90));
+      window.visualViewport.addEventListener('scroll', () => kick(140));
+    }
+    // the URL bar finishes animating well after the last resize event
+    window.addEventListener('pageshow', () => kick(60));
+  }
+
+  /**
+   * Nothing runs while the page is hidden: a backgrounded rAF loop on iOS is
+   * either throttled to a crawl or replayed in one lump when you come back,
+   * and neither is a game. The audio context is suspended with it.
+   */
+  _installLifecycleHandlers() {
+    const unlock = () => this.audio.unlock();
+    // BOTH: Safari has honoured one and not the other across versions
+    window.addEventListener('pointerdown', unlock, { passive: true });
+    window.addEventListener('touchend', unlock, { passive: true });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        this._wasPaused = this.loop.paused;
+        this.loop.paused = true;
+        this.audio.suspend();
+      } else {
+        this.loop.paused = !!this._wasPaused;
+        this.loop.last = performance.now();
+        this.loop.acc = 0;
+        this.audio.resume();
+      }
+    });
+    window.addEventListener('blur', () => this.audio.suspend());
+    window.addEventListener('focus', () => this.audio.resume());
+  }
+
+  /** The painted viewport, in CSS px. `visualViewport` is the truth on iOS. */
+  _viewportSize() {
+    const vv = window.visualViewport;
+    if (vv && vv.width > 0 && vv.height > 0) {
+      return { w: Math.round(vv.width), h: Math.round(vv.height) };
+    }
+    return {
+      w: window.innerWidth || document.documentElement.clientWidth || 1,
+      h: window.innerHeight || document.documentElement.clientHeight || 1,
+    };
+  }
+
   resize(initial) {
-    const w = Math.max(1, window.innerWidth);
-    const h = Math.max(1, window.innerHeight);
+    const v = this._viewportSize();
+    const w = Math.max(1, v.w);
+    const h = Math.max(1, v.h);
+    // DPR capped at 2: a 3x iPhone would be pushing 2.25x the pixels for no
+    // visible gain on shapes this soft
     this.dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (!initial && w === this.w && h === this.h && this.canvas.width === Math.round(w * this.dpr)) return;
     this.w = w; this.h = h;
     this.canvas.width = Math.round(w * this.dpr);
     this.canvas.height = Math.round(h * this.dpr);

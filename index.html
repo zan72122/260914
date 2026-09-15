@@ -3,29 +3,79 @@
 <head>
 <meta charset="utf-8">
 <title>すいすい</title>
+<!--
+  viewport-fit=cover so the canvas reaches into the notch/home-indicator area;
+  user-scalable=no + maximum-scale=1 kill pinch and double-tap zoom on iOS.
+-->
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="すいすい">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" href="data:,">
 <meta name="theme-color" content="#1d1712">
 <style>
+  :root {
+    /* not used for layout — the canvas is full-bleed — but kept so anything
+       added later can respect the notch without hunting for the values */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+  }
   html, body {
     margin: 0; padding: 0; width: 100%; height: 100%;
-    background: #1d1712; overflow: hidden;
+    background: #1d1712;
+    overflow: hidden;
+    /* no rubber-band scrolling anywhere, and nothing to scroll in the first place */
     overscroll-behavior: none;
+    -webkit-overflow-scrolling: auto;
     touch-action: none;
     -webkit-user-select: none; user-select: none;
-    -webkit-touch-callout: none;
+    -webkit-touch-callout: none;          /* no long-press callout */
     -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    /* fixed body: iOS Safari cannot drag the page out from under the canvas */
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
   }
   canvas {
-    display: block; width: 100%; height: 100%;
+    display: block;
+    width: 100%; height: 100%;
     touch-action: none;
+    /* the canvas fills the whole screen including the safe areas: the game
+       keeps its own action away from the edges instead */
+    padding: 0; margin: 0; border: 0;
+    outline: none;
   }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<script>
+  // Belt and braces for iOS Safari: swallow anything that could scroll, zoom or
+  // pop a callout. Passive:false is required or preventDefault() is ignored.
+  (function () {
+    var stop = function (e) { e.preventDefault(); };
+    document.addEventListener('touchmove', stop, { passive: false });
+    document.addEventListener('gesturestart', stop, { passive: false });
+    document.addEventListener('gesturechange', stop, { passive: false });
+    document.addEventListener('gestureend', stop, { passive: false });
+    document.addEventListener('contextmenu', stop, { passive: false });
+    document.addEventListener('selectstart', stop, { passive: false });
+    // double-tap to zoom: iOS only zooms if two taps land within ~300ms
+    var lastTap = 0;
+    document.addEventListener('touchend', function (e) {
+      var t = Date.now();
+      if (t - lastTap < 350) e.preventDefault();
+      lastTap = t;
+    }, { passive: false });
+  }());
+</script>
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
