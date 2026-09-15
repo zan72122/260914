@@ -4,7 +4,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
 import { World } from './world.js';
-import { createGirl, updateGirl, setCostume, addCandy, COSTUMES } from './girl.js';
+import { createGirl, updateGirl, setCostume, addCandy, girlWorldPoint, COSTUMES } from './girl.js';
 import { FollowCamera } from './camera.js';
 import { Chain } from './chain.js';
 import { Fireflies, Leaves, CandyDrops, Sparkles, Bats, Fireworks } from './particles.js';
@@ -265,10 +265,17 @@ el.addEventListener('pointerup', (e) => {
 });
 el.addEventListener('pointercancel', () => { pointerDown = null; });
 el.addEventListener('contextmenu', e => e.preventDefault());
-document.addEventListener('gesturestart', e => e.preventDefault());
-document.addEventListener('gesturechange', e => e.preventDefault());
-document.addEventListener('gestureend', e => e.preventDefault());
-document.addEventListener('dblclick', e => e.preventDefault());
+// iOS pinch-zoom / double-tap-zoom suppression
+for (const g of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(g, e => e.preventDefault(), { passive: false });
+}
+document.addEventListener('dblclick', e => e.preventDefault(), { passive: false });
+let lastTouchEnd = 0;
+document.addEventListener('touchend', (e) => {
+  const now = Date.now();
+  if (now - lastTouchEnd < 320) e.preventDefault();
+  lastTouchEnd = now;
+}, { passive: false });
 document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 window.addEventListener('pointerdown', () => A.unlock(), { once: true });
 
@@ -289,6 +296,7 @@ function animate() {
   fireflies.update(dt, t);
   leaves.update(dt, t);
   sparkles.update(dt);
+  candy.retarget(girlWorldPoint(girl, 'bucket'));
   candy.update(dt);
   bats.update(dt, t);
   fireworks.update(dt);

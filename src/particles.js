@@ -142,56 +142,70 @@ export class Leaves {
 export class CandyDrops {
   constructor(scene, max = 60) {
     this.max = max;
-    const geo = new THREE.SphereGeometry(0.06, 7, 6);
-    const mat = new THREE.MeshStandardMaterial({ roughness: 0.3, emissive: new THREE.Color(0x221100), emissiveIntensity: 0.6 });
+    const geo = new THREE.SphereGeometry(0.065, 8, 6);
+    const mat = new THREE.MeshStandardMaterial({
+      roughness: 0.3, emissive: new THREE.Color(0x332200), emissiveIntensity: 0.8
+    });
     this.mesh = new THREE.InstancedMesh(geo, mat, max);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(max * 3), 3);
     this.mesh.frustumCulled = false;
     scene.add(this.mesh);
     this.items = [];
-    for (let i = 0; i < max; i++) this.items.push({ life: 0, p: new THREE.Vector3(), v: new THREE.Vector3(), target: null });
+    for (let i = 0; i < max; i++) {
+      this.items.push({ alive: false, t: 0, dur: 1, from: new THREE.Vector3(), to: new THREE.Vector3(), p: new THREE.Vector3(), arc: 0.5, spin: 0 });
+    }
     this.next = 0;
     this.onLand = null;
+    this.live = 0;
     this.colors = [[1, 0.37, 0.54], [0.42, 0.82, 1], [1, 0.85, 0.29], [0.62, 1, 0.48], [0.79, 0.54, 1]];
   }
+
+  /** toss one sweet from a hand into the bucket */
   drop(from, to) {
     const i = this.next; this.next = (this.next + 1) % this.max;
     const it = this.items[i];
-    it.life = 2.2;
+    it.alive = true;
+    it.t = 0;
+    it.dur = 0.75 + Math.random() * 0.35;
+    it.from.copy(from);
+    it.to.copy(to);
     it.p.copy(from);
-    it.v.set((Math.random() - 0.5) * 0.5, 0.6 + Math.random() * 0.5, (Math.random() - 0.5) * 0.5);
-    it.target = to.clone();
+    it.arc = 0.45 + Math.random() * 0.4;
+    it.spin = 4 + Math.random() * 8;
     const c = this.colors[(Math.random() * this.colors.length) | 0];
     this.mesh.instanceColor.setXYZ(i, c[0], c[1], c[2]);
     this.mesh.instanceColor.needsUpdate = true;
   }
+
+  /** the bucket moves, so late arrivals still land in it */
+  retarget(to) {
+    for (const it of this.items) if (it.alive) it.to.copy(to);
+  }
+
   update(dt) {
     let live = 0;
     for (let i = 0; i < this.max; i++) {
       const it = this.items[i];
-      if (it.life > 0) {
-        it.life -= dt;
-        if (it.target) {
-          _v.copy(it.target).sub(it.p);
-          const d = _v.length();
-          if (d < 0.12) {
-            it.life = 0;
-            if (this.onLand) this.onLand();
-          } else {
-            _v.normalize().multiplyScalar(dt * 9);
-            it.v.lerp(_v.multiplyScalar(1 / Math.max(dt, 1e-5)).multiplyScalar(dt), 0.25);
-            it.v.y -= dt * 3.2;
-            it.p.addScaledVector(it.v, dt * 3.0);
-          }
+      if (it.alive) {
+        it.t += dt / it.dur;
+        if (it.t >= 1) {
+          it.alive = false;
+          if (this.onLand) this.onLand();
+        } else {
+          const k = it.t;
+          it.p.copy(it.from).lerp(it.to, k);
+          it.p.y += Math.sin(k * Math.PI) * it.arc;
+          _d.position.copy(it.p);
+          _d.rotation.set(k * it.spin, k * it.spin * 0.7, 0);
+          _d.scale.setScalar(1);
+          live++;
         }
-        _d.position.copy(it.p);
-        _d.rotation.set(it.life * 5, it.life * 3, 0);
-        _d.scale.setScalar(1);
-        live++;
-      } else {
+      }
+      if (!it.alive) {
         _d.position.set(0, -999, 0);
         _d.scale.setScalar(0.0001);
+        _d.rotation.set(0, 0, 0);
       }
       _d.updateMatrix();
       this.mesh.setMatrixAt(i, _d.matrix);

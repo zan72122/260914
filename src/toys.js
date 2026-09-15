@@ -51,8 +51,8 @@ export function toyWeb(pos, rotY = 0) {
   const g = new THREE.Group();
   g.position.copy(pos);
   g.rotation.y = rotY;
-  const web = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.8), new THREE.MeshBasicMaterial({
-    map: T.webTexture(), transparent: true, depthWrite: false, opacity: 0.55, side: THREE.DoubleSide
+  const web = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 1.35), new THREE.MeshBasicMaterial({
+    map: T.webTexture(), transparent: true, depthWrite: false, opacity: 0.4, side: THREE.DoubleSide
   }));
   g.add(web);
   const spider = new THREE.Group();
@@ -77,9 +77,9 @@ export function toyWeb(pos, rotY = 0) {
   }
   spider.add(new THREE.Mesh(mergeColored(sParts),
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 })));
-  const thread = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 3, 4),
-    new THREE.MeshBasicMaterial({ color: 0xcfd8ea, transparent: true, opacity: 0.4 }));
-  thread.position.y = 1.5;
+  const thread = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 1.1, 4),
+    new THREE.MeshBasicMaterial({ color: 0xcfd8ea, transparent: true, opacity: 0.22, depthWrite: false }));
+  thread.position.y = 0.55;
   spider.add(thread);
   spider.position.set(0, 0.3, 0.06);
   g.add(spider);
@@ -90,7 +90,7 @@ export function toyWeb(pos, rotY = 0) {
     t.drop += (t.dropTarget || 0) - t.drop > 0 ? Math.min(dt * 2.2, (t.dropTarget || 0) - t.drop) : Math.max(-dt * 1.1, (t.dropTarget || 0) - t.drop);
     spider.position.y = 0.3 - t.drop * 1.5;
     spider.rotation.z = Math.sin(time * 6) * t.drop * 0.25;
-    web.material.opacity = 0.45 + 0.18 * Math.sin(time * 2 + pos.x) + t.drop * 0.2;
+    web.material.opacity = 0.32 + 0.12 * Math.sin(time * 2 + pos.x) + t.drop * 0.15;
     g.rotation.z = Math.sin(time * 3) * 0.02 * (1 + t.drop * 3);
     if (t.drop > 0.95) t.dropTarget = 0;
   };

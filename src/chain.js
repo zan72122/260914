@@ -163,6 +163,8 @@ export class Chain {
           h.doorTarget = 0;
           girl.offerTarget = 0;
           A.sfxDoorClose();
+          // step back down to the pavement so the next shot is not inside the porch
+          setPath(girl, [h.walkSpot.clone()]);
         });
         this.after(4.6, () => this.setState('NEXT'));
         break;

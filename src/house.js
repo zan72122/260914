@@ -179,7 +179,7 @@ function makeResident(kind) {
     const earMat = new THREE.MeshStandardMaterial({ color: p.head, roughness: 0.9 });
     for (const s of [-1, 1]) {
       const ear = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.22, 4), earMat);
-      ear.position.set(s * 0.17, 1.44, 0);
+      ear.position.set(s * 0.19, 1.53, 0);
       ear.rotation.z = s * 0.25;
       g.add(ear);
     }
@@ -334,7 +334,7 @@ export function createHouse(opts) {
   root.add(doorGlow);
   const doorLight = new THREE.PointLight(0xffb060, 0, 7, 2);
   doorLight.visible = false;
-  doorLight.position.set(0, 1.4, D / 2 - 0.4);
+  doorLight.position.set(0, 1.5, D / 2 - 1.15);
   root.add(doorLight);
 
   // --- doorbell ---
@@ -459,7 +459,7 @@ export function updateHouse(h, dt, t) {
   h.doorPivot.rotation.y = h.doorOpen * 1.5;
   h.doorGlow.material.opacity = h.doorOpen * 0.55;
   h.doorLight.visible = h.doorTarget > 0.5 || h.doorOpen > 0.02;
-  h.doorLight.intensity = h.doorOpen * 8.0;
+  h.doorLight.intensity = h.doorOpen * 5.5;
 
   // doorbell
   h.bellGlow += (h.bellTarget - h.bellGlow) * Math.min(1, dt * 3.5);
