@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SAFE, computeLayout, safeZoneFits, screenToWorld, worldToScreen } from '../src/core/viewport';
+import { KID_WORLD_H } from '../src/art/kidSheet';
 
 const DEVICES: [string, number, number][] = [
   ['iPhone SE portrait', 375, 667],
@@ -42,5 +43,26 @@ describe('viewport', () => {
     const l = computeLayout(0, 0);
     expect(Number.isFinite(l.scale)).toBe(true);
     expect(l.scale).toBeGreaterThan(0);
+  });
+});
+
+describe('phone sizing', () => {
+  it('draws kids at least 56 CSS px tall on an iPhone while the safe zone fits', () => {
+    for (const [w, h] of [
+      [390, 844],
+      [844, 390],
+      [375, 667],
+    ] as const) {
+      const layout = computeLayout(w, h);
+      expect(safeZoneFits(layout)).toBe(true);
+      expect(KID_WORLD_H * layout.scale).toBeGreaterThanOrEqual(56);
+    }
+  });
+
+  it('keeps kids a sensible fraction of an iPad screen too', () => {
+    const portrait = computeLayout(1024, 1366);
+    const landscape = computeLayout(1366, 1024);
+    expect(KID_WORLD_H * portrait.scale).toBeCloseTo(KID_WORLD_H * landscape.scale, 6);
+    expect(KID_WORLD_H * portrait.scale).toBeLessThan(portrait.screenHeight / 6);
   });
 });

@@ -346,7 +346,7 @@ export class BallpitScene extends CrowdScene {
       this.hintTime = 2.4;
       break;
     }
-    this.pool.hop(Math.floor(Math.random() * this.pool.balls.length));
+    this.pool.hop(Math.random() < 0.5 ? -1 : 1);
     this.ctx.audio.sfx.play('rattle', { gain: 0.5 });
   }
 

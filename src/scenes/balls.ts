@@ -210,13 +210,26 @@ export class BallPool {
     }
   }
 
-  /** Sends one ball hopping over the rim and back in (the idle hint). */
-  hop(index: number, strength = 620): void {
-    const b = this.balls[index % this.balls.length];
-    if (!b || !b.active) return;
+  /**
+   * Sends one ball hopping over the rim and back in (the idle hint).
+   * Always the topmost ball: one buried under the pile would just be squeezed
+   * back down by its neighbours instead of clearing the rim.
+   */
+  hop(side = 1, strength = 2100): number {
+    let top = -1;
+    for (let i = 0; i < this.balls.length; i++) {
+      const b = this.balls[i];
+      if (!b.active) continue;
+      if (top < 0 || b.y < this.balls[top].y) top = i;
+    }
+    if (top < 0) return -1;
+    const b = this.balls[top];
     b.vy = -strength;
-    b.vx = (index % 2 === 0 ? 1 : -1) * 90;
-    b.freeTime = 0.75;
+    b.vx = (side >= 0 ? 1 : -1) * 90;
+    // Long enough for the whole arc, so the ball drops back in instead of
+    // being snapped to the wall half way through the hop.
+    b.freeTime = 1.8;
+    return top;
   }
 
   /** True when every active ball sits inside the pit (used by the tests). */
