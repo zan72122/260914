@@ -270,10 +270,13 @@ export function drawKidFrame(
   }
 
   if (p.lying) {
-    // Sleeping: rotate the whole figure onto its side.
-    softShadow(ctx, 0, groundY + 3, 34, 8, SHADOW, SHADOW_ALPHA);
+    // Sleeping: rotate the whole figure onto its side. The translation is in
+    // the ROTATED frame, and is chosen so the lying figure lands inside its
+    // 96x128 atlas cell (head at x=13, feet at x=82, thickness y=87..125)
+    // rather than hanging out of the bottom of it.
+    softShadow(ctx, 0, groundY - 6, 34, 8, SHADOW, SHADOW_ALPHA);
     ctx.rotate(-Math.PI / 2);
-    ctx.translate(-30, -14);
+    ctx.translate(22, 42);
   } else {
     softShadow(ctx, 0, groundY + 2, 20 - p.lift * 0.5, 6, SHADOW, SHADOW_ALPHA);
   }
@@ -292,12 +295,7 @@ export function drawKidFrame(
   // Legs (behind the body).
   const legLen = 12;
   if (p.sitting) {
-    // Both legs straight out in front (the sprite's own +x is "forwards").
-    for (const side of [-1, 1] as const) {
-      const hy = bodyBottom - 1 + side * 3;
-      crayonLine(ctx, 2, hy, 2 + legLen * 1.25, hy + 4, { rng, width: 5, wobble: 0.9 });
-      crayonDot(ctx, 2 + legLen * 1.25, hy + 4, 3.2, skin);
-    }
+    // Drawn after the body, below — see the sitting block further down.
   } else {
     for (const side of [-1, 1] as const) {
       const a = p.legSwing * side;
@@ -340,6 +338,16 @@ export function drawKidFrame(
 
   // Body (shirt).
   crayonBlob(ctx, 0, bodyCY, bodyRX, bodyRY, shirt, { rng, wobble: 1.4 });
+
+  // Sitting legs go OVER the body, straight out in front (the sprite's own
+  // +x is "forwards"), otherwise the body blob hides them completely.
+  if (p.sitting) {
+    for (const side of [-1, 1] as const) {
+      const hy = bodyBottom - 4 + side * 4;
+      crayonLine(ctx, -4, hy, legLen * 1.9, hy + 5, { rng, width: 5.5, wobble: 0.9 });
+      crayonDot(ctx, legLen * 1.9, hy + 5, 3.6, skin);
+    }
+  }
 
   // Head.
   const headCY = bodyTop - headR + 3;
@@ -387,8 +395,10 @@ export function drawKidFrame(
   if (p.holding) {
     const sx = bodyRX - 3;
     const sy = bodyCY - 4;
-    const ex = sx + 3;
-    const ey = sy - armLen * 1.9;
+    // The hand has to clear the top of the head, or the arm disappears into
+    // it and the kid just looks like they are standing there.
+    const ex = sx + 4;
+    const ey = headCY - headR - 12;
     crayonLine(ctx, sx, sy, ex, ey, { rng, width: 5, wobble: 0.9 });
     crayonDot(ctx, ex, ey, 4, skin);
   }
@@ -398,8 +408,8 @@ export function drawKidFrame(
     for (const side of [-1, 1] as const) {
       const sx = side * (bodyRX - 2);
       const sy = bodyCY - 4;
-      const ex = sx + side * 4;
-      const ey = sy - armLen * (side === 1 ? 1.9 : 1.5);
+      const ex = sx + side * 6;
+      const ey = headCY - headR - (side === 1 ? 14 : 8);
       crayonLine(ctx, sx, sy, ex, ey, { rng, width: 5, wobble: 0.9 });
       crayonDot(ctx, ex, ey, 3.6, skin);
     }

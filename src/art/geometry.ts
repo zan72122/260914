@@ -111,9 +111,13 @@ export function slideTop(out: Vec): Vec {
 // Scene 7: the bushes
 // ---------------------------------------------------------------------------
 
-/** World size of one bush. */
-export const BUSH_W = 240;
-export const BUSH_H = 150;
+/**
+ * World size of one bush. Tall enough that a 150-unit kid crouched behind it
+ * is hidden from the shoulders up, with only their feet showing underneath —
+ * which is the whole signifier of the scene (§2.5).
+ */
+export const BUSH_W = 260;
+export const BUSH_H = 190;
 /** How close a finger has to be to a bush's centre to shake it. */
 export const BUSH_TAP_RX = BUSH_W * 0.55;
 export const BUSH_TAP_RY = BUSH_H * 0.8;
@@ -123,9 +127,14 @@ export const BUSH_TAP_RY = BUSH_H * 0.8;
 // ---------------------------------------------------------------------------
 
 /** World height of a balloon sprite, string included. */
-export const BALLOON_H = 172;
-/** Where the balloon sits relative to a kid's feet (the raised hand). */
-export const BALLOON_HAND_Y = -122;
+export const BALLOON_H = 150;
+/**
+ * Where a kid's raised hand is, relative to their feet. Derived from the atlas:
+ * the `hold` pose puts the hand at about -58 px in a 128 px frame that is
+ * scaled to 150 world units, i.e. -58 * 150/128.
+ */
+export const BALLOON_HAND_Y = -68;
+export const BALLOON_HAND_X = 18;
 
 // ---------------------------------------------------------------------------
 // Scene 9: the tower

@@ -13,7 +13,15 @@ import { Director } from './core/director';
 import { Backdrop } from './core/backdrop';
 import { PAPER } from './art/palette';
 import createGather from './scenes/01_gather';
+import createMarch from './scenes/02_march';
+import createTickle from './scenes/03_tickle';
 import createBallpit from './scenes/04_ballpit';
+import createButterfly from './scenes/05_butterfly';
+import createSlide from './scenes/06_slide';
+import createHide from './scenes/07_hide';
+import createBalloon from './scenes/08_balloon';
+import createTower from './scenes/09_tower';
+import createSleep from './scenes/10_sleep';
 
 async function boot(): Promise<void> {
   const host = document.getElementById('app') ?? document.body;
@@ -56,14 +64,25 @@ async function boot(): Promise<void> {
   const sheet = buildKidSheet();
   const props = buildProps();
 
-  // Phase 1 vertical slice: gather -> ball pit -> (wraps around).
-  const director = new Director([createGather, createBallpit], {
-    viewport,
-    audio,
-    sheet,
-    props,
-  });
-  director.onSceneTint = (tint) => backdrop.fadeTo(tint);
+  // The whole loop, in the order §4 of the plan lays out. After scene 10 the
+  // director wraps back round to scene 1, building it from scratch: the game
+  // resets completely and starts again, for as long as anyone is playing.
+  const director = new Director(
+    [
+      createGather,
+      createMarch,
+      createTickle,
+      createBallpit,
+      createButterfly,
+      createSlide,
+      createHide,
+      createBalloon,
+      createTower,
+      createSleep,
+    ],
+    { viewport, audio, sheet, props },
+  );
+  director.onSceneTint = (tint, seconds) => backdrop.fadeTo(tint, seconds);
   root.addChild(director.world);
   director.start();
 
@@ -104,10 +123,14 @@ async function boot(): Promise<void> {
     panning: () => director.panning,
     autoFired: () => director.autoAdvanceFired,
     advanceScene: () => director.advanceScene(),
+    gotoScene: (index: number) => director.jumpTo(index),
+    sceneCount: () => 10,
     finishScene: () => director.current?.finishNow(),
     idleHint: () => director.current?.onIdleHint(),
     autoAdvance: () => director.current?.onAutoAdvance(),
     fps: () => app.ticker.FPS,
+    // Debug/e2e only: the procedural kid atlas, for eyeballing new poses.
+    atlas: () => sheet.canvas.toDataURL(),
   };
 }
 

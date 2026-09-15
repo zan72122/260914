@@ -88,7 +88,9 @@ describe('sprite atlas indexing', () => {
   it('lays poses out contiguously', () => {
     expect(poseColumn('idle')).toBe(0);
     expect(poseColumn('walk')).toBe(2);
-    expect(FRAMES_PER_VARIANT).toBe(18); // 16 + the 2-frame wave pose
+    // idle 2 + walk 4 + run 4 + laugh 2 + jump 1 + clap 2 + sleep 1 + wave 2
+    // + sit 2 + hold 2 + climb 2 + roll 4
+    expect(FRAMES_PER_VARIANT).toBe(28);
   });
 
   it('wraps frame and variant indices into range', () => {

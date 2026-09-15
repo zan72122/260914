@@ -69,7 +69,7 @@ const ROLE_OUT = 3;
 
 export class BallpitScene extends CrowdScene {
   override readonly name = 'ballpit';
-  override readonly tint = SCENE_TINTS[2];
+  override readonly tint = SCENE_TINTS[3];
 
   private pit: PitShape = { cx: 0, cy: 40, rx: PIT_RX, ry: PIT_RY };
   private pool!: BallPool;
