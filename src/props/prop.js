@@ -118,25 +118,41 @@ function penetration(prop, px, py, headR, out) {
 }
 
 /**
- * Push props with the nozzle head, or let solid props block it.
- * Call once per step from the scene, AFTER vac.update().
+ * Push props with the nozzle head, let solid props block it, and keep the props
+ * out of each other. Call once per step from the scene, AFTER vac.update().
+ *
+ *   resolveProps(vac, this.props, dt, {
+ *     separate: true,                       // props shoulder each other aside
+ *     bounds: {x0, y0, x1, y1},             // pushable props stay in this rect
+ *   });
+ *
+ * The overlap with the head is ALWAYS fully resolved: a light prop gets out of
+ * the way, a heavy one pushes the head back instead of letting it sink in.
  */
-export function resolveProps(vac, props, dt) {
+export function resolveProps(vac, props, dt, opts) {
   const headR = vac.headRadius * 0.72;
-  const hx = vac.nozzle.x, hy = vac.nozzle.y;
+  for (let i = 0; i < props.length; i++) props[i].update(dt);
+
   for (let i = 0; i < props.length; i++) {
     const p = props[i];
-    p.update(dt);
-    const n = penetration(p, hx, hy, headR, N);
+    const n = penetration(p, vac.nozzle.x, vac.nozzle.y, headR, N);
     if (!n) continue;
     if (p.pushable) {
-      const k = 1 / Math.max(0.2, p.mass);
-      p.x -= n.x * n.depth * k;
-      p.y -= n.y * n.depth * k;
+      // split the correction by mass: 1.0 for a feather, ~0 for a boulder, and
+      // the remainder is taken by the head, so nothing ever sinks into it
+      const give = 1 / (1 + Math.max(0, p.mass));
+      p.x -= n.x * n.depth * give;
+      p.y -= n.y * n.depth * give;
+      vac.nozzle.x += n.x * n.depth * (1 - give);
+      vac.nozzle.y += n.y * n.depth * (1 - give);
       const hv = Math.hypot(vac.nozzle.vx, vac.nozzle.vy);
-      p.vx -= n.x * hv * 0.55 * k;
-      p.vy -= n.y * hv * 0.55 * k;
+      p.vx -= n.x * hv * 0.55 * give * 2;
+      p.vy -= n.y * hv * 0.55 * give * 2;
       p.nudge = 1;
+      if (give < 0.95) {
+        const vn = vac.nozzle.vx * n.x + vac.nozzle.vy * n.y;
+        if (vn < 0) { vac.nozzle.vx -= n.x * vn * (1 - give); vac.nozzle.vy -= n.y * vn * (1 - give); }
+      }
     } else {
       // the head cannot pass through: push it out and kill the inward velocity
       vac.nozzle.x += n.x * n.depth;
@@ -145,4 +161,65 @@ export function resolveProps(vac, props, dt) {
       if (vn < 0) { vac.nozzle.vx -= n.x * vn; vac.nozzle.vy -= n.y * vn; }
     }
   }
+
+  if (opts && opts.separate) separateProps(props);
+  if (opts && opts.bounds) { for (let i = 0; i < props.length; i++) keepInside(props[i], opts.bounds); }
+}
+
+/**
+ * Pushable props shoulder each other aside instead of stacking up, and are
+ * pushed out of solid ones. Cheap O(n^2) over a handful of props.
+ */
+export function separateProps(props) {
+  for (let i = 0; i < props.length; i++) {
+    const a = props[i];
+    if (!a.pushable) continue;
+    for (let j = 0; j < props.length; j++) {
+      if (j === i) continue;
+      const b = props[j];
+      if (!b.pushable) { pushOutOfSolid(a, b); continue; }
+      if (j < i) continue;                      // pushable pairs only once
+      const rr = (a.radius + b.radius) * 0.78;
+      let dx = b.x - a.x, dy = b.y - a.y;
+      const d = Math.hypot(dx, dy);
+      if (d > rr || d < 1e-4) continue;
+      const nx = dx / d, ny = dy / d;
+      const ma = 1 / Math.max(0.2, a.mass), mb = 1 / Math.max(0.2, b.mass);
+      const tot = ma + mb;
+      const push = rr - d;
+      a.x -= nx * push * (ma / tot); a.y -= ny * push * (ma / tot);
+      b.x += nx * push * (mb / tot); b.y += ny * push * (mb / tot);
+      const rel = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+      if (rel < 0) {
+        a.vx += nx * rel * (ma / tot); a.vy += ny * rel * (ma / tot);
+        b.vx -= nx * rel * (mb / tot); b.vy -= ny * rel * (mb / tot);
+        a.nudge = Math.max(a.nudge, 0.55); b.nudge = Math.max(b.nudge, 0.55);
+      }
+    }
+  }
+}
+
+/** Shove a pushable prop out of a solid one along the shallowest axis. */
+function pushOutOfSolid(p, s) {
+  const ph = p.shape === 'circle' ? p.r : null;
+  const sw = s.shape === 'circle' ? s.r : s.w * 0.5;
+  const sh = s.shape === 'circle' ? s.r : s.h * 0.5;
+  const hw = sw + (ph === null ? p.w * 0.42 : ph);
+  const hh = sh + (ph === null ? p.h * 0.42 : ph);
+  const dx = p.x - s.x, dy = p.y - s.y;
+  if (Math.abs(dx) >= hw || Math.abs(dy) >= hh) return;
+  const ox = hw - Math.abs(dx), oy = hh - Math.abs(dy);
+  if (ox < oy) { p.x = s.x + (dx < 0 ? -hw : hw); p.vx = 0; }
+  else { p.y = s.y + (dy < 0 ? -hh : hh); p.vy = 0; }
+}
+
+/** Keep a pushable prop inside a world rectangle (its own half-extent allowed for). */
+export function keepInside(p, b) {
+  if (!p.pushable) return;
+  const half = p.shape === 'circle' ? p.r : Math.max(p.w, p.h) * 0.5;
+  const mx = half * (b.inset === undefined ? 0.8 : b.inset);
+  if (p.x < b.x0 + mx) { p.x = b.x0 + mx; p.vx = 0; }
+  if (p.x > b.x1 - mx) { p.x = b.x1 - mx; p.vx = 0; }
+  if (p.y < b.y0 + mx) { p.y = b.y0 + mx; p.vy = 0; }
+  if (p.y > b.y1 - mx) { p.y = b.y1 - mx; p.vy = 0; }
 }
