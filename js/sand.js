@@ -4,8 +4,8 @@
 import { sampleField, insideMask } from './field.js';
 import { clamp, TAU } from './util.js';
 
-const ATTR = 2.6e-5;   // 節線への引き込み（勾配降下）の強さ
-const JIT = 0.0085;    // 振幅に比例するランダム跳ね
+const ATTR = 5.0e-5;   // 節線への引き込み（勾配降下）の強さ
+const JIT = 0.016;     // ランダム跳ね（振幅の2乗に比例＝節線の上ではほとんど跳ねない）
 const DAMP = 0.86;     // 速度減衰（1フレームあたり）
 const GRAV = 0.0026;   // こぼれ落ちる砂の加速度
 
@@ -166,7 +166,7 @@ export function updateSand(dt, vib, kind, shock) {
     let nu = u + vu * dt;
     let nv = v + vv * dt;
     if (vib > 0) {
-      const j = JIT * s.a * vib * (1 + shock * 4) * dt;
+      const j = JIT * s.a * s.a * vib * (1 + shock * 4) * dt;
       nu += (Math.random() - 0.5) * j;
       nv += (Math.random() - 0.5) * j;
       if (shock > 0.01) {

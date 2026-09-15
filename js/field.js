@@ -171,10 +171,12 @@ export function rebuildField(kind, knob, socket) {
     }
   }
 
+  // |f| をそのまま使うと節線のまわりが平坦で砂が帯状に散らばるため、
+  // べき圧縮して節線付近の勾配を強くする（模様がくっきり出る）。
   const inv = 1 / maxAbs;
   const amp = field.amp;
   for (let idx = 0; idx < N * N; idx++) {
-    amp[idx] = _in[idx] ? Math.min(1, Math.abs(_raw[idx]) * inv) : 1.25;
+    amp[idx] = _in[idx] ? Math.pow(Math.min(1, Math.abs(_raw[idx]) * inv), 0.6) : 1.25;
   }
 
   // 勾配（中心差分）

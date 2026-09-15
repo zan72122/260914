@@ -2,7 +2,8 @@
 
 import { state } from './state.js';
 import { sand, pour, scatter, scatterAll, spill, clipToPlate } from './sand.js';
-import { MODE_COUNT, modeFromKnob } from './field.js';
+import { MODE_COUNT, modeFromKnob, insideMask } from './field.js';
+import { spawnFlight } from './flight.js';
 import { KNOB_SWEEP } from './render.js';
 import { clamp, angleDelta, dist2, TAU } from './util.js';
 import { ensureAudio, tick, pourSound } from './audio.js';
@@ -182,19 +183,31 @@ function onUp(e) {
   touched();
 }
 
-/** 毎フレーム呼ぶ: 指の位置から砂を降らせ続ける */
+/**
+ * 毎フレーム呼ぶ: 砂を降らせ続ける（毎秒およそ150粒）。
+ * 指が板の上にあれば指の位置へ、板の外（ボウルの上など）なら板へ向かって砂が飛ぶ。
+ */
 export function tickPour(L, dt) {
   if (!input.pouring || !L) return;
   const loc = toLocal(L, input.px, input.py);
-  const n = Math.max(1, Math.round(4.5 * dt));
-  const added = pour(state.plate, loc.u, loc.v, n, 0.10);
+  const n = Math.max(1, Math.round(2.5 * dt));
+  let added;
+  if (insideMask(state.plate, loc.u, loc.v)) {
+    added = pour(state.plate, loc.u, loc.v, n, 0.10);
+  } else {
+    added = spawnFlight(state.plate, input.px, input.py, n);
+  }
   if (added > 0) pourSound();
 }
 
-/** pointerdown 直後のひとまとまりの砂 */
+/** pointerdown 直後のひとまとまりの砂（板の上に約60粒） */
 export function pourBurst(L) {
   const loc = toLocal(L, input.px, input.py);
-  pour(state.plate, loc.u, loc.v, 40, 0.13);
+  if (insideMask(state.plate, loc.u, loc.v)) {
+    pour(state.plate, loc.u, loc.v, 60, 0.14);
+  } else {
+    spawnFlight(state.plate, input.px, input.py, 60);
+  }
   pourSound();
 }
 

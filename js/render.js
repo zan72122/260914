@@ -496,11 +496,17 @@ function drawDriver(ctx, L, dx, dy) {
   ctx.restore();
 }
 
-function drawSand(ctx, L, ox, oy) {
+/** 砂粒の一辺（CSSpx）。DPR2 でおよそ 2.2〜3.6 物理px になるようにする */
+function grainSize(R, dpr) {
+  const d = dpr || 1;
+  return Math.max(2.2, Math.min(3.6, R * d * 0.0145)) / d;
+}
+
+function drawSand(ctx, L, ox, oy, dpr) {
   const p = L.plate;
   const R = p.r;
   const cx = p.cx + ox, cy = p.cy + oy;
-  const s = Math.max(1.8, Math.min(3.4, R * 0.020));
+  const s = grainSize(R, dpr);
   const n = sand.n;
   const u = sand.u, v = sand.v, st = sand.st, life = sand.life;
 
@@ -515,7 +521,7 @@ function drawSand(ctx, L, ox, oy) {
   ctx.fillStyle = '#ffffff';
   for (let i = 0; i < n; i++) {
     if (st[i] !== 0 || life[i] <= 0.35) continue;
-    const ss = s * (1 + life[i] * 0.7);
+    const ss = s * (1 + life[i] * 0.28);
     ctx.fillRect(cx + u[i] * R - ss * 0.5, cy + v[i] * R - ss * 0.5, ss, ss);
   }
 
@@ -526,7 +532,7 @@ function drawSand(ctx, L, ox, oy) {
     const phase = (state.time * 0.04) | 0;
     for (let i = phase % 6; i < n; i += 6) {
       if (st[i] !== 0) continue;
-      const ss = s * 1.6;
+      const ss = s * 1.25;
       ctx.fillRect(cx + u[i] * R - ss * 0.5, cy + v[i] * R - ss * 0.5, ss, ss);
     }
     ctx.globalAlpha = 1;
@@ -599,7 +605,7 @@ function drawPlateArea(ctx, L, dpr) {
   drawDriver(ctx, L, dx, dy);
 
   // 砂
-  drawSand(ctx, L, ox + sx, oy + sy);
+  drawSand(ctx, L, ox + sx, oy + sy, dpr);
 
   // 完成の光
   if (state.glow > 0.01) {
@@ -625,6 +631,17 @@ function drawPlateArea(ctx, L, dpr) {
   }
 }
 
+/** ボウルから板へ飛んでいる砂 */
+function drawFlight(ctx, L, dpr) {
+  const f = state.flight;
+  if (!f.length) return;
+  const s = grainSize(L.plate.r, dpr);
+  ctx.fillStyle = '#f2e6cc';
+  for (let i = 0; i < f.length; i++) {
+    ctx.fillRect(f[i].x - s * 0.5, f[i].y - s * 0.5, s, s);
+  }
+}
+
 export function render(ctx, L, dpr) {
   ctx.clearRect(0, 0, L.w, L.h);
   const bench = makeBench(L.w, L.h, dpr);
@@ -635,5 +652,6 @@ export function render(ctx, L, dpr) {
   drawSockets(ctx, L);
   drawPlateArea(ctx, L, dpr);
   drawBowl(ctx, L);
+  drawFlight(ctx, L, dpr);
   drawKnob(ctx, L);
 }

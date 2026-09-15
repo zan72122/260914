@@ -76,7 +76,7 @@ export function computeLayout(w, h, insets) {
     const knobR = clamp(Math.min(availW * 0.21, bottomH * 0.38), 34, 96);
     L.knob.cx = right - knobR - clamp(availW * 0.04, 4, 22);
     // 台座（半径の1.3倍）が画面下に出ないように寄せる
-    L.knob.cy = Math.min(by, bottom - knobR * 1.32);
+    L.knob.cy = Math.min(by, bottom - knobR * 1.42);
     L.knob.r = knobR;
     L.knob.hit = knobR * 1.3;
 

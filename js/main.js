@@ -7,6 +7,7 @@ import { initSand, resizeSand, updateSand, sand } from './sand.js';
 import { rebuildField, modeFromKnob, MODE_COUNT } from './field.js';
 import { render } from './render.js';
 import { installInput, tickPour } from './input.js';
+import { updateFlight } from './flight.js';
 import { setDrone, chime } from './audio.js';
 
 const canvas = document.getElementById('stage');
@@ -108,6 +109,7 @@ function update(dt) {
 
   // 砂
   tickPour(L, dt);
+  updateFlight(L, dt, state.plate);
   updateSand(dt, state.vib, state.plate, state.shock);
 
   // 収束判定

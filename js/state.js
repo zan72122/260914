@@ -18,6 +18,7 @@ export const state = {
   socketPulse: [0, 0, 0],
   knobPulse: 0,
 
+  flight: [],             // ボウルから板へ飛んでいる砂（スクリーン座標）
   ripples: [],
   rippleTimer: 0,
 
