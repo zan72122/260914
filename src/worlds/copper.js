@@ -75,14 +75,14 @@ const HOUSES = [
   // back row (the far side of the street) — nearest the joint lights first
   { x: 100, y: 86, w: 120, h: 114, roof: 34, litAt: 0.72, win: W3 },
   { x: 250, y: 44, w: 104, h: 156, roof: 26, litAt: 0.80, sign: true, win: W6 },
-  { x: 392, y: 80, w: 124, h: 120, roof: 34, litAt: 0.88, win: W3 },
+  { x: 392, y: 80, w: 124, h: 120, roof: 34, litAt: 0.88, manual: 'window:0', win: W3 },
   { x: -20, y: 30, w: 96, h: 170, roof: 24, litAt: 1.02, win: W6 },
   { x: 548, y: 36, w: 100, h: 164, roof: 24, litAt: 1.10, win: W6 },
   { x: -170, y: 70, w: 120, h: 130, roof: 34, litAt: 1.26, win: W4 },
   { x: 678, y: 88, w: 118, h: 112, roof: 32, litAt: 1.32, win: W3 },
   // front row (this side of the street)
   { x: 160, y: 510, w: 118, h: 130, roof: 34, litAt: 0.94, win: W4 },
-  { x: 320, y: 540, w: 110, h: 100, roof: 28, litAt: 1.00, win: W2 },
+  { x: 320, y: 540, w: 110, h: 100, roof: 28, litAt: 1.00, manual: 'window:1', win: W2 },
   { x: 10, y: 545, w: 104, h: 95, roof: 26, litAt: 1.14, win: W2 },
   { x: 470, y: 505, w: 128, h: 135, roof: 36, litAt: 1.18, win: W4 },
   { x: -150, y: 520, w: 124, h: 120, roof: 34, litAt: 1.34, win: W3 },
@@ -92,7 +92,7 @@ const HOUSES = [
 /** street lamps: base of the pole, height, light delay */
 const LAMPS = [
   { x: 60, y: 238, h: 74, litAt: 0.84 },
-  { x: 520, y: 238, h: 74, litAt: 0.96 },
+  { x: 520, y: 238, h: 74, litAt: 0.96, manual: 'window:2' },
   { x: 120, y: 700, h: 84, litAt: 1.06 },
   { x: 300, y: 700, h: 84, litAt: 0.98 },
   { x: 480, y: 700, h: 84, litAt: 1.22 },
@@ -264,6 +264,14 @@ export default {
     let traceSfx = null;
     let sparkT = 0;
     let idleT = 0;
+    // §2.2 / review G: after the domino, 2 windows + 1 lamp stay dark on purpose so the
+    // child can keep touching. Each one lit adds time; the train can be tooted.
+    let leaveAt = 9.5;              // seconds after the joint closes (capped at 18)
+    const manualOn = new Map();     // house/lamp object -> flow time it was switched on
+    let trainU = 0;
+    let trainBoost = 0;
+    let trainToot = 0;
+    const pulses = [];              // {pts, t} small currents running to a just-lit window
 
     // camera (kept locally so the hearth's own camera reset during the return overlap
     // cannot snap this world back to screen space mid-shrink; mirrored into engine.camera)
@@ -283,13 +291,47 @@ export default {
     let lastSyncX = 1e9, lastSyncY = 1e9;
 
     const ambientAt = () => lerpColor(handoff ? handoff.flameColor : DEF.flameColor, DEF.ambient, clamp(t / 1.5));
+    /** when this light turns on: its domino time, or (for the reserved ones) the tap time */
+    const litTime = (o) => {
+      if (!o.manual) return o.litAt;
+      const v = manualOn.get(o);
+      return v == null ? Infinity : v;
+    };
     const litCount = () => {
       if (flow < 0) return 0;
       let n = 0;
-      for (const hs of HOUSES) if (flow >= hs.litAt) n++;
-      for (const lp of LAMPS) if (flow >= lp.litAt) n++;
+      for (const hs of HOUSES) if (flow >= litTime(hs)) n++;
+      for (const lp of LAMPS) if (flow >= litTime(lp)) n++;
       return n;
     };
+    /** the reserved dark lights, in a stable order, with their world anchor point */
+    const DARK = [];
+    for (const hs of HOUSES) if (hs.manual) DARK.push({ id: hs.manual, o: hs, x: hs.x + hs.w / 2, y: hs.y + hs.h * 0.45 });
+    for (const lp of LAMPS) if (lp.manual) DARK.push({ id: lp.manual, o: lp, x: lp.x, y: lp.y - lp.h });
+    DARK.sort((a, b) => (a.id < b.id ? -1 : 1));
+    const trainPos = () => pointAtFrac(ring, trainU, ringLen);
+    const trainAlive = () => flow >= 1.55;
+
+    /** switch one reserved light on: teal pulse down its feeder trace + more time to play */
+    function lightUp(d) {
+      if (manualOn.has(d.o)) return;
+      manualOn.set(d.o, flow);
+      leaveAt = Math.min(18, Math.max(leaveAt, flow + 2.2) + 1.5);
+      engine.audio.play('lamp_on');
+      // find the trace that feeds this light and run a current along it
+      let best = null, bd = Infinity;
+      for (const tr of TRACES) {
+        const e = tr.pts[tr.pts.length - 1];
+        const dd = Math.hypot(e.x - d.x, e.y - d.y);
+        if (dd < bd) { bd = dd; best = tr; }
+      }
+      if (best) pulses.push({ pts: best.pts, t: 0 });
+      const sp = w2s(d.x, d.y);
+      engine.particles.burst(sp.x, sp.y, 14, {
+        speed: [40, 150], life: [0.3, 0.7], r: [1.2, 2.6],
+        color: [DEF.glowColor, WARM, '#ffffff'], drag: 0.88
+      });
+    }
     const litTotal = HOUSES.length + LAMPS.length;
 
     // ------------------------------------------------------------ camera helpers
@@ -430,6 +472,46 @@ export default {
         resampleStep: 7,
         startToleranceRatio: 0.30
       });
+
+      // once the town is alive, the dark windows and the little train stay touchable
+      rec.onTap((p) => flow >= 0 && !!pickTapTarget(p), (p) => {
+        const hit = pickTapTarget(p);
+        if (!hit) return;
+        if (hit === 'train') {
+          trainBoost = 1;
+          trainToot = 0.5;
+          engine.audio.play('hop');
+          const tp = trainPos();
+          const sp = w2s(tp.x, tp.y);
+          engine.particles.burst(sp.x, sp.y, 10, {
+            speed: [30, 120], life: [0.3, 0.8], r: [1.4, 3],
+            color: ['#ffffff', WARM], drag: 0.9, gravity: -40
+          });
+          leaveAt = Math.min(18, Math.max(leaveAt, flow + 2.0));
+        } else {
+          lightUp(hit);
+        }
+        idleT = 0;
+      }, { maxMoveRatio: 0.10, maxDurationMs: 900 });
+    }
+
+    /** nearest still-dark window / the train, in screen space (very generous radii) */
+    function pickTapTarget(p) {
+      if (flow < 0) return null;
+      let best = null, bd = Infinity;
+      for (const d of DARK) {
+        if (manualOn.has(d.o)) continue;
+        const sp = w2s(d.x, d.y);
+        const dd = Math.hypot(p.x - sp.x, p.y - sp.y);
+        if (dd < S * 0.16 && dd < bd) { bd = dd; best = d; }
+      }
+      if (trainAlive()) {
+        const tp = trainPos();
+        const sp = w2s(tp.x, tp.y);
+        const dd = Math.hypot(p.x - sp.x, p.y - sp.y);
+        if (dd < S * 0.14 && dd < bd) { bd = dd; best = 'train'; }
+      }
+      return best;
     }
 
     function exit() {
@@ -493,6 +575,13 @@ export default {
       // the world change
       if (flow >= 0) {
         flow += dt;
+        if (trainAlive()) trainU = (trainU + (0.052 + trainBoost * 0.11) * dt) % 1;
+        if (trainBoost > 0) trainBoost = Math.max(0, trainBoost - dt / 1.6);
+        if (trainToot > 0) trainToot = Math.max(0, trainToot - dt);
+        for (let i = pulses.length - 1; i >= 0; i--) {
+          pulses[i].t += dt;
+          if (pulses[i].t > 0.55) pulses.splice(i, 1);
+        }
         if (camAnim) {
           camAnim.t = Math.min(camAnim.dur, camAnim.t + dt);
           const k = easeOutCubic(camAnim.t / camAnim.dur);
@@ -510,7 +599,7 @@ export default {
           engine.audio.speakElement(DEF.id);
         }
         if (phase === 'change' && flow >= 2.2) phase = 'complete';
-        if (phase === 'complete' && flow >= 4.4) { phase = 'leaving'; leaveT = 0; }
+        if (phase === 'complete' && flow >= leaveAt) { phase = 'leaving'; leaveT = 0; }
       }
 
       if (phase === 'leaving') {
@@ -667,9 +756,9 @@ export default {
     }
 
     function drawTrain(g) {
-      if (flow < 1.55) return;
+      if (!trainAlive()) return;
       const a = clamp((flow - 1.55) / 0.5);
-      const u = ((flow - 1.55) * 0.052) % 1;
+      const u = trainU;
       for (let c = 0; c < 3; c++) {
         const p = pointAtFrac(ring, (u - c * 0.018 + 1) % 1, ringLen);
         const ang = Math.atan2(p.ty, p.tx);
@@ -683,17 +772,28 @@ export default {
         g.fillStyle = withAlpha(WARM_HOT, 0.95);
         fillRoundRect(g, -16, -8, 13, 13, 5);
         fillRoundRect(g, 4, -8, 13, 13, 5);
-        if (c === 0) glowCircle(g, 30, 0, 34, WARM, 0.9);
+        if (c === 0) {
+          glowCircle(g, 30, 0, 34 + trainBoost * 16, WARM, 0.9);
+          if (trainToot > 0) {
+            // a little puff of steam when the train is tooted
+            const k = 1 - trainToot / 0.5;
+            glowCircle(g, -6, -26 - k * 26, 16 + k * 26, '#ffffff', 0.5 * (1 - k));
+          }
+        }
         g.restore();
       }
     }
 
     function drawHouse(g, hs) {
-      const lit = flow < 0 ? 0 : clamp((flow - hs.litAt) / 0.3);
+      const lit = flow < 0 ? 0 : clamp((flow - litTime(hs)) / 0.3);
       const pop = lit > 0 ? easeOutBack(lit) : 0;
       const bodyCol = lerpColor(HOUSE_DARK, HOUSE_LIT, lit * 0.75);
       const cx = hs.x + hs.w / 2;
       g.save();
+      if (hs.manual && lit <= 0 && flow > 1.0) {
+        const b = 0.35 + 0.65 * (0.5 - 0.5 * Math.cos(t * 3.2));
+        glowCircle(g, cx, hs.y + hs.h * 0.5, hs.w * 0.9, DEF.glowColor, 0.18 + 0.3 * b);
+      }
       // warm pool of light the house throws on the board
       if (lit > 0) {
         glowCircle(g, cx, hs.y + hs.h, hs.w * 1.15 * lit, WARM, 0.22 * lit);
@@ -750,8 +850,12 @@ export default {
     }
 
     function drawLamp(g, lp) {
-      const lit = flow < 0 ? 0 : clamp((flow - lp.litAt) / 0.28);
+      const lit = flow < 0 ? 0 : clamp((flow - litTime(lp)) / 0.28);
       g.save();
+      if (lp.manual && lit <= 0 && flow > 1.0) {
+        const b = 0.35 + 0.65 * (0.5 - 0.5 * Math.cos(t * 3.2));
+        glowCircle(g, lp.x, lp.y - lp.h, 78, DEF.glowColor, 0.18 + 0.3 * b);
+      }
       g.strokeStyle = lerpColor('#16242e', '#3a5866', lit);
       g.lineWidth = 8; g.lineCap = 'round';
       g.beginPath();
@@ -991,6 +1095,15 @@ export default {
       for (const hs of HOUSES) drawHouse(g, hs);
       for (const lp of LAMPS) drawLamp(g, lp);
       drawTrain(g);
+      for (const pu of pulses) {
+        const L = polyLengths(pu.pts);
+        const f1 = clamp(pu.t / 0.4), f0 = clamp(f1 - 0.3);
+        if (f1 > f0) {
+          const seg = [];
+          for (let i = 0; i <= 5; i++) seg.push(pointAtFrac(pu.pts, f0 + (f1 - f0) * (i / 5), L));
+          glowLine(g, seg, 6, DEF.flameColor, 0.7 * (1 - clamp((pu.t - 0.4) / 0.15)));
+        }
+      }
       drawDotString(g);
       drawGap(g);
       drawWire(g);
@@ -1065,6 +1178,8 @@ export default {
           traceProgress: prog,
           tracePath: screenPath.map((p) => ({ x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 })),
           lit: litCount(),
+          darkLeft: DARK.filter((d) => !manualOn.has(d.o)).map((d) => d.id),
+          leaveAt,
           litTotal,
           spoken,
           connected: flow >= 0,
@@ -1073,12 +1188,26 @@ export default {
       },
 
       hitPoints() {
-        if (phase === 'complete' || phase === 'leaving') return [];
+        if (phase === 'leaving') return [];
         const a = w2s(A.x, A.y), b = w2s(B.x, B.y);
-        return [
+        // the joint stays published for the whole world so a harness never blocks on it
+        const out = [
           { id: 'trace:start', x: a.x, y: a.y, r: S * 0.12 },
           { id: 'trace:end', x: b.x, y: b.y, r: S * 0.12 }
         ];
+        if (flow >= 0) {
+          for (const d of DARK) {
+            if (manualOn.has(d.o)) continue;
+            const sp = w2s(d.x, d.y);
+            out.push({ id: d.id, x: sp.x, y: sp.y, r: S * 0.16 });
+          }
+          if (trainAlive()) {
+            const tp = trainPos();
+            const sp = w2s(tp.x, tp.y);
+            out.push({ id: 'train', x: sp.x, y: sp.y, r: S * 0.14 });
+          }
+        }
+        return out;
       }
     };
 
