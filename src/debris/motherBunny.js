@@ -1,6 +1,6 @@
 import { DustBunny } from './dustBunny.js';
 import { State } from './base.js';
-import { clamp } from '../core/math.js';
+import { clamp, TAU } from '../core/math.js';
 
 /**
  * The mother of all dust bunnies: the thing that lives at the far end of the
@@ -29,6 +29,7 @@ export class MotherBunny extends DustBunny {
      */
     this.grip = 1;
     this.jamShed = 0;
+    this.jam = false;
   }
   get type() { return 'mother'; }
 
@@ -42,19 +43,47 @@ export class MotherBunny extends DustBunny {
 
   update(dt, vac, world) {
     if (this.state === State.DONE) return;
-    if (this.state === State.CAPTURED && this.grip > 0) {
-      // jammed on the mouth: hold on, strain, shed
-      this.grip -= dt * (0.55 + 0.35 * this.strength);
-      if (this.grip > 0) {
-        this.state = State.REACTING;
-        this.hx = this.x; this.hy = this.y;
-        this.vx *= 0.4; this.vy *= 0.4;
+
+    // ---- jammed on the intake -------------------------------------------
+    // Once the mouth reaches it, it does not simply vanish: it JAMS there,
+    // plastered across the nozzle, quivering, while the flow tears fiber after
+    // fiber off it. Only when its grip runs out does it fold in. This is the
+    // longest, heaviest pull in the game and it happens however you approach.
+    if (this.state === State.CAPTURED && this.grip > 0) this.jam = true;
+    if (this.jam) {
+      this.t += dt;
+      const f = vac.field(this.x, this.y, this._f);
+      this.strength = f.strength;
+      this.grip -= dt * (0.55 + 0.35 * f.strength);
+      if (this.grip <= 0) {
+        this.jam = false;
+        this.state = State.CAPTURED;
         this.squash = 0;
-        // jammed on the intake, it is torn apart one fiber at a time
+      } else {
+        this.state = State.CAPTURED;          // for the dev overlay
+        const m = vac.mouth();
+        // sit ON the face of the nozzle, not inside it: it is the biggest
+        // thing on screen and it has to be seen straining
+        const q = Math.sin(this.t * 27) * 3.4 + Math.sin(this.t * 41.3) * 1.8;
+        const tx = m.x + m.dirX * (this.r * 0.92 + q) - m.dirY * q * 0.4;
+        const ty = m.y + m.dirY * (this.r * 0.92 + q) + m.dirX * q * 0.4;
+        const o = 21;
+        this.vx += (-2 * o * this.vx - o * o * (this.x - tx)) * dt;
+        this.vy += (-2 * o * this.vy - o * o * (this.y - ty)) * dt;
+        this.x += this.vx * dt; this.y += this.vy * dt;
+        this.aimX = m.dirX; this.aimY = m.dirY;
+        this.pulse += dt * TAU * 3.4;
+        this.stretch += (0.85 + 0.30 * Math.sin(this.pulse) - this.stretch) * (1 - Math.exp(-13 * dt));
+        this.tremble = 1.25;
         this.jamShed -= dt;
         if (this.jamShed <= 0 && this.fibers > 10) { this.jamShed = 0.085; this._shed(vac); }
+        this._updateWisps(dt, vac);
+        this._updateFibers(dt, vac, 1.7);
+        return;
       }
     }
+
+    // ---- the swallow ------------------------------------------------------
     if (this.state === State.CAPTURED) {
       this.t += dt;
       this.squash += dt / 0.24;                     // a long, meaty swallow
@@ -65,11 +94,12 @@ export class MotherBunny extends DustBunny {
         if (vac.audio) vac.audio.pop('whoosh', 0.7);
         world.onCaptured && world.onCaptured(this);
       }
+      this._updateWisps(dt, vac);
       this._updateFibers(dt, vac, 1.7);
       return;
     }
+
     const wasPulled = this.state === State.PULLED;
-    const thinning = this.fibers;
     super.update(dt, vac, world);
     if (this.state === State.PULLED) {
       // heavy: it lumbers in rather than snapping
@@ -78,7 +108,6 @@ export class MotherBunny extends DustBunny {
       if (!wasPulled && vac.audio) vac.audio.pop('whoosh', 0.45);
       this.stretch = clamp(this.stretch + dt * 1.0, 0, 1.15);
     }
-    if (thinning !== this.fibers && this.grip < 1) this.grip -= 0.02;
   }
 
   snapshot() {

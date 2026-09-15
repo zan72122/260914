@@ -521,7 +521,8 @@ export class SofaScene extends Scene {
     const r = vac.headlight.r * cam.zoom;
     const i = vac.headlight.intensity * (0.6 + 0.4 * vac.powerN);
     L.addLight(mx + dx * r * 0.22, my + dy * r * 0.22, r * 0.84, 0.40 * i, dx, dy, 0.34);
-    L.addLight(mx, my, 190 * cam.zoom, 0.13 * i);   // the pool you work inside
+    L.addLight(mx, my, 190 * cam.zoom, 0.13 * i);   // the glow you work inside
+    L.addLight(mx, my, 76 * cam.zoom, 0.5 * i);     // and the bright spot at the mouth
   }
 
   // ------------------------------------------------------------- contract
