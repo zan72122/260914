@@ -38,9 +38,11 @@ npx playwright test --config=tests/playwright.config.mjs --project=iPhone15-port
 
 ## GitHub Pages への配置
 
-`main` ブランチへ push すると `.github/workflows/pages.yml` がリポジトリ直下をそのまま
-Pages へ配置します（ビルド工程なし）。初回のみ GitHub の
+ワークフロー雛形を `docs/pages-workflow.yml` に置いています（この環境の GitHub App には
+workflows 権限がないため `.github/workflows/` へ直接置けませんでした）。
+`docs/pages-workflow.yml` を `.github/workflows/pages.yml` へコピーして `main` に push し、
 **Settings → Pages → Build and deployment → Source** を **GitHub Actions** に設定してください。
+ビルド工程はなく、リポジトリ直下がそのまま配置されます。
 
 ## ディレクトリ
 
