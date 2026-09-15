@@ -41,6 +41,12 @@ export class Engine {
     this._raf = 0;
     this._resizeTimer = 0;
     this._gestureSets = new Set();
+    // rolling CPU cost of the in-page frame work (update + draw), last N frames
+    this._costBuf = new Float32Array(120);
+    this._costN = 0;
+    this._costI = 0;
+    this._costSum = 0;
+    this.frameCostMs = 0;
 
     this.rng = createRNG(0x51ed5eed);
     this.progress = loadProgress();
@@ -193,6 +199,7 @@ export class Engine {
 
   _frame = (now) => {
     if (!this.running || this.paused) return;
+    const cpu0 = performance.now();
     let dt = (now - this._last) / 1000;
     this._last = now;
     if (!Number.isFinite(dt) || dt < 0) dt = 0;
@@ -213,6 +220,19 @@ export class Engine {
     g.setTransform(1, 0, 0, 1, 0, 0);
 
     if (!this.ready) this.ready = true;
+    this._recordCost(performance.now() - cpu0);
     this._raf = requestAnimationFrame(this._frame);
   };
+
+  /** rolling mean of the last 120 frames' CPU time (ms) — exposed as __game.frameCostMs */
+  _recordCost(ms) {
+    if (!Number.isFinite(ms) || ms < 0) return;
+    const buf = this._costBuf;
+    if (this._costN === buf.length) this._costSum -= buf[this._costI];
+    else this._costN++;
+    buf[this._costI] = ms;
+    this._costSum += ms;
+    this._costI = (this._costI + 1) % buf.length;
+    this.frameCostMs = this._costSum / this._costN;
+  }
 }

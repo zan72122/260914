@@ -89,14 +89,15 @@ export function createHearth(engine, handoff, finish) {
       lay.hinoko = { x: w * 0.5 + S * 0.255, y: h * 0.405 - S * 0.025, r: S * 0.058 };
       lay.spectro = { x: w * 0.155, y: h * 0.485, r: S * 0.062 };
     } else {
-      lay.flame = { x: w * 0.40, y: h * 0.60, hw: S * 0.125, hh: S * 0.32 };
+      lay.flame = { x: w * 0.36, y: h * 0.60, hw: S * 0.125, hh: S * 0.32 };
       lay.shelf = { x: w * 0.085, y: h * 0.50, w: S * 0.13, h: Math.min(h * 0.62, S * 0.9), vertical: true };
-      lay.dishArcX = w * 0.225;
-      lay.dishCenterX = w * 0.715;
-      lay.dishBaseY = h * 0.775;
-      lay.dishLift = h * 0.048;
-      lay.dishR = S * 0.076;
-      lay.hinoko = { x: w * 0.40 - S * 0.28, y: h * 0.58, r: S * 0.055 };
+      // the arc starts clear of the hearth bowl's right edge (flame.x + 0.25*S)
+      lay.dishArcX = w * 0.195;
+      lay.dishCenterX = w * 0.735;
+      lay.dishBaseY = h * 0.79;
+      lay.dishLift = h * 0.045;
+      lay.dishR = S * 0.068;
+      lay.hinoko = { x: w * 0.36 - S * 0.24, y: h * 0.58, r: S * 0.055 };
       lay.spectro = { x: w * 0.30, y: h * 0.845, r: S * 0.062 };
     }
 

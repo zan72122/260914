@@ -124,6 +124,8 @@ function installDebugHook(engine) {
     get ready() { return !!engine.ready; },
     get busy() { return engine.scenes.busy; },
     get frameCount() { return engine.frameCount; },
+    /** rolling mean CPU ms per frame (update + draw) over the last ~120 frames */
+    get frameCostMs() { return engine.frameCostMs; },
 
     /** Jump to any scene. For worlds a handoff is synthesised. */
     goto(sceneId, opts = {}) {
