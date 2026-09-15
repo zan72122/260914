@@ -8,9 +8,10 @@
  *      (a circular mask growing — never a cut, never a black frame),
  *   2. black inside, with the faintest dark rainbow hint of where colours live,
  *   3. the element's emission lines fade in as vertical glowing bars at nmToX01()
- *      positions, coloured by nmToColor(), width/brightness from the intensity `i`,
- *   4. 1.0s later a small living mini-diorama of that element's world floats in UNDER
- *      the lines — the same picture that sits on the hearth shelf. "these lines = that world."
+ *      positions, coloured by nmToColor(); width scales with i^2 and brightness with i,
+ *      so a strong line DOMINATES a weak one (lithium = one fat red + a thin orange),
+ *   4. 1.0s later the element's mini-diorama floats in UNDER the lines — literally the
+ *      same drawDiorama() the hearth shelf uses, so "these lines = that world" is one picture.
  *   5. if the OTHER red (lithium <-> strontium) has already been seen, BOTH spectra are
  *      stacked: the remembered one dimmer above, the fresh one bright below, so
  *      "tidy single line" vs "busy, and there is a blue one" is a picture, not a sentence.
@@ -27,6 +28,8 @@ import {
   glowCircle, withAlpha, fillRoundRect, radialFlood, cachedLinear, cachedUnitRadial, shade
 } from '../core/draw.js';
 import { markSpectrumSeen } from '../core/storage.js';
+// scenes may import scenes: the shelf and the tube MUST show the identical picture (§3.3).
+import { drawDiorama } from './hearth.js';
 
 const T_MASK = 0.55;      // field of view opens
 const T_LINES = 0.28;     // first line starts to glow
@@ -235,9 +238,13 @@ export function createSpectroscope(engine, handoff, finish) {
       const sh = 0.86 + 0.14 * Math.sin(t * (2.1 + i * 0.37) + i * 1.7);
       const col = nmToColor(ln.nm);
       const x = x0 + span * nmToX01(ln.nm);
-      const cw = Math.max(2, S * (0.009 + 0.028 * ln.i) * fat);
-      const hh = b.half * (0.82 + 0.18 * ln.i) * (0.55 + 0.45 * kk);
-      const a = kk * dimK * sh;
+      // §Q the whole point is the SHAPE of the pattern: a strong line must dominate a weak
+      // one. Width grows with i^2 and brightness with i, so lithium reads as "one fat red
+      // line with a thin orange friend", not "two lines".
+      const wk = 0.30 + 0.70 * ln.i * ln.i;
+      const cw = Math.max(1.5, S * 0.034 * wk * fat);
+      const hh = b.half * (0.62 + 0.38 * ln.i) * (0.55 + 0.45 * kk);
+      const a = kk * dimK * sh * (0.34 + 0.66 * ln.i);
 
       // wide halo
       g.fillStyle = withAlpha(col, 0.09 * a);
@@ -256,88 +263,6 @@ export function createSpectroscope(engine, handoff, finish) {
       // a bloom where the line crosses the middle
       glowCircle(g, x, b.cy, cw * 5.5, col, 0.22 * a * ln.i);
     }
-    g.restore();
-  }
-
-  /** the shelf mini-diorama of that element's world (§1.7 / §3.3) */
-  function drawMini(g, d, x, y, r, alpha) {
-    if (alpha <= 0) return;
-    const k = t;
-    g.save();
-    g.globalAlpha = alpha;
-    glowCircle(g, x, y, r * 1.6, d.glowColor, 0.32);
-    g.fillStyle = withAlpha('#0b0810', 0.9);
-    g.beginPath(); g.ellipse(x, y, r, r * 0.86, 0, 0, Math.PI * 2); g.fill();
-    g.save();
-    g.beginPath(); g.ellipse(x, y, r * 0.98, r * 0.84, 0, 0, Math.PI * 2); g.clip();
-    switch (d.id) {
-      case 'lithium': {                                   // a rover keeps driving
-        const px = x - r * 0.7 + ((k * 0.35) % 1) * r * 1.4;
-        g.fillStyle = withAlpha('#c9a27a', 0.34);
-        g.fillRect(x - r, y + r * 0.3, r * 2, r * 0.6);
-        g.fillStyle = d.flameColor;
-        fillRoundRect(g, px - r * 0.2, y + r * 0.02, r * 0.4, r * 0.26, r * 0.1);
-        glowCircle(g, px + r * 0.24, y + r * 0.12, r * 0.4, '#ffd9a0', 0.8);
-        break;
-      }
-      case 'copper': {                                    // windows blink on in a dark town
-        for (let i = 0; i < 5; i++) {
-          const wx = x - r * 0.6 + i * r * 0.3;
-          const on = (Math.sin(k * 2 + i * 1.9) + 1) / 2;
-          g.fillStyle = withAlpha('#0e1a20', 0.9);
-          fillRoundRect(g, wx - r * 0.1, y - r * 0.1 - (i % 2) * r * 0.1, r * 0.2, r * 0.5, r * 0.05);
-          g.fillStyle = withAlpha(d.flameColor, 0.3 + on * 0.7);
-          fillRoundRect(g, wx - r * 0.05, y - r * 0.02 - (i % 2) * r * 0.1, r * 0.1, r * 0.12, r * 0.03);
-        }
-        break;
-      }
-      case 'sodium': {                                    // one street lamp, yellow
-        g.strokeStyle = withAlpha('#4a4030', 0.9);
-        g.lineWidth = r * 0.09;
-        g.beginPath(); g.moveTo(x, y + r * 0.6); g.lineTo(x, y - r * 0.2); g.stroke();
-        const on = 0.6 + 0.4 * Math.sin(k * 1.6);
-        glowCircle(g, x, y - r * 0.28, r * 0.85, d.flameColor, 0.55 + on * 0.4);
-        break;
-      }
-      case 'strontium': {                                 // small red fireworks, one after another
-        // two overlapping bursts so there is never a frame with nothing to look at
-        for (let j = 0; j < 2; j++) {
-          const ph = ((k * 0.5) + j * 0.5) % 1;
-          const rr = r * 0.2 + ph * r * 0.7;
-          g.strokeStyle = withAlpha(d.flameColor, Math.max(0, 1 - ph) * 0.95);
-          g.lineWidth = r * 0.085;
-          g.lineCap = 'round';
-          for (let i = 0; i < 8; i++) {
-            const a = (i / 8) * Math.PI * 2 + j * 0.39;
-            g.beginPath();
-            g.moveTo(x + Math.cos(a) * rr * 0.5, y + Math.sin(a) * rr * 0.5);
-            g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
-            g.stroke();
-          }
-          glowCircle(g, x, y, r * 0.45 * (1 - ph), d.glowColor, 0.85 * (1 - ph));
-        }
-        break;
-      }
-      default: {                                          // barium: a green ripple spreads
-        for (let j = 0; j < 2; j++) {
-          const ph = ((k * 0.4) + j * 0.5) % 1;
-          g.strokeStyle = withAlpha(d.flameColor, (1 - ph) * 0.8);
-          g.lineWidth = r * 0.07;
-          g.beginPath();
-          g.ellipse(x, y + r * 0.2, r * ph, r * 0.4 * ph, 0, 0, Math.PI * 2);
-          g.stroke();
-        }
-        glowCircle(g, x, y + r * 0.2, r * 0.4, d.glowColor, 0.5);
-        break;
-      }
-    }
-    g.restore();
-    g.strokeStyle = withAlpha(d.glowColor, 0.30);
-    g.lineWidth = r * 0.075;
-    g.beginPath(); g.ellipse(x, y, r, r * 0.86, 0, 0, Math.PI * 2); g.stroke();
-    g.strokeStyle = withAlpha('#ffffff', 0.22);
-    g.lineWidth = r * 0.05;
-    g.beginPath(); g.ellipse(x, y, r * 0.99, r * 0.85, 0, Math.PI * 1.08, Math.PI * 1.62); g.stroke();
     g.restore();
   }
 
@@ -360,8 +285,12 @@ export function createSpectroscope(engine, handoff, finish) {
     for (const b of L.bands) {
       drawHintBand(g, b);
       drawLines(g, b);
-      drawMini(g, b.def, w * 0.5, b.dy + (1 - easeOutBack(dioramaK(b))) * S * 0.08,
-        b.dr * (0.6 + 0.4 * easeOutBack(dioramaK(b))), dioramaK(b));
+      const dk = dioramaK(b);
+      if (dk > 0) {
+        const rise = easeOutBack(dk);
+        drawDiorama(g, b.def, w * 0.5, b.dy + (1 - rise) * S * 0.08,
+          b.dr * (0.6 + 0.4 * rise), dk * (b.dim ? 0.55 : 1), t);
+      }
     }
 
     // inside-the-tube vignette: the barrel closes in at the rim
