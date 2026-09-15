@@ -1,8 +1,11 @@
 import { Application, Container } from 'pixi.js';
 import { GameClock, type ClockMode } from '../core/GameClock';
-import { EventLog, type LogEntry } from '../core/EventLog';
+import type { LogEntry } from '../core/EventLog';
+import { EventTap } from '../core/EventTap';
+import { watchViewport } from '../core/viewportWatch';
 import { Rng } from '../core/Rng';
 import { Speech } from '../audio/Speech';
+import { GameAudio } from '../audio/GameAudio';
 import { WorldView } from '../view/WorldView';
 import { computeLayout, type Layout } from './layout';
 import { World, type WorldStateView } from './world';
@@ -25,7 +28,8 @@ export class Game {
   readonly app: Application;
   readonly clock: GameClock;
   readonly speech = new Speech();
-  readonly eventLog = new EventLog(200);
+  readonly audio = new GameAudio();
+  readonly eventLog = new EventTap(200);
 
   private stage = new Container();
   private world!: World;
@@ -36,11 +40,15 @@ export class Game {
   private readiness: Readiness = 'loading';
   private currentScenario: ScenarioName;
   private pointerId: number | null = null;
+  private stopWatchingViewport: (() => void) | null = null;
 
   private constructor(app: Application, opts: GameOptions) {
     this.app = app;
     this.clock = new GameClock(opts.clockMode);
     this.speech.captureOnly = opts.captureSpeech;
+    // 検証では実再生せず、鳴らす予定の音の列だけを残す
+    this.audio.captureOnly = opts.captureSpeech;
+    this.eventLog.onEvent((e) => this.audio.onEvent(e));
     this.currentScenario = opts.scenario;
     this.app.stage.addChild(this.stage);
     this.clock.setUpdate((dt, t) => this.tick(dt, t));
@@ -61,8 +69,8 @@ export class Game {
     opts.container.appendChild(app.canvas);
     const game = new Game(app, opts);
     game.attachInput();
-    window.addEventListener('resize', () => game.handleResize());
-    window.addEventListener('orientationchange', () => game.handleResize());
+    // 回転・リサイズ（visualViewport の変化を含む）で置き直す。保持中の材料は失わない。
+    game.stopWatchingViewport = watchViewport(() => game.handleResize());
     await game.loadScenario(opts.scenario);
     game.clock.start();
     return game;
@@ -86,6 +94,7 @@ export class Game {
     }
     this.eventLog.clear();
     this.speech.clear();
+    this.audio.clear();
     this.clock.reset();
 
     // 通常の初期化 → 世界生成
@@ -114,6 +123,15 @@ export class Game {
 
   private tick(dtMs: number, timeMs: number): void {
     this.world.update(dtMs, timeMs);
+    this.audio.update(
+      {
+        flameElement: this.world.flameElement,
+        flameIntensityPct: this.world.flameIntensityPct,
+        // 切れた線は、直るまで火花を出し続ける
+        sparking: this.world.jobs.some((j) => j.id === 'wiring' && j.status === 'called'),
+      },
+      timeMs,
+    );
     this.view.update(this.world, timeMs);
     this.app.renderer.render(this.app.stage);
   }
@@ -124,9 +142,24 @@ export class Game {
     this.app.renderer.render(this.app.stage);
   }
 
+  /** 画面から取り外す。回転の見張りも解く。 */
+  destroy(): void {
+    this.stopWatchingViewport?.();
+    this.stopWatchingViewport = null;
+    this.clock.stop();
+  }
+
+  /**
+   * 回転・リサイズ。置き場所を計算し直すだけで、世界の状態は作り直さない。
+   * 保持中の材料も進行中の仕事も、そのまま続く（World.setLayout が置き直す）。
+   */
   private handleResize(): void {
+    if (!this.world) return; // まだ世界が無い（起動直後）
     this.app.resize();
-    this.layout = computeLayout(this.app.screen.width, this.app.screen.height);
+    const w = this.app.screen.width;
+    const h = this.app.screen.height;
+    if (w === this.layout.width && h === this.layout.height) return;
+    this.layout = computeLayout(w, h);
     this.world.setLayout(this.layout);
     this.view.layout(this.layout);
     this.render();
@@ -146,8 +179,9 @@ export class Game {
       if (this.pointerId !== null) return; // 一本指だけ受ける
       this.pointerId = e.pointerId;
       e.preventDefault();
-      // iOS の制約: 最初のタッチの中で無音発話をして解錠する
+      // iOS の制約: 最初のタッチの中で解錠する（合成音声と AudioContext を同じ手で）
       this.speech.unlock();
+      this.audio.unlock();
       const p = this.toWorld(e);
       this.world.pointerDown(p.x, p.y);
       try {
@@ -195,7 +229,7 @@ export class Game {
     this.seedOverride = n >>> 0;
   }
 
-  dump(section: 'materials' | 'jobs' | 'flame' | 'layout'): unknown {
+  dump(section: 'materials' | 'jobs' | 'flame' | 'layout' | 'audio'): unknown {
     switch (section) {
       case 'materials':
         return this.world.materials.map((m) => ({ ...m, x: Math.round(m.x), y: Math.round(m.y) }));
@@ -208,6 +242,8 @@ export class Game {
           rect: this.layout.flame,
           timeMs: this.clock.timeMs,
         };
+      case 'audio':
+        return this.audio.captured();
       case 'layout':
         return {
           orientation: this.layout.orientation,
