@@ -81,14 +81,18 @@ export class FollowCamera {
     lookTarget.y += 0.25;
 
     if (this.pan) {
+      // a short establishing look at the next glowing house, then back to her
       this.pan.t += dt;
       const k = Math.min(1, this.pan.t / this.pan.dur);
       const e = Math.sin(k * Math.PI);
-      lookTarget.lerp(this.pan.point, e * 0.8);
-      desired.lerp(
-        this.pan.point.clone().addScaledVector(behind, dist * 0.95).setY(height + 1.5),
-        e * 0.45
-      );
+      const pd = this.pan.point;
+      _b.copy(gp).sub(pd); _b.y = 0;
+      if (_b.lengthSq() < 1) _b.set(0, 0, 1);
+      _b.normalize();
+      const panPos = pd.clone().addScaledVector(_b, this.portrait ? 15 : 13);
+      panPos.y = this.portrait ? 7.5 : 6.5;
+      lookTarget.lerp(pd, e);
+      desired.lerp(panPos, e);
       if (k >= 1) this.pan = null;
     }
 
