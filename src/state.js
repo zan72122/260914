@@ -1,6 +1,6 @@
 // 状態機械。レイアウトには一切依存しない（座標は正規化 or 毎フレーム layout から取る）。
 import { clamp, lerp, smooth, springWobble, landWobble, TAU } from './util.js';
-import { toScreen, toLocal } from './layout.js';
+import { toScreen, toLocal, panShift, PAN_SQUASH } from './layout.js';
 import { bakeRice, bakeMixedRice, makeLayer, paintMix, MOUND, moundRadius } from './render/plate.js';
 import { sfx, unlock } from './audio.js';
 
@@ -26,6 +26,7 @@ export const VARIANTS = [
     egg: {
       hi: '#fff6bd', mid: '#ffd84e', low: '#f5aa1d', edge: '#d8820f',
       torHi: '#ffe89b', torMid: '#ffd24a', torLow: '#f7a928', torEdge: '#d8820f',
+      skinHi: '#fbd868', skinMid: '#f6c243', skinLow: '#e9a62a', skinIn: '#d98a1e',
     },
   },
   {
@@ -36,6 +37,7 @@ export const VARIANTS = [
     egg: {
       hi: '#fffad4', mid: '#ffe173', low: '#fbbc3a', edge: '#e09a24',
       torHi: '#fff0ae', torMid: '#ffdb63', torLow: '#fbb53c', torEdge: '#e08d14',
+      skinHi: '#ffdf7d', skinMid: '#f8c94f', skinLow: '#edac30', skinIn: '#de9024',
     },
   },
   {
@@ -46,6 +48,7 @@ export const VARIANTS = [
     egg: {
       hi: '#ffeaa0', mid: '#ffc62f', low: '#ee930f', edge: '#c06c08',
       torHi: '#ffdf84', torMid: '#fdc543', torLow: '#ef9a1e', torEdge: '#c67405',
+      skinHi: '#f7d158', skinMid: '#f2bc38', skinLow: '#e4a024', skinIn: '#d3861a',
     },
   },
 ];
@@ -381,7 +384,7 @@ function updSlide(G, L, dt) {
     // 実際の傾きは指より少し遅れて追いつく（倒れていく過程が見える）
     G.pan.tilt = lerp(G.pan.tilt, G.pan.prog, 1 - Math.exp(-7 * dt));
     // 傾ききってから滑り出す（卵が縁へ寄る間を見せる）
-    if (G.pan.prog >= 1 && G.pan.tilt >= 0.82) {
+    if (G.pan.prog >= 1 && G.pan.tilt >= 0.88) {   // 皿の縁まで寄ってから滑り出す
       G.omelet.place = 'fly';
       G.omelet.fly = 0;
       G.hold.active = false;
@@ -389,7 +392,7 @@ function updSlide(G, L, dt) {
     }
   } else if (G.omelet.place === 'fly') {
     G.pan.tilt = lerp(G.pan.tilt, 1, 1 - Math.exp(-11 * dt));
-    G.omelet.fly = clamp(G.omelet.fly + dt / 0.38, 0, 1);   // 短く低い滑り台
+    G.omelet.fly = clamp(G.omelet.fly + dt / 0.28, 0, 1);   // 短く低い滑り台
     if (G.omelet.fly >= 1) {
       G.omelet.place = 'plate';
       G.omelet.u = 0;
@@ -443,9 +446,10 @@ function tryCut(G, L) {
 function updOpen(G, L, dt) {
   const t = G.st;
   G.omelet.cut = 1;
-  // 間 0.28s → パカッ 0.34s（皮が倒れる）→ トロッ 0.55s（開き 40% から重なって流れ出す）
-  G.omelet.open = clamp((t - 0.28) / 0.34, 0, 1);
-  G.omelet.tororo = clamp((t - 0.38) / 0.55, 0, 1);
+  // 間 0.28s → パカッ 0.34s（皮が倒れる）→ トロッ 0.55s（開き 25% から重なって流れ出す）
+  const OPEN_T0 = 0.28, OPEN_DUR = 0.34;
+  G.omelet.open = clamp((t - OPEN_T0) / OPEN_DUR, 0, 1);
+  G.omelet.tororo = clamp((t - (OPEN_T0 + OPEN_DUR * 0.25)) / 0.55, 0, 1);
   if (t > 0.28 && t - dt <= 0.28) sfx.paka();
   // きらめきはライスの上ではなく、とろとろが広がりきった黄色い面の上に小さく数個だけ
   if (t >= 1.00 && t - dt < 1.00) {
@@ -638,35 +642,45 @@ export function omeletScreen(G, L) {
 
   if (o.place === 'pan') {
     const k = clamp(G.pan.tilt, 0, 1);
+    const sh = panShift(L, k);                 // フライパンごと皿へ寄る
+    const sq = 1 - 0.15 * k;                   // 傾いた面は縦につぶれて見える
     const slip = 0.16 * k + 0.44 * k * k;      // 傾くほど縁へじわっと寄る
-    const st = stretchTo(F.r * 0.58, F.ry * 0.54, ux, uy, 0.35 * k * k);
-    return { x: F.cx + ux * F.r * slip, y: F.cy + uy * F.ry * slip, rx: st.rx, ry: st.ry, rot: 0, wob };
+    const st = stretchTo(F.r * 0.58, F.ry * 0.54 * sq, ux, uy, 0.5 * k * k);
+    return {
+      x: F.cx + sh.x + ux * F.r * slip,
+      y: F.cy + sh.y + uy * F.ry * sq * slip,
+      rx: st.rx, ry: st.ry, rot: 0, wob, lift: 0,
+    };
   }
   if (o.place === 'fly') {
-    const t = smooth(o.fly);                   // 縁を越えて、滑り台をなぞるように等速で滑り込む
-    const a = { x: F.cx + ux * F.r * 0.60, y: F.cy + uy * F.ry * 0.60 };
+    const t = smooth(o.fly);                   // 皿の縁をひとまたぎするだけの、低くて短い滑り
+    const sh = panShift(L, 1);
+    const a = { x: F.cx + sh.x + ux * F.r * 0.62, y: F.cy + sh.y + uy * F.ry * PAN_SQUASH * 0.62 };
     const b = toScreen(P, 0, OM_V);
-    const lift = Math.sin(t * Math.PI) * L.unit * 0.013;   // 低い滑り台（ほぼ跳ねない）
+    const hop = Math.sin(t * Math.PI);
+    const lift = hop * L.unit * 0.012;                     // 持ち上げず、皿の縁を越える程度
     const st = stretchTo(
       lerp(F.r * 0.58, P.r * OM_RX, t),
-      lerp(F.ry * 0.54, P.ry * OM_RY, t),
+      lerp(F.ry * 0.54 * PAN_SQUASH, P.ry * OM_RY, t),
       ux, uy,
-      (0.30 + 0.70 * Math.sin(t * Math.PI)) * (1 - t),     // 伸びながら滑り出し、着地前に戻る
+      Math.sin(t * Math.PI),                   // 進行方向へ最大 1.2 倍だけ伸びる
     );
-    return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) - lift, rx: st.rx, ry: st.ry, rot: 0, wob: 0 };
+    return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) - lift, rx: st.rx, ry: st.ry, rot: 0, wob: 0, lift, slide: hop };
   }
   const c = toScreen(P, o.u, o.v);
-  return { x: c.x, y: c.y, rx: P.r * OM_RX, ry: P.ry * OM_RY, rot: 0, wob };
+  return { x: c.x, y: c.y, rx: P.r * OM_RX, ry: P.ry * OM_RY, rot: 0, wob, lift: 0 };
 }
 
-// 進行方向へ伸ばし、直交方向は少し細くする（squash & stretch）
-// 縦画面／横画面のどちらでも同じくらい「伸びて見える」よう、目標の細長さで指定する
+// 進行方向へ少しだけ伸ばす（squash & stretch）。
+// 上から見た平たいオムレツの形は崩さない＝進行方向のストレッチは最大 1.2 倍まで。
+const STRETCH_MAX = 1.2;
 function stretchTo(rxBase, ryBase, ux, uy, k) {
   const ax = Math.abs(ux), ay = Math.abs(uy);
   const ab = ax * rxBase + ay * ryBase;        // 進行方向の半径
   const cb = ax * ryBase + ay * rxBase;        // 直交方向の半径
-  const along = lerp(ab, Math.max(ab * 1.25, cb * 1.50), clamp(k, 0, 1));
-  const cross = cb * (1 - 0.20 * clamp(k, 0, 1));
+  const q = clamp(k, 0, 1);
+  const along = ab * (1 + (STRETCH_MAX - 1) * q);
+  const cross = cb * (1 - 0.06 * q);
   return { rx: ax * along + ay * cross, ry: ax * cross + ay * along };
 }
 

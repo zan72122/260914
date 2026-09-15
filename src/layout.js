@@ -60,6 +60,24 @@ export function computeLayout(w, h) {
   return L;
 }
 
+// 傾いたフライパンが皿へ寄る量。tilt=1 で皿側の縁が皿の縁とほぼ接する。
+// 描画（render/pan.js）と卵の位置（state.js）で同じ式を使う。
+export const PAN_SQUASH = 0.85;          // drawPan の scale(1, 1 - 0.15*tilt) と対応
+const PAN_GAP = 0.04;                    // 残す隙間（×unit）
+
+export function panShift(L, tilt) {
+  const P = L.plate, F = L.pan;
+  const dx = P.cx - F.cx, dy = P.cy - F.cy;
+  const dl = Math.hypot(dx, dy) || 1;
+  const ux = dx / dl, uy = dy / dl;
+  const ax = Math.abs(ux), ay = Math.abs(uy);
+  const panEdge = ax * F.r + ay * F.ry * PAN_SQUASH;   // 傾いて縦につぶれた縁
+  const plateEdge = ax * P.r + ay * P.ry;
+  const gap = Math.max(0, dl - panEdge - plateEdge);
+  const reach = Math.max(0, gap - L.unit * PAN_GAP) * clamp(tilt, 0, 1);
+  return { x: ux * reach, y: uy * reach, ux, uy, reach };
+}
+
 // drawHandle と同じ式（r*0.6 から長さ r*1.05、y は squash+0.2 で潰す）
 export function handleTip(P) {
   const a = P.handleAngle == null ? 0 : P.handleAngle;

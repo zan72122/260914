@@ -132,6 +132,22 @@ export async function doCut(page) {
   await expect.poll(() => state(page), { timeout: 10000 }).toMatch(/OPEN|DRAW|DONE_MENU/);
 }
 
+// 傾いたフライパンの皿側の縁と、皿の縁との隙間（px）
+export function panPlateGap(g) {
+  const dx = g.plate.x - (g.pan.x + g.pan.shift.x);
+  const dy = g.plate.y - (g.pan.y + g.pan.shift.y);
+  const dl = Math.hypot(dx, dy) || 1;
+  const ax = Math.abs(dx / dl), ay = Math.abs(dy / dl);
+  const panEdge = ax * g.pan.r + ay * g.pan.ry * g.pan.squash;
+  const plateEdge = ax * g.plate.r + ay * g.plate.ry;
+  return dl - panEdge - plateEdge;
+}
+
+// 傾ききったフライパンの皿側の縁が、皿の縁にほぼ接していること（隙間 <= 0.06*unit）
+export function expectPanNearPlate(g) {
+  expect(panPlateGap(g), 'フライパンの縁が皿の縁にほぼ接していること').toBeLessThanOrEqual(g.unit * 0.06);
+}
+
 // フライパンの取っ手の先が、下の道具や画面外に重なっていないこと
 export async function expectHandleClear(page) {
   const g = await geom(page);

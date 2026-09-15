@@ -16,7 +16,8 @@ if (!prefix || !outArg) {
 }
 const out = path.resolve(ROOT, outArg);
 
-const files = fs.readdirSync(DIR).filter((f) => f.startsWith(prefix) && f.endsWith('.png')).sort();
+const rx = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-\\d+\\.png$`);
+const files = fs.readdirSync(DIR).filter((f) => rx.test(f)).sort();
 if (!files.length) {
   console.error(`no frames matching "${prefix}*" in ${DIR}`);
   process.exit(1);

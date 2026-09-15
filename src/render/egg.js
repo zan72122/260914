@@ -19,12 +19,19 @@ export function drawOmelet(ctx, o, K, t) {
   const open = clamp(o.open || 0, 0, 1);
   const tor = clamp(o.tororo || 0, 0, 1);
 
-  // 接地影（開くほど横に広がる）
+  // 落ち影（開くほど横に広がる／浮いた分だけ下に離れてぼやける＝滑っている足元が見える）
+  const lift = o.lift || 0;
+  const sl = clamp(o.slide || 0, 0, 1);       // 滑っている間は影が少し下に離れてぼやける
   ctx.save();
-  ctx.globalAlpha = 0.28;
-  ctx.fillStyle = 'rgba(86,44,10,1)';
+  ctx.translate(o.x + rx * 0.04, o.y + ry * (0.42 + 0.26 * sl) + lift);
+  ctx.scale(rx * (1.0 + open * 0.45) * (1 + 0.10 * sl), ry * 0.54 * (1 + 0.16 * sl));
+  const shg = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+  shg.addColorStop(0, `rgba(86,44,10,${0.40 - 0.08 * sl})`);
+  shg.addColorStop(0.55, `rgba(86,44,10,${0.26 - 0.05 * sl})`);
+  shg.addColorStop(1, 'rgba(86,44,10,0)');
+  ctx.fillStyle = shg;
   ctx.beginPath();
-  ctx.ellipse(o.x + rx * 0.04, o.y + ry * 0.42, rx * (1.0 + open * 0.45), ry * 0.46, 0, 0, TAU);
+  ctx.arc(0, 0, 1, 0, TAU);
   ctx.fill();
   ctx.restore();
 
@@ -76,23 +83,23 @@ function drawInside(ctx, o, rx, ry, K, e) {
   ctx.save();
   ctx.translate(o.x, o.y);
   ctx.rotate(o.rot || 0);
-  ctx.globalAlpha = clamp(e * 2.4, 0, 1);
-  const iw = rx * (0.30 + 0.66 * e), ih = ry * (0.90 + 0.14 * e);
+  ctx.globalAlpha = clamp(e * 6, 0, 1);
+  const iw = rx * (0.40 + 0.58 * e), ih = ry * (0.97 + 0.10 * e);
   ctx.beginPath();
   ctx.ellipse(0, ry * 0.06, iw, ih, 0, 0, TAU);
   const g = ctx.createRadialGradient(-iw * 0.10, ry * 0.10, iw * 0.05, 0, ry * 0.10, iw * 1.15);
   g.addColorStop(0, K.torMid);
   g.addColorStop(0.52, K.torLow);
-  g.addColorStop(1, K.torEdge);
+  g.addColorStop(1, K.skinIn);
   ctx.fillStyle = g;
   ctx.fill();
-  // 切れ目の奥は影になっている（窪みに見せる）
+  // 切れ目の奥はすこし陰る（茶色ではなく、焼けた黄色の濃い側）
   ctx.save();
   ctx.clip();
-  ctx.globalAlpha = 0.45 * clamp(e * 2.4, 0, 1);
+  ctx.globalAlpha = 0.32 * clamp(e * 6, 0, 1);
   const sg = ctx.createLinearGradient(0, -ih, 0, ih * 0.35);
-  sg.addColorStop(0, 'rgba(112,52,4,0.95)');
-  sg.addColorStop(1, 'rgba(112,52,4,0)');
+  sg.addColorStop(0, 'rgba(193,116,20,0.95)');
+  sg.addColorStop(1, 'rgba(193,116,20,0)');
   ctx.fillStyle = sg;
   ctx.fillRect(-iw * 1.2, -ih * 1.2, iw * 2.4, ih * 2.4);
   ctx.restore();
@@ -114,8 +121,8 @@ function drawFlap(ctx, o, rx, ry, K, t, s, e) {
 
   // 皮がライスに落とす影（倒れるほど外側・下へ）
   ctx.save();
-  ctx.globalAlpha = 0.22 * e;
-  ctx.fillStyle = 'rgba(96,48,8,1)';
+  ctx.globalAlpha = 0.20 * e;
+  ctx.fillStyle = 'rgba(126,66,10,1)';
   ctx.beginPath();
   ctx.ellipse(s * (ix + ox) * 0.52, oh * 0.24, rx * 0.30, oh * 0.62, s * 0.18 * e, 0, TAU);
   ctx.fill();
@@ -140,27 +147,27 @@ function drawFlap(ctx, o, rx, ry, K, t, s, e) {
   // 面：内側（切り口側）は暗い焼き面、外へ行くほど艶
   outline();
   const g = ctx.createLinearGradient(s * ix, 0, s * ox, 0);
-  g.addColorStop(0, K.edge);
-  g.addColorStop(0.20, K.low);
-  g.addColorStop(0.52, K.mid);
-  g.addColorStop(0.74, K.hi);
-  g.addColorStop(0.90, K.mid);
-  g.addColorStop(1, K.low);
+  g.addColorStop(0, K.skinIn);      // 切り口側＝内側の焼き面（深いオレンジ黄）
+  g.addColorStop(0.20, K.skinLow);
+  g.addColorStop(0.52, K.skinMid);
+  g.addColorStop(0.74, K.skinHi);
+  g.addColorStop(0.90, K.skinMid);
+  g.addColorStop(1, K.skinLow);
   ctx.fillStyle = g;
   ctx.fill();
 
   ctx.save();
   ctx.clip();
   // 下側に回り込む陰（シートの丸み）
-  ctx.globalAlpha = 0.34;
+  ctx.globalAlpha = 0.26;
   const sg = ctx.createLinearGradient(0, oh * 0.02, 0, oh);
-  sg.addColorStop(0, 'rgba(150,80,10,0)');
-  sg.addColorStop(1, 'rgba(120,60,6,0.95)');
+  sg.addColorStop(0, 'rgba(217,138,30,0)');
+  sg.addColorStop(1, 'rgba(198,122,18,0.92)');
   ctx.fillStyle = sg;
   ctx.fillRect(-ox * 1.4, -oh * 1.4, ox * 2.8, oh * 2.8);
   // 焼き色のまだら（薄く）
-  ctx.globalAlpha = 0.13;
-  ctx.fillStyle = K.edge;
+  ctx.globalAlpha = 0.10;
+  ctx.fillStyle = K.skinIn;
   for (let i = 0; i < 3; i++) {
     ctx.beginPath();
     ctx.ellipse(s * ox * (0.52 + i * 0.16), oh * (-0.34 + i * 0.30), ox * 0.13, oh * 0.08, 0.4 * s, 0, TAU);
@@ -169,8 +176,8 @@ function drawFlap(ctx, o, rx, ry, K, t, s, e) {
   ctx.restore();
 
   // 外のふちの焼き色（薄いシートの厚みに見えるよう細く）
-  ctx.globalAlpha = 0.38;
-  ctx.strokeStyle = K.edge;
+  ctx.globalAlpha = 0.34;
+  ctx.strokeStyle = K.skinIn;
   ctx.lineWidth = Math.max(1.2, rx * 0.020);
   ctx.lineCap = 'round';
   outline();
@@ -178,12 +185,12 @@ function drawFlap(ctx, o, rx, ry, K, t, s, e) {
 
   // 内側（切り口）の縁：厚みのある断面に見せる一本の暗い線
   ctx.globalAlpha = 0.42 * e;
-  ctx.strokeStyle = K.edge;
+  ctx.strokeStyle = K.skinIn;
   ctx.lineWidth = Math.max(1.2, rx * 0.024);
   innerEdge();
   ctx.stroke();
   ctx.globalAlpha = 0.35 * e;
-  ctx.strokeStyle = K.hi;
+  ctx.strokeStyle = K.skinHi;
   ctx.lineWidth = Math.max(1, rx * 0.012);
   innerEdge();
   ctx.stroke();

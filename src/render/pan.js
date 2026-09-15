@@ -1,5 +1,6 @@
 // 黒いフライパン（取っ手つき）と、その上の卵液
 import { TAU, lerp, noise1, roundRect } from '../util.js';
+import { panShift } from '../layout.js';
 
 export function drawPan(ctx, L, G, t, drawEgg) {
   const P = L.pan;
@@ -8,6 +9,8 @@ export function drawPan(ctx, L, G, t, drawEgg) {
   const dx = L.plate.cx - P.cx, dy = L.plate.cy - P.cy;
   const dlen = Math.hypot(dx, dy) || 1;
   const ux = dx / dlen, uy = dy / dlen;
+  // 傾けるほどフライパン自体が皿へ寄っていく（tilt=1 で縁がほぼ接する）
+  const sh = panShift(L, tilt);
   // 傾いた面の中身は皿側へずれる（向こう側の内壁が見える＝縁が下がって見える）
   const inx = cx + ux * r * 0.11 * tilt;
   const iny = cy + uy * ry * 0.11 * tilt;
@@ -18,16 +21,16 @@ export function drawPan(ctx, L, G, t, drawEgg) {
   ctx.fillStyle = 'rgba(40,18,4,1)';
   ctx.beginPath();
   ctx.ellipse(
-    cx + r * 0.04 + ux * r * 0.12 * tilt,
-    cy + ry * 0.16 + uy * ry * 0.12 * tilt,
+    cx + r * 0.04 + sh.x,
+    cy + ry * 0.16 + sh.y,
     r * (1.05 - 0.10 * tilt), ry * (1.05 - 0.26 * tilt), 0, 0, TAU,
   );
   ctx.fill();
   ctx.restore();
 
   ctx.save();
-  // 皿の方へ「はっきり傾ける」：約12°回して、皿方向へ最大18%寄せ、縦を 0.85 に潰す
-  ctx.translate(cx + ux * tilt * r * 0.18, cy + uy * tilt * ry * 0.18);
+  // 皿の方へ「はっきり傾ける」：約12°回し、皿の縁まで寄せ、縦を 0.85 に潰す
+  ctx.translate(cx + sh.x, cy + sh.y);
   ctx.rotate((ux < -0.3 ? -1 : 1) * 0.21 * tilt);
   ctx.scale(1, 1 - 0.15 * tilt);
   ctx.translate(-cx, -cy);

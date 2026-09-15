@@ -1,5 +1,5 @@
 // 起動・リサイズ・メインループ
-import { computeLayout } from './layout.js';
+import { computeLayout, panShift, PAN_SQUASH } from './layout.js';
 import { attachInput } from './input.js';
 import { createGame, update, pointerDown, pointerMove, pointerUp, onLayout, omeletScreen, resetGame, S } from './state.js';
 import { render } from './render/scene.js';
@@ -82,7 +82,7 @@ const api = {
     return {
       w: L.w, h: L.h, portrait: L.portrait, unit: L.unit,
       plate: { x: L.plate.cx, y: L.plate.cy, r: L.plate.r, ry: L.plate.ry },
-      pan: { x: L.pan.cx, y: L.pan.cy, r: L.pan.r, ry: L.pan.ry },
+      pan: { x: L.pan.cx, y: L.pan.cy, r: L.pan.r, ry: L.pan.ry, tilt: G.pan.tilt, squash: PAN_SQUASH, shift: panShift(L, G.pan.tilt) },
       tools: L.tools,
       toolR: L.toolR,
       buttons: L.buttons.map((b) => ({ id: b.id, x: b.x, y: b.y, r: b.r })),
