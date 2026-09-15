@@ -1,0 +1,15 @@
+{
+  "name": "suisui-floor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "すいすい！床のひみつ探検 — vanilla Canvas 2D vacuum game (no build step)",
+  "scripts": {
+    "serve": "node dev/serve.mjs",
+    "shot": "node dev/shot.mjs",
+    "sheets": "node dev/sheets.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}
