@@ -1,6 +1,15 @@
 import * as THREE from 'three';
 import type { Palette } from '../levels/schema';
-import { fitOrthographic, onViewportChange, readSafeInsets, type SafeInsets } from './fit';
+import {
+  fitOrthographic,
+  frameFromBox,
+  lerpFrame,
+  onViewportChange,
+  readSafeInsets,
+  MIN_MARGIN,
+  type Frame,
+  type SafeInsets,
+} from './fit';
 
 /** カメラ移動(島 ↔ 盤面)の時間(7.4) */
 export const CAMERA_SECONDS = 0.8;
@@ -9,32 +18,46 @@ export const CAMERA_SECONDS = 0.8;
  * まったく描かないと明滅が止まってしまうので、低頻度でだけ描く。
  */
 const IDLE_FRAME_SECONDS = 1 / 12;
+/** 蛍のゆらぎ・水面のコースティクスなど「常に少し動く」ものの描画間隔(R4 / R5: 30fps に間引く) */
+const SLOW_FRAME_SECONDS = 1 / 30;
 
 export interface Stage {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene: THREE.Scene;
   readonly camera: THREE.OrthographicCamera;
   readonly root: THREE.Group;
-  /** 盤面のバウンディングボックスに合わせてカメラを再フィットする */
-  fit(box: THREE.Box3): void;
-  /** 現在の枠から box へ seconds かけて寄る / 引く(7.4: 0.8s ease-in-out) */
-  animateFit(box: THREE.Box3, seconds?: number): void;
-  /** 一時的に枠を広げる(ズームアウトして地図へ戻る演出の途中など) */
-  readonly fitBox: THREE.Box3;
+  /** 対象に合わせてカメラを即座に合わせる */
+  fit(frame: Frame): void;
+  /** 現在の枠から frame へ seconds かけて寄る / 引く(7.4: 0.8s ease-in-out) */
+  animateFit(frame: Frame, seconds?: number): void;
+  /** 現在の枠 */
+  readonly frame: Frame;
+  /** 対象の外に残す余白の割合(5.3)。地図画面は詰める */
+  setMargin(margin: number): void;
   setPalette(palette: Palette): void;
-  /** 毎フレーム呼ばれるコールバックを登録する */
-  onFrame(cb: (dt: number, t: number) => void): void;
+  /** 毎フレーム呼ばれるコールバックを登録する。戻り値を呼ぶと解除できる */
+  onFrame(cb: (dt: number, t: number) => void): () => void;
   /** このフレームは描画が要る(オンデマンドレンダリング、R5) */
   requestRender(): void;
-  /** 明滅などの低頻度の更新だけが要る */
+  /** ゆっくり動くものだけが要る(30fps に間引く) */
+  requestSlowRender(): void;
+  /** 明滅などの低頻度の更新だけが要る(12fps) */
   requestIdleRender(): void;
   start(): void;
+  /** ループを止める(画面を隠して保持しておくとき) */
+  stop(): void;
+  /** キャンバスの表示・非表示 */
+  setVisible(visible: boolean): void;
   dispose(): void;
 }
 
 function easeInOut(p: number): number {
   return p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
 }
+
+const DEFAULT_FRAME: Frame = frameFromBox(
+  new THREE.Box3(new THREE.Vector3(-2, 0, -2), new THREE.Vector3(2, 1, 2)),
+);
 
 export function createStage(container: HTMLElement): Stage {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
@@ -65,31 +88,34 @@ export function createStage(container: HTMLElement): Stage {
   scene.add(sun.target);
 
   let insets: SafeInsets = readSafeInsets();
-  let lastBox = new THREE.Box3(new THREE.Vector3(-2, 0, -2), new THREE.Vector3(2, 1, 2));
+  let margin = MIN_MARGIN;
+  let current: Frame = DEFAULT_FRAME;
 
   // カメラ移動のトゥイーン(7.4)
-  const fromBox = new THREE.Box3();
-  const toBox = new THREE.Box3();
+  let fromFrame: Frame = current;
+  let toFrame: Frame = current;
   let camT = -1;
   let camDuration = CAMERA_SECONDS;
 
   let dirty = true;
   let idleAccum = 0;
   let idleWanted = false;
+  let slowWanted = false;
 
   function requestRender(): void {
     dirty = true;
+  }
+  function requestSlowRender(): void {
+    slowWanted = true;
   }
   function requestIdleRender(): void {
     idleWanted = true;
   }
 
-  function applyShadowFrustum(box: THREE.Box3): void {
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    const r = Math.max(size.x, size.z) * 0.9 + 1.5;
-    sun.position.set(center.x + r, center.y + r * 1.8, center.z + r * 0.9);
-    sun.target.position.copy(center);
+  function applyShadowFrustum(frame: Frame): void {
+    const r = Math.max(frame.halfX, frame.halfY) * 1.1 + 1.5;
+    sun.position.copy(frame.center).add(new THREE.Vector3(r, r * 1.8, r * 0.9));
+    sun.target.position.copy(frame.center);
     sun.target.updateMatrixWorld();
     const cam = sun.shadow.camera;
     cam.left = -r;
@@ -101,28 +127,34 @@ export function createStage(container: HTMLElement): Stage {
     cam.updateProjectionMatrix();
   }
 
+  function apply(): void {
+    const w = container.clientWidth || window.innerWidth;
+    const h = container.clientHeight || window.innerHeight;
+    fitOrthographic(camera, { frame: current, width: w, height: h, insets, margin });
+  }
+
   function resize(): void {
     const w = container.clientWidth || window.innerWidth;
     const h = container.clientHeight || window.innerHeight;
     renderer.setSize(w, h, false);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    fitOrthographic(camera, { box: lastBox, width: w, height: h, insets });
+    apply();
     requestRender();
   }
 
-  function fit(box: THREE.Box3): void {
-    lastBox = box.clone();
+  function fit(frame: Frame): void {
+    current = frame;
     camT = -1;
-    applyShadowFrustum(lastBox); // 影のフラスタムを盤面にぴったり合わせる(7.3)
+    applyShadowFrustum(current); // 影のフラスタムを対象にぴったり合わせる(7.3)
     resize();
   }
 
-  function animateFit(box: THREE.Box3, seconds = CAMERA_SECONDS): void {
-    fromBox.copy(lastBox);
-    toBox.copy(box);
+  function animateFit(frame: Frame, seconds = CAMERA_SECONDS): void {
+    fromFrame = current;
+    toFrame = frame;
     camDuration = Math.max(0.001, seconds);
     camT = 0;
-    applyShadowFrustum(toBox);
+    applyShadowFrustum(toFrame);
     requestRender();
   }
 
@@ -142,40 +174,50 @@ export function createStage(container: HTMLElement): Stage {
   }
 
   const frameCbs: ((dt: number, t: number) => void)[] = [];
-  function onFrame(cb: (dt: number, t: number) => void): void {
+  function onFrame(cb: (dt: number, t: number) => void): () => void {
     frameCbs.push(cb);
+    return () => {
+      const i = frameCbs.indexOf(cb);
+      if (i >= 0) frameCbs.splice(i, 1);
+    };
   }
 
   let raf = 0;
   let prev = 0;
+  let slowAccum = 0;
   function loop(now: number): void {
     raf = requestAnimationFrame(loop);
     const t = now / 1000;
-    const dt = prev === 0 ? 0 : Math.min(0.05, t - prev);
+    // 1 フレームで進める時間の上限。タブ復帰などの大きな飛びだけを抑え、
+    // «描画が重いだけ» のときはアニメーションが伸びないようにする(伸びると
+    // 回転中の入力止めやカメラ移動が実時間より長くなる)
+    const dt = prev === 0 ? 0 : Math.min(0.25, t - prev);
     prev = t;
 
     if (camT >= 0) {
       camT = Math.min(camDuration, camT + dt);
-      const e = easeInOut(camT / camDuration);
-      lastBox.min.lerpVectors(fromBox.min, toBox.min, e);
-      lastBox.max.lerpVectors(fromBox.max, toBox.max, e);
-      const w = container.clientWidth || window.innerWidth;
-      const h = container.clientHeight || window.innerHeight;
-      fitOrthographic(camera, { box: lastBox, width: w, height: h, insets });
+      current = lerpFrame(fromFrame, toFrame, easeInOut(camT / camDuration));
+      apply();
       if (camT >= camDuration) camT = -1;
       dirty = true;
     }
 
     idleWanted = false;
+    slowWanted = false;
     for (const cb of frameCbs) cb(dt, t);
 
-    // オンデマンドレンダリング(R5)。明滅だけのときは低頻度で描く
+    // オンデマンドレンダリング(R5)。ゆっくり動くものは 30fps、明滅だけなら 12fps
+    if (!dirty && slowWanted) {
+      slowAccum += dt;
+      if (slowAccum >= SLOW_FRAME_SECONDS) dirty = true;
+    }
     if (!dirty && idleWanted) {
       idleAccum += dt;
       if (idleAccum >= IDLE_FRAME_SECONDS) dirty = true;
     }
     if (dirty) {
       idleAccum = 0;
+      slowAccum = 0;
       renderer.render(scene, camera);
       dirty = false;
     }
@@ -204,15 +246,32 @@ export function createStage(container: HTMLElement): Stage {
     root,
     fit,
     animateFit,
-    get fitBox() {
-      return lastBox;
+    get frame() {
+      return current;
+    },
+    setMargin(m) {
+      margin = m;
+      apply();
+      requestRender();
     },
     setPalette,
     onFrame,
     requestRender,
+    requestSlowRender,
     requestIdleRender,
     start() {
-      if (raf === 0) raf = requestAnimationFrame(loop);
+      if (raf === 0) {
+        prev = 0;
+        resize();
+        raf = requestAnimationFrame(loop);
+      }
+    },
+    stop() {
+      if (raf !== 0) cancelAnimationFrame(raf);
+      raf = 0;
+    },
+    setVisible(visible) {
+      renderer.domElement.style.display = visible ? 'block' : 'none';
     },
     dispose() {
       if (raf !== 0) cancelAnimationFrame(raf);

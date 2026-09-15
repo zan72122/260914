@@ -21,6 +21,7 @@ import {
   stopEngine,
 } from '../audio/sfx';
 import { createStage, CAMERA_SECONDS, type Stage } from '../render/scene';
+import { expandFrame, frameFromBox } from '../render/fit';
 import {
   createTileMesh,
   createBlockProp,
@@ -65,11 +66,13 @@ function easeOut(p: number): number {
 
 /** デバッグ用に露出する読み取り口(E2E のタップ位置計算に使う) */
 export interface PlayDebug {
-  tools(): { index: number; used: boolean; x: number; y: number; z: number }[];
+  tools(): { index: number; used: boolean; touched: boolean; dormant: boolean; x: number; y: number; z: number }[];
   /** ワールド座標 → キャンバス上の CSS ピクセル座標 */
   project(x: number, y: number, z: number): { x: number; y: number };
   connected(): boolean;
   cleared(): boolean;
+  /** 回転アニメ中は入力を受け付けない(4.2 T1)。E2E の待ち合わせに使う */
+  rotating(): boolean;
 }
 
 export interface PlayScreen {
@@ -80,6 +83,8 @@ export interface PlayScreen {
 export interface PlayOptions {
   /** ピンチアウト / 盤外タップ / クリア後の自動で地図へ戻る(5.1) */
   onExit?(cleared: boolean): void;
+  /** 地図へ引き始めた瞬間。遷移時間の実測に使う */
+  onExitStart?(): void;
 }
 
 export function createPlayScreen(container: HTMLElement, level: Level, opts: PlayOptions = {}): PlayScreen {
@@ -224,18 +229,55 @@ export function createPlayScreen(container: HTMLElement, level: Level, opts: Pla
   state.tools.forEach((tool, i) => {
     const ov = createToolOverlay(tool, i, liftAt);
     overlays.push(ov);
-    hitObjects.push(...ov.hitPlanes);
     stage.root.add(ov.group);
   });
+
+  /**
+   * 盤面そのものの当たり判定(toolIndex = -1)。
+   * ツールでないタイルを押しても «何も起きない» ようにするために要る。
+   * これが無いと、盤面のど真ん中を触っただけで地図へ戻ってしまう(5.1 / R8)。
+   */
+  const boardPlane = new THREE.Mesh(
+    new THREE.PlaneGeometry(w + 1.2, h + 1.2),
+    new THREE.MeshBasicMaterial({ visible: false }),
+  );
+  boardPlane.rotation.x = -Math.PI / 2;
+  boardPlane.position.set((w - 1) / 2, 0.01, (h - 1) / 2);
+  boardPlane.userData['toolIndex'] = -1;
+  stage.root.add(boardPlane);
+
+  /**
+   * «まだ効かない» ツールは隠す(レベル 9 の «壊してから回す»)。
+   * 瓦礫の上に乗った回転ツールは、壊れて道が現れるまで出さない。
+   * アイコンが重なって見えるのと、当たり判定の板が重なるのを同時に防ぐ。
+   */
+  function isDormant(index: number): boolean {
+    const tool = state.tools[index];
+    if (!tool || tool.kind === 'destroy') return false;
+    return tool.cells.every((c) => tileAt(state.board, c)?.kind === 'block');
+  }
+
+  function refreshTargets(): void {
+    hitObjects.length = 0;
+    overlays.forEach((ov, i) => {
+      const tool = state.tools[i];
+      const hidden = (tool?.used ?? false) || isDormant(i);
+      ov.group.visible = !hidden;
+      if (!hidden) hitObjects.push(...ov.hitPlanes);
+    });
+    hitObjects.push(boardPlane);
+  }
+  refreshTargets();
 
   // --- カメラのフィット ---
   const box = new THREE.Box3(
     new THREE.Vector3(-0.5, 0, -0.5),
     new THREE.Vector3(w - 0.5, STEP_HEIGHT + TILE_THICKNESS + 0.6, h - 0.5),
   );
+  const frame = frameFromBox(box);
   /** 地図へ引くときの枠(盤面の外まで見える) */
-  const outBox = box.clone().expandByScalar(Math.max(w, h) * 0.9);
-  stage.fit(box);
+  const outFrame = expandFrame(frame, 2.6);
+  stage.fit(frame);
 
   // --- ゲーム進行の状態 ---
   let connected = false;
@@ -324,7 +366,8 @@ export function createPlayScreen(container: HTMLElement, level: Level, opts: Pla
     autoExitTimer = -1;
     stopEngine();
     playExitIsland();
-    stage.animateFit(outBox, CAMERA_SECONDS);
+    opts.onExitStart?.();
+    stage.animateFit(outFrame, CAMERA_SECONDS);
   }
 
   /** 破壊の演出(4.2 T3): 破片が飛び、土煙が上がり、跡は空地になる */
@@ -346,6 +389,8 @@ export function createPlayScreen(container: HTMLElement, level: Level, opts: Pla
   }
 
   function tap(toolIndex: number): void {
+    // 盤面そのもののタップ。何も起きない(戻りもしない)
+    if (toolIndex < 0) return;
     resumeAudio();
     startBgm(level.theme);
     idleTimer = 0;
@@ -384,22 +429,22 @@ export function createPlayScreen(container: HTMLElement, level: Level, opts: Pla
       for (const c of tool.cells) dust.burst(new THREE.Vector3(c.x, topYOf(liftAt(c)), c.y));
     }
 
-    if (tool?.used) {
-      // 使い切りのツールはオーバーレイ・点線枠・アイコンごと消える(4.2 T3)
-      const ov = overlays[toolIndex];
-      if (ov) ov.group.visible = false;
-    }
+    // 使い切りのツールはオーバーレイ・点線枠・アイコンごと消える(4.2 T3)。
+    // 瓦礫が消えて «効くようになった» ツールはここで現れる。
+    refreshTargets();
     stage.requestRender();
   }
 
   const input = attachTouchInput(stage.renderer.domElement, stage.camera, { objects: hitObjects }, {
     onPressStart(i) {
+      if (i < 0) return;
       pressTarget[i] = 1;
       idleTimer = 0;
       autoExitTimer = -1;
       stage.requestRender();
     },
     onPressEnd(i) {
+      if (i < 0) return;
       pressTarget[i] = 0;
       stage.requestRender();
     },
@@ -481,8 +526,10 @@ export function createPlayScreen(container: HTMLElement, level: Level, opts: Pla
     confetti.tick(dt);
     dust.tick(dt);
     debris.tick(dt);
-    if (props.tick(t)) busy = true;
-    if (surroundings.tick(dt)) busy = true;
+    // 蛍のゆらぎ・水面のコースティクスは «ゆっくり動くもの»。30fps に間引く(R4 / R5)
+    let slow = false;
+    if (props.tick(t)) slow = true;
+    if (surroundings.tick(dt)) slow = true;
     if (vehicle.mode !== 'idle') busy = true;
 
     // 溜めてから発車(4.4)
@@ -556,6 +603,7 @@ export function createPlayScreen(container: HTMLElement, level: Level, opts: Pla
     if (driving) busy = true;
     // オンデマンドレンダリング(R5)。明滅と旗の揺れしか無いときは低頻度でだけ描く
     if (busy) stage.requestRender();
+    else if (slow) stage.requestSlowRender();
     else stage.requestIdleRender();
   });
 
@@ -566,6 +614,8 @@ export function createPlayScreen(container: HTMLElement, level: Level, opts: Pla
       return overlays.map((ov, i) => ({
         index: i,
         used: state.tools[i]?.used ?? false,
+        touched: state.tools[i]?.touched ?? false,
+        dormant: isDormant(i),
         x: ov.center.x,
         y: topYOf(liftAt({ x: Math.round(ov.center.x), y: Math.round(ov.center.z) })) + 0.05,
         z: ov.center.z,
@@ -582,6 +632,7 @@ export function createPlayScreen(container: HTMLElement, level: Level, opts: Pla
     },
     connected: () => connected,
     cleared: () => cleared,
+    rotating: () => anyRotating(),
   };
 
   return {
