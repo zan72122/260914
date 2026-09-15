@@ -32,7 +32,10 @@ export function approach(from: number, to: number, rate: number, dt: number): nu
 /** Where the butterfly wants to be when nobody is touching the screen. */
 export function driftTarget(time: number, out: Point): Point {
   out.x = Math.sin(time * DRIFT_SPEED) * DRIFT_AMP;
-  out.y = Math.sin(time * DRIFT_SPEED * 2) * DRIFT_AMP * 0.45 - 120;
+  // Well above the crowd's heads. Drifting at the crowd's own height put the
+  // butterfly among forty faces, where a 4-year-old simply cannot pick it out;
+  // the one thing in this game that flies has to be seen to be flying.
+  out.y = Math.sin(time * DRIFT_SPEED * 2) * DRIFT_AMP * 0.45 - 270;
   return out;
 }
 

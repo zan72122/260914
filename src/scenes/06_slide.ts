@@ -109,12 +109,18 @@ export class SlideScene extends CrowdScene {
       this.fromX.push(0);
       this.fromY.push(0);
       this.waiting.push(false);
-      // The queue: two loose rows trailing away from the foot of the ladder,
-      // with a visible gap right at the bottom rung.
-      const row = i % 2;
-      const along = Math.floor(i / 2);
-      this.queueX.push(footX - 150 - along * 66 - row * 26);
-      this.queueY.push(footY + 40 + row * 62);
+      // The queue: a loose huddle waiting to the left of the ladder, with a
+      // visible gap right at the bottom rung.
+      //
+      // It has to fit in the strip between the left edge of the world and the
+      // ladder — about 310 units on a phone in portrait — so it stacks five
+      // deep and only then spreads sideways. A single long tail (which is what
+      // this was) put half the queue off the left of the screen, and kids the
+      // player has never seen came walking in from nowhere.
+      const col = i % 5;
+      const row = Math.floor(i / 5);
+      this.queueX.push(footX - 115 - row * 54 + (col % 2) * 14);
+      this.queueY.push(footY - 78 + col * 48);
       const k = crowd.kids[i];
       k.x = this.queueX[i];
       k.y = this.queueY[i];

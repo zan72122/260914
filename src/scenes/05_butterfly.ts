@@ -46,7 +46,8 @@ const FLAP_FPS = 9;
 /** How far above the kids' heads the butterfly likes to fly. */
 const HOVER_LIFT = 40;
 /** World size of the butterfly sprite. */
-const BUTTERFLY_SCALE = 1.1;
+/** A touch bigger than life: it has to read at a glance over a crowd. */
+const BUTTERFLY_SCALE = 1.35;
 
 type Phase = 'chase' | 'running' | 'done';
 
