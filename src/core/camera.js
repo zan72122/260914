@@ -11,6 +11,10 @@
  *   const w = cam.screenToWorld(sx, sy);  // -> {x,y} world units
  *
  * Tilt is a PSEUDO tilt: vertical squash + vertical skew + vertical pan (no real 3D).
+ *
+ * Every motion call REPLACES the in-flight tween of the same channel, and `dur <= 0` applies the
+ * value instantly. `cam.stopTweens()` drops them all (optionally one channel:
+ * 'x'/'y' = pan, 'zoom', 'rotation', 'tilt'). Never reach into `cam._tweens` directly.
  */
 
 import { ease, clamp } from './tween.js';
@@ -50,7 +54,7 @@ export class Camera2D {
     this.x = w / 2; this.y = h / 2;
     this.zoom = 1; this.rotation = 0; this._tilt = 0;
     this.shakeX = this.shakeY = 0;
-    this._tweens.length = 0; this._shake = null; this._follow = null; this._tiltT = null;
+    this.stopTweens(); this._shake = null; this._follow = null;
     this.recompute();
     return this;
   }
@@ -113,23 +117,42 @@ export class Camera2D {
 
   // ------------------------------------------------------------- motion
 
+  /**
+   * Drop every in-flight camera tween (pan / zoom / rotate / tilt) and leave the camera
+   * wherever it currently is. Use it when a world jumps to a final framing.
+   * @param {'x'|'y'|'zoom'|'rotation'|'tilt'} [kind] optional: clear only this channel
+   */
+  stopTweens(kind) {
+    if (!kind) { this._tweens.length = 0; this._tiltT = null; return this; }
+    if (kind === 'tilt') { this._tiltT = null; return this; }
+    if (kind === 'x' || kind === 'y') kind = 'x';   // pan tweens carry x and y together
+    for (let i = this._tweens.length - 1; i >= 0; i--) {
+      if (this._tweens[i].keys.indexOf(kind) >= 0) this._tweens.splice(i, 1);
+    }
+    return this;
+  }
+
   panTo(x, y, dur = 0.6, easeFn = 'easeInOutCubic') {
+    this.stopTweens('x');
     if (dur <= 0) { this.x = x; this.y = y; return; }
     this._tweens.push({ keys: ['x', 'y'], from: [this.x, this.y], to: [x, y], t: 0, dur, ease: ease(easeFn) });
   }
 
   zoomTo(z, dur = 0.6, easeFn = 'easeOutCubic') {
+    this.stopTweens('zoom');
     if (dur <= 0) { this.zoom = z; return; }
     this._tweens.push({ keys: ['zoom'], from: [this.zoom], to: [z], t: 0, dur, ease: ease(easeFn) });
   }
 
   rotateTo(rad, dur = 0.6, easeFn = 'easeInOutCubic') {
+    this.stopTweens('rotation');
     if (dur <= 0) { this.rotation = rad; return; }
     this._tweens.push({ keys: ['rotation'], from: [this.rotation], to: [rad], t: 0, dur, ease: ease(easeFn) });
   }
 
   /** pseudo-tilt in degrees (0 = flat on) */
   tiltTo(deg, dur = 0.8, easeFn = 'easeInOutCubic') {
+    this._tiltT = null;
     if (dur <= 0) { this._tilt = deg; return; }
     this._tiltT = { from: this._tilt, to: deg, t: 0, dur, ease: ease(easeFn) };
   }

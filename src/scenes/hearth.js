@@ -32,6 +32,8 @@ const SNAP_RATIO = 0.18;       // §1.4 magnetic snap radius
 const SPECTRO_SNAP = 0.20;     // §3 spectroscope snap radius
 const IDLE_WIRE_AFTER = 8.0;   // §1.3 wire loop descends after 8s
 const TAP_MOVE_RATIO = 0.09;   // §1.4 a press that strays less than this (of S) counts as a tap
+const WOBBLE_BOOST_SEC = 3.2;  // §1.7 how long the "play me next" dish jumps after a return
+const HOP_SEC = 1.8;           // §1.7 how long ヒノコ hops after a world comes home
 
 /**
  * Mini-diorama for a returned world — drawn on the hearth shelf and reused by the
@@ -44,8 +46,9 @@ const TAP_MOVE_RATIO = 0.09;   // §1.4 a press that strays less than this (of S
 export function drawDiorama(g, def, x, y, r, alpha = 1, time = 0) {
   g.save();
   g.globalAlpha = alpha;
-  // base bubble
-  glowCircle(g, x, y, r * 1.5, def.glowColor, 0.35 * alpha);
+  // a filled slot glows in its own element colour — this is the collection hook (§1.7)
+  glowCircle(g, x, y, r * 2.0, def.glowColor, 0.5 * alpha);
+  glowCircle(g, x, y + r * 0.72, r * 0.9, def.flameColor, 0.3 * alpha);   // light spilling on the ledge
   g.fillStyle = withAlpha('#0b0810', 0.85);
   g.beginPath();
   g.ellipse(x, y, r, r * 0.86, 0, 0, Math.PI * 2);
@@ -116,11 +119,16 @@ export function drawDiorama(g, def, x, y, r, alpha = 1, time = 0) {
     }
   }
   g.restore();
-  // glass
-  g.strokeStyle = withAlpha('#ffffff', 0.18);
-  g.lineWidth = r * 0.08;
+  // coloured rim + glass highlight
+  g.strokeStyle = withAlpha(def.flameColor, 0.75);
+  g.lineWidth = Math.max(1, r * 0.09);
   g.beginPath();
   g.ellipse(x, y, r, r * 0.86, 0, 0, Math.PI * 2);
+  g.stroke();
+  g.strokeStyle = withAlpha('#ffffff', 0.28);
+  g.lineWidth = Math.max(1, r * 0.06);
+  g.beginPath();
+  g.ellipse(x, y, r * 0.93, r * 0.80, 0, Math.PI * 1.15, Math.PI * 1.75);
   g.stroke();
   g.restore();
 }
@@ -158,6 +166,7 @@ export function createHearth(engine, handoff, finish) {
   let flameLoop = null;
   let pressPt = null;
   let pressMax = 0;               // furthest the finger strayed from the press point (css px)
+  let pendingCameraReset = false;  // see enter(): the outgoing world still owns the camera
   let L = null;                    // layout
   let ctxRef = null;
   let started = false;
@@ -174,7 +183,7 @@ export function createHearth(engine, handoff, finish) {
 
     if (portrait) {
       lay.flame = { x: w * 0.5, y: h * 0.415, hw: S * 0.125, hh: S * 0.325 };
-      lay.shelf = { x: w * 0.5, y: h * 0.635, w: Math.min(w * 0.78, S * 1.5), h: S * 0.10, vertical: false };
+      lay.shelf = { x: w * 0.5, y: h * 0.630, w: Math.min(w * 0.96, S * 2.0), h: S * 0.085, vertical: false };
       lay.dishArcX = w * 0.360;
       lay.dishBaseY = h * 0.80;
       lay.dishLift = h * 0.040;
@@ -183,7 +192,7 @@ export function createHearth(engine, handoff, finish) {
       lay.spectro = { x: w * 0.155, y: h * 0.485, r: S * 0.062 };
     } else {
       lay.flame = { x: w * 0.36, y: h * 0.60, hw: S * 0.125, hh: S * 0.32 };
-      lay.shelf = { x: w * 0.085, y: h * 0.50, w: S * 0.13, h: Math.min(h * 0.62, S * 0.9), vertical: true };
+      lay.shelf = { x: w * 0.105, y: h * 0.50, w: S * 0.21, h: Math.min(h * 0.80, S * 1.1), vertical: true };
       // the arc starts clear of the hearth bowl's right edge (flame.x + 0.25*S)
       lay.dishArcX = w * 0.195;
       lay.dishCenterX = w * 0.735;
@@ -206,15 +215,22 @@ export function createHearth(engine, handoff, finish) {
     }
 
     // shelf slots
+    // Shelf slots. The mini-dioramas sit ON the ledge and are deliberately large (§1.7: the
+    // shelf has to make a child want the next one), so their radius comes from the slot PITCH,
+    // not from the thin board.
     lay.slots = [];
     const n = ELEMENTS.length;
+    const pitch = (lay.shelf.vertical ? lay.shelf.h : lay.shelf.w) / n;
+    const slotR = Math.min(pitch * 0.47, S * 0.085);
     for (let i = 0; i < n; i++) {
       if (lay.shelf.vertical) {
-        const y = lay.shelf.y - lay.shelf.h / 2 + (lay.shelf.h / n) * (i + 0.5);
-        lay.slots.push({ x: lay.shelf.x, y, r: Math.min(lay.shelf.w, lay.shelf.h / n) * 0.42 });
+        const y = lay.shelf.y - lay.shelf.h / 2 + pitch * (i + 0.5);
+        const q = engine.clampSafe(lay.shelf.x, y, slotR * 1.15);
+        lay.slots.push({ x: q.x, y: q.y, r: slotR });
       } else {
-        const x = lay.shelf.x - lay.shelf.w / 2 + (lay.shelf.w / n) * (i + 0.5);
-        lay.slots.push({ x, y: lay.shelf.y, r: Math.min(lay.shelf.h, lay.shelf.w / n) * 0.42 });
+        const x = lay.shelf.x - lay.shelf.w / 2 + pitch * (i + 0.5);
+        const q = engine.clampSafe(x, lay.shelf.y - slotR * 0.42, slotR * 1.15);
+        lay.slots.push({ x: q.x, y: q.y, r: slotR });
       }
     }
 
@@ -238,7 +254,7 @@ export function createHearth(engine, handoff, finish) {
     spectro.hx = L.spectro.x; spectro.hy = L.spectro.y;
     hinoko.x = L.hinoko.x; hinoko.y = L.hinoko.y;
     if (dishAnim.length !== L.dishes.length) {
-      dishAnim = L.dishes.map((d, i) => ({ wob: 0, lift: 0, ph: i * 1.37 }));
+      dishAnim = L.dishes.map((d, i) => ({ wob: 0, lift: 0, boost: 0, ph: i * 1.37 }));
     }
     if (carry && carry.dishIndex != null && !carry.auto && phase !== 'carry') {
       const d = L.dishes[carry.dishIndex];
@@ -470,7 +486,11 @@ export function createHearth(engine, handoff, finish) {
     ctxRef = ctx;
     started = true;
     layout(engine.width, engine.height);
-    engine.camera.resetToScreen();
+    // The hearth draws entirely in screen space, so it never needs the shared camera. During a
+    // continuous return the OUTGOING world is still drawing with that camera — resetting it here
+    // would snap the world mid-pull-back. Defer the reset until the overlap has finished.
+    if (handoff && handoff.progress < 1) pendingCameraReset = true;
+    else engine.camera.resetToScreen();
     installGestures();
 
     gazeRounds = totalPlays() === 0 ? 2 : 1;   // §1.3 weaken guidance on revisits
@@ -513,6 +533,10 @@ export function createHearth(engine, handoff, finish) {
 
   function update(dt) {
     t += dt;
+    if (pendingCameraReset && (!handoff || handoff.progress >= 1)) {
+      pendingCameraReset = false;
+      engine.camera.resetToScreen();
+    }
     flameBreath = 0.5 - 0.5 * Math.cos((t / 2.8) * Math.PI * 2);   // §1.3 2.8s breathing
     if (ambientFade > 0) ambientFade = Math.max(0, ambientFade - dt * 0.55);
 
@@ -522,6 +546,7 @@ export function createHearth(engine, handoff, finish) {
     // ---- idle dish motions
     for (let i = 0; i < dishAnim.length; i++) {
       const a = dishAnim[i];
+      if (a.boost > 0) a.boost = Math.max(0, a.boost - dt / WOBBLE_BOOST_SEC);
       a.lift = lerp(a.lift, i === targetDish && phase === 'idle' ? 1 : 0, damp(0.9, dt));
       const want = (i === targetDish && phase === 'idle') ? (gazeStage < gazeRounds * 2 + 1 ? 1 : 0.45) : 0;
       a.wob = lerp(a.wob, want, damp(0.92, dt));
@@ -624,9 +649,10 @@ export function createHearth(engine, handoff, finish) {
       if (!returning.placed && returning.t >= returning.dur * 0.78) {
         returning.placed = true;
         engine.audio.play('shelf_place');
-        hinoko.hop = 0.9; hinoko.cheer = 1.4;
+        engine.audio.play('hop');
+        hinoko.hop = HOP_SEC; hinoko.cheer = HOP_SEC + 0.8;
         targetDish = pickTargetDish();
-        dishAnim[targetDish] && (dishAnim[targetDish].wob = 1);
+        if (dishAnim[targetDish]) { dishAnim[targetDish].wob = 1; dishAnim[targetDish].boost = 1; }
       }
       if (returning.t >= returning.dur) { phase = 'idle'; returning = null; idleT = 0; element = null; }
     }
@@ -887,16 +913,27 @@ export function createHearth(engine, handoff, finish) {
     const a = dishAnim[i];
     const S = L.S;
     const wob = a.wob;
-    const lift = -a.lift * S * 0.012 + Math.sin(t * 5.2 + a.ph) * wob * S * 0.012;
-    const rot = Math.sin(t * 4.6 + a.ph) * wob * 0.09;
+    // §1.7: after a world comes home the "play me next" dish must be impossible to miss —
+    // a real hop (lift), a real tilt and a small scale pop, not a shiver.
+    const boost = a.boost * a.boost;
+    const hopK = Math.abs(Math.sin(t * 4.4 + a.ph));
+    const lift = -a.lift * S * 0.012
+      + Math.sin(t * 5.2 + a.ph) * wob * S * 0.012
+      - hopK * boost * S * 0.055;
+    const rot = Math.sin(t * 4.6 + a.ph) * wob * 0.09 + Math.sin(t * 4.4 + a.ph) * boost * 0.20;
+    const pop = 1 + boost * 0.10 * hopK;
     const held = carry && carry.dishIndex === i;
 
     g.save();
     g.translate(d.x, d.y + lift);
     g.rotate(rot);
+    if (pop !== 1) g.scale(pop, pop);
 
     // attention halo for the dish we want touched
-    if (wob > 0.02) glowCircle(g, 0, 0, d.r * (1.5 + 0.25 * Math.sin(t * 3)), HEARTH.glowColor, 0.28 * wob);
+    if (wob > 0.02 || boost > 0.02) {
+      glowCircle(g, 0, 0, d.r * (1.5 + 0.25 * Math.sin(t * 3) + boost * 0.9),
+        boost > 0.02 ? d.def.glowColor : HEARTH.glowColor, 0.28 * wob + 0.5 * boost);
+    }
 
     // dish bowl
     g.fillStyle = shade(HEARTH.stone, 1.5);
@@ -951,7 +988,8 @@ export function createHearth(engine, handoff, finish) {
   function drawHinoko(g) {
     const S = L.S;
     const r = L.hinoko.r;
-    const hop = hinoko.hop > 0 ? Math.abs(Math.sin(hinoko.hop * 12)) * S * 0.05 : 0;
+    const hopK = clamp(hinoko.hop / HOP_SEC);
+    const hop = hopK > 0 ? Math.abs(Math.sin(t * 9.5)) * S * 0.10 * (0.35 + 0.65 * hopK) : 0;
     const x = hinoko.x;
     const y = hinoko.y - hop + Math.sin(t * 1.6) * S * 0.006;
     const cheer = hinoko.cheer > 0 ? 1 : 0;
@@ -1022,12 +1060,18 @@ export function createHearth(engine, handoff, finish) {
       const n = progress().plays[def.id] || 0;
       const slot = L.slots[i];
       if (n <= 0) {
-        // empty socket: a quiet dark dimple (an invitation, not a label)
+        // empty socket: a real hole in the ledge (an invitation, not a label)
         g.save();
-        g.fillStyle = withAlpha('#000000', 0.35);
+        const hy = L.shelf.vertical ? slot.y : L.shelf.y;
+        g.fillStyle = withAlpha('#000000', 0.55);
         g.beginPath();
-        g.ellipse(slot.x, slot.y, slot.r * 0.55, slot.r * 0.34, 0, 0, Math.PI * 2);
+        g.ellipse(slot.x, hy, slot.r * 0.52, slot.r * 0.30, 0, 0, Math.PI * 2);
         g.fill();
+        g.strokeStyle = withAlpha(HEARTH.woodLit, 0.5);
+        g.lineWidth = Math.max(1, slot.r * 0.07);
+        g.beginPath();
+        g.ellipse(slot.x, hy - slot.r * 0.05, slot.r * 0.52, slot.r * 0.30, 0, 0, Math.PI * 2);
+        g.stroke();
         g.restore();
         continue;
       }
@@ -1132,10 +1176,11 @@ export function createHearth(engine, handoff, finish) {
     if (!def) return;
     const x = lerp(returning.from.x, slot.x, e);
     const y = lerp(returning.from.y, slot.y, e);
-    const r = lerp(Math.max(L.w, L.h) * 0.62, slot.r, e);
+    const r = lerp(Math.max(L.w, L.h) * 0.42, slot.r, e);
+    // starts translucent so the world pulling back behind it stays readable, then condenses
+    const alpha = 0.35 + 0.65 * clamp(k / 0.35);
     g.save();
-    g.globalAlpha = 1;
-    drawDiorama(g, def, x, y, r, 1, t);
+    drawDiorama(g, def, x, y, r, alpha, t);
     g.restore();
   }
 

@@ -83,7 +83,15 @@ export class SceneManager {
     const handoff = opts.handoff
       ? (opts.handoff.__handoff ? opts.handoff : makeHandoff(opts.handoff))
       : null;
-    if (handoff) { handoff.progress = 0; handoff.startedAt = performance.now(); }
+    const prev = this.current;
+    const transition = opts.transition === 'none' || !prev ? 'none' : 'continuous';
+    if (handoff) {
+      // With no overlap the handoff is instantly "finished", so a scene that fades itself in on
+      // handoff.progress is fully visible under __game.goto(...) and any other hard cut.
+      // This is set BEFORE enter() so scenes can read it during enter().
+      handoff.progress = transition === 'none' ? 1 : 0;
+      handoff.startedAt = performance.now();
+    }
 
     const finish = (result) => {
       if (scene !== this.current && scene !== this.outgoing) return;
@@ -99,9 +107,6 @@ export class SceneManager {
       finish
     };
 
-    const prev = this.current;
-    const transition = opts.transition === 'none' || !prev ? 'none' : 'continuous';
-
     engine.input.release();
     scene.layout(engine.width, engine.height);
     scene.enter(ctx);
@@ -109,6 +114,7 @@ export class SceneManager {
     this.current = scene;
 
     if (transition === 'none') {
+      if (handoff) handoff.progress = 1;
       if (prev) { try { prev.exit(); } catch (e) { console.warn(e); } }
       this.outgoing = null;
       this.overlap = null;
