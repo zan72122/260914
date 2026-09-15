@@ -42,6 +42,8 @@ export class InputController {
 
   onDown = (e) => {
     if (this.active) return;
+    // staged sequences own the board; the flag is always released afterwards
+    if (this.board.busy || document.body.classList.contains('ending')) return;
     const el = e.target.closest?.('.tile');
     if (!el) return;
     const tile = this.board.tiles.get(el.dataset.tile);

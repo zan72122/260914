@@ -1,25 +1,20 @@
-// main.js — boot, initial layout, resize (docs/01.md 4.1, 4.4).
-// Phase F1/F2: no audio, no save, no staging yet.
+// main.js — boot, initial layout, resize, restart (docs/01.md 4.1, 4.4).
 
 import { Board } from './board.js';
 import { Tile, TILE_DEFS, loadArt } from './tile.js';
 import { InputController, hardenGestures } from './input.js';
-import { PuzzleRunner } from './puzzles.js';
+import { PuzzleRunner, stageEnding } from './puzzles.js';
+import { HintController } from './hints.js';
 
-// Initial placement, docs/01.md 3.3 P1:
-//   T3 top-left (dim), T2 top-right, T1 bottom-left, T4 bottom-right (dim)
+// Initial placement (docs/02.md D2): top-left empty, T4 top-right (grey),
+// T1 bottom-left, T2 bottom-right. T3 only appears once P1 is solved.
 const START = [
-  ['T3', 'T2'],
-  ['T1', 'T4']
+  [null, 'T4'],
+  ['T1', 'T2']
 ];
 
-async function boot() {
-  await loadArt();
-
-  const boardEl = document.getElementById('board');
-  const tilesEl = document.getElementById('tiles');
-  const board = new Board(boardEl, tilesEl);
-
+function build(board) {
+  board.clear();
   for (let r = 0; r < 2; r++) {
     for (let c = 0; c < 2; c++) {
       const id = START[r][c];
@@ -28,10 +23,37 @@ async function boot() {
     }
   }
   board.layout();
+}
+
+async function boot() {
+  await loadArt();
+
+  const boardEl = document.getElementById('board');
+  const tilesEl = document.getElementById('tiles');
+  const fxEl = document.getElementById('fx');
+  const stageEl = document.getElementById('stage');
+  const board = new Board(boardEl, tilesEl);
+
+  build(board);
+
+  /** Ending -> the flower drops a seed -> tapping it floats back to the start. */
+  async function restart() {
+    stageEl.classList.add('fading');
+    await new Promise((r) => setTimeout(r, 560));
+    fxEl.replaceChildren();
+    document.body.classList.remove('ending');
+    build(board);
+    runner.reset();
+    board.busy = false;
+    document.dispatchEvent(new CustomEvent('game:restart'));
+    stageEl.classList.remove('fading');
+  }
+
+  const runner = new PuzzleRunner(board, { onEnding: () => stageEnding(board, restart) });
 
   hardenGestures(document);
   new InputController(board);
-  new PuzzleRunner(board);
+  const hints = new HintController(board, runner);
 
   const relayout = () => board.layout();
   window.addEventListener('resize', relayout);
@@ -40,7 +62,7 @@ async function boot() {
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(relayout).catch(() => {});
 
   // exposed for the e2e harness only; carries no UI and no text
-  window.__game = { board, relayout };
+  window.__game = { board, runner, hints, relayout, restart };
   document.documentElement.dataset.ready = '1';
 }
 
