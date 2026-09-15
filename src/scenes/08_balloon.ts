@@ -29,15 +29,14 @@ import { SCENE_TINTS } from '../art/palette';
 import { BALLOON_HAND_X, BALLOON_HAND_Y } from '../art/geometry';
 import { BGM_BALLOON } from '../core/audio';
 import {
-  DRIFT_SPEED,
   GONE,
   GROUNDED,
   RISING,
   allFloated,
+  driftX,
   floatedFraction,
   offTheTop,
   riseSpeed,
-  swayOffset,
 } from './balloonLogic';
 
 const KID_COUNT = 26;
@@ -61,6 +60,8 @@ export class BalloonScene extends CrowdScene {
   private riseT: number[] = [];
   private baseX: number[] = [];
   private topY = -900;
+  /** How far from the middle a floating kid may drift, in world units. */
+  private driftLimit = 400;
   private autoPilot = false;
   private autoTimer = 0;
   private laidOut = false;
@@ -108,6 +109,9 @@ export class BalloonScene extends CrowdScene {
     this.exitX = halfW + 300;
     // Gone means gone: a whole balloon's length above the top of the screen.
     this.topY = -halfH - 260;
+    // ...and gone through the TOP, never the side: a kid plus the balloon they
+    // are holding has to stay inside the width the device really shows.
+    this.driftLimit = Math.max(120, halfW - 140);
     if (!this.laidOut) {
       this.laidOut = true;
       this.crowd.scatter(Math.min(halfW * 0.78, 400), Math.min(halfH * 0.5, 260));
@@ -210,7 +214,10 @@ export class BalloonScene extends CrowdScene {
       if (this.states[i] === RISING) {
         this.riseT[i] += dt;
         k.y -= riseSpeed(this.riseT[i]) * dt;
-        k.x = this.baseX[i] + this.riseT[i] * DRIFT_SPEED + swayOffset(this.riseT[i], k.wanderPhase);
+        // Nobody is ever yanked inwards at lift-off: a kid who was already
+        // standing outside the drift limit simply stops drifting outwards.
+        const limit = Math.max(this.driftLimit, Math.abs(this.baseX[i]));
+        k.x = driftX(this.baseX[i], this.riseT[i], k.wanderPhase, limit);
         if (offTheTop(k.y, this.topY)) this.states[i] = GONE;
       } else if (this.states[i] === GROUNDED) {
         // Standing about holding a balloon: a tiny bob, nothing more.

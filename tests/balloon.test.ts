@@ -7,6 +7,7 @@ import {
   RISING,
   SWAY_AMP,
   allFloated,
+  driftX,
   floatedFraction,
   offTheTop,
   riseSpeed,
@@ -77,5 +78,53 @@ describe('scene 8 balloon: leaving off the top', () => {
     }
     expect(offTheTop(y, -760)).toBe(true);
     expect(t).toBeLessThan(10);
+  });
+});
+
+describe('scene 8 balloon: everybody leaves through the sky', () => {
+  // The visible world on a 390x844 phone is exactly the 1000-unit safe zone,
+  // so half of it is 500 and the scene allows a drift of 500 - 140.
+  const PHONE_LIMIT = 360;
+
+  it('never lets a floating kid drift past the edge of the picture', () => {
+    for (const baseX of [-390, -200, 0, 150, 355]) {
+      for (let t = 0; t <= 20; t += 0.1) {
+        const x = driftX(baseX, t, 1.3, PHONE_LIMIT);
+        expect(Math.abs(x)).toBeLessThanOrEqual(PHONE_LIMIT + 1e-9);
+      }
+    }
+  });
+
+  it('still drifts, and still sways, while it is inside the limit', () => {
+    const early = driftX(0, 0.5, 0.4, PHONE_LIMIT);
+    const later = driftX(0, 3, 0.4, PHONE_LIMIT);
+    expect(later).toBeGreaterThan(early);
+    // The sway is what makes it a balloon rather than a lift: two kids who
+    // left from the same spot are never in the same place.
+    expect(driftX(0, 2, 0, PHONE_LIMIT)).not.toBeCloseTo(driftX(0, 2, 2.1, PHONE_LIMIT), 3);
+  });
+
+  it('holds a kid who started outside the limit exactly where they were', () => {
+    // The scene widens the limit to the kid's own position rather than
+    // snapping them inwards, so nobody is ever yanked sideways at lift-off.
+    const baseX = 430;
+    expect(driftX(baseX, 0, 0, Math.abs(baseX))).toBeCloseTo(baseX, 6);
+    for (let t = 0; t <= 20; t += 0.25) {
+      expect(driftX(baseX, t, 0.7, Math.abs(baseX))).toBeLessThanOrEqual(baseX + 1e-9);
+    }
+  });
+
+  it('a whole crowd of phone-width lift-offs stays on screen all the way up', () => {
+    // 26 kids spread over the width the phone shows, each rising for the ~8s
+    // it takes to clear the top: not one of them may leave sideways.
+    for (let i = 0; i < 26; i++) {
+      const baseX = -390 + (780 * i) / 25;
+      const limit = Math.max(PHONE_LIMIT, Math.abs(baseX));
+      for (let t = 0; t <= 8; t += 0.2) {
+        expect(Math.abs(driftX(baseX, t, i * 0.24, limit))).toBeLessThanOrEqual(
+          Math.max(PHONE_LIMIT, Math.abs(baseX)) + 1e-9,
+        );
+      }
+    }
   });
 });
