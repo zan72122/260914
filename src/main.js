@@ -1,5 +1,5 @@
 // 起動・リサイズ・メインループ
-import { computeLayout, panShift, PAN_SQUASH } from './layout.js';
+import { computeLayout, panShift, PAN_SQUASH, toolExtent, SAFE_PAD } from './layout.js';
 import { attachInput } from './input.js';
 import { createGame, update, pointerDown, pointerMove, pointerUp, onLayout, omeletScreen, resetGame, S } from './state.js';
 import { render } from './render/scene.js';
@@ -20,10 +20,26 @@ function viewportSize() {
   return { w, h };
 }
 
+// セーフエリア（CSS env()）を px で読む
+function safeInsets() {
+  const cs = getComputedStyle(document.documentElement);
+  const px = (name) => {
+    const v = parseFloat(cs.getPropertyValue(name));
+    return Number.isFinite(v) ? Math.max(0, v) : 0;
+  };
+  return { top: px('--sa-top'), right: px('--sa-right'), bottom: px('--sa-bottom'), left: px('--sa-left') };
+}
+
+let safe = { top: 0, right: 0, bottom: 0, left: 0 };
+const sameSafe = (a, b) => a.top === b.top && a.right === b.right && a.bottom === b.bottom && a.left === b.left;
+
 function resize() {
   const { w, h } = viewportSize();
+  const s = safeInsets();
+  const safeChanged = !sameSafe(s, safe);
+  safe = s;
   const d = Math.min(2, window.devicePixelRatio || 1);   // DPR 上限2
-  if (w === cssW && h === cssH && d === dpr) return;
+  if (w === cssW && h === cssH && d === dpr && !safeChanged) return;
   cssW = w; cssH = h; dpr = d;
   canvas.style.width = w + 'px';
   canvas.style.height = h + 'px';
@@ -32,7 +48,7 @@ function resize() {
   invalidateTable();
   invalidatePlate();
   // 状態はそのまま、座標系だけ作り直す
-  L = computeLayout(w, h);
+  L = computeLayout(w, h, safe);
   onLayout(G, L);
 }
 
@@ -96,6 +112,15 @@ const api = {
       omelet: { x: o.x, y: o.y, rx: o.rx, ry: o.ry, place: G.omelet.place },
     };
   },
+  // 道具の「描画バウンディング」。画面から切れていないことをテストで守る。
+  toolBoxes() {
+    return ['bottle', 'spatula', 'bowl'].map((id) => {
+      const o = G[id];
+      const e = toolExtent(id, L.toolR, o.angle);
+      return { id, x: o.x, y: o.y, left: o.x - e.left, right: o.x + e.right, top: o.y - e.top, bottom: o.y + e.bottom };
+    });
+  },
+  get safe() { return { ...L.safe, pad: SAFE_PAD }; },
   progress() {
     return {
       ketchup: G.ketchup.amount / G.ketchup.need,

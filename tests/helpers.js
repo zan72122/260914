@@ -148,6 +148,22 @@ export function expectPanNearPlate(g) {
   expect(panPlateGap(g), 'フライパンの縁が皿の縁にほぼ接していること').toBeLessThanOrEqual(g.unit * 0.06);
 }
 
+// 道具（ヘラ・ボトル・ボウル）の絵が、まるごと画面内（セーフエリア込み・余白 8px 以上）にあること
+export async function expectToolsOnScreen(page, where = '') {
+  const { boxes, safe, w, h } = await page.evaluate(() => ({
+    boxes: window.__game.toolBoxes(), safe: window.__game.safe,
+    w: window.__game.geom().w, h: window.__game.geom().h,
+  }));
+  for (const b of boxes) {
+    const tag = `${b.id}${where ? ' @' + where : ''}`;
+    expect(b.left - safe.left, `${tag} の左が画面内`).toBeGreaterThanOrEqual(safe.pad - 0.5);
+    expect(w - safe.right - b.right, `${tag} の右が画面内`).toBeGreaterThanOrEqual(safe.pad - 0.5);
+    expect(b.top - safe.top, `${tag} の上が画面内`).toBeGreaterThanOrEqual(safe.pad - 0.5);
+    expect(h - safe.bottom - b.bottom, `${tag} の下が画面内`).toBeGreaterThanOrEqual(safe.pad - 0.5);
+  }
+  return boxes;
+}
+
 // フライパンの取っ手の先が、下の道具や画面外に重なっていないこと
 export async function expectHandleClear(page) {
   const g = await geom(page);

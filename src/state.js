@@ -1,6 +1,6 @@
 // 状態機械。レイアウトには一切依存しない（座標は正規化 or 毎フレーム layout から取る）。
 import { clamp, lerp, smooth, springWobble, landWobble, TAU } from './util.js';
-import { toScreen, toLocal, panShift, PAN_SQUASH } from './layout.js';
+import { toScreen, toLocal, panShift, PAN_SQUASH, clampTool, toolFits } from './layout.js';
 import { bakeRice, bakeMixedRice, makeLayer, paintMix, MOUND, moundRadius, invalidatePlate } from './render/plate.js';
 import { sfx, unlock } from './audio.js';
 
@@ -158,8 +158,28 @@ function setState(G, s) {
 // 画面サイズが変わったら道具だけ定位置に戻す（皿の中身は正規化保持なので無傷）
 export function onLayout(G, L) {
   if (!G.bottle.grab) { const h = bottleHome(G, L); G.bottle.x = h.x; G.bottle.y = h.y; G.bottle.homed = true; }
-  if (!G.spatula.grab) { const h = L.tools.spatula; G.spatula.x = h.x; G.spatula.y = h.y; G.spatula.homed = true; }
+  if (!G.spatula.grab) { const h = G.state === S.MIX ? mixLure(G, L) : L.tools.spatula; G.spatula.x = h.x; G.spatula.y = h.y; G.spatula.homed = true; }
   if (!G.bowl.grab) { const h = L.tools.bowl; G.bowl.x = h.x; G.bowl.y = h.y; G.bowl.homed = true; }
+  keepToolsOnScreen(G, L);
+}
+
+// 掴んでいる道具の追従先。描画バウンディングごと画面内に収まる位置へ丸める。
+function follow(G, L, kind, x, y) {
+  const o = G[kind];
+  const c = clampTool(L, kind, x, y, o.angle);
+  o.tx = c.x;
+  o.ty = c.y;
+  return c;
+}
+
+// 最後の砦：どの状態でも道具の絵が画面から切れないようにする
+function keepToolsOnScreen(G, L) {
+  for (const kind of ['bottle', 'spatula', 'bowl']) {
+    const o = G[kind];
+    const c = clampTool(L, kind, o.x, o.y, o.angle);
+    o.x = c.x;
+    o.y = c.y;
+  }
 }
 
 export function bottleHome(G, L) {
@@ -177,7 +197,7 @@ export function update(G, L, dt) {
   const bh = bottleHome(G, L);
   spring(G.bottle, G.bottle.grab ? G.bottle.tx : bh.x, G.bottle.grab ? G.bottle.ty : bh.y, dt, G.bottle.grab ? 22 : 9);
   if (G.state !== S.MIX) spring(G.spatula, G.spatula.grab ? G.spatula.tx : L.tools.spatula.x, G.spatula.grab ? G.spatula.ty : L.tools.spatula.y, dt, G.spatula.grab ? 24 : 9);
-  const bowlTarget = G.bowl.grab ? { x: G.bowl.tx, y: G.bowl.ty } : (G.egg.pouring ? panPour(L) : L.tools.bowl);
+  const bowlTarget = G.bowl.grab ? { x: G.bowl.tx, y: G.bowl.ty } : (G.egg.pouring ? panPour(L, G) : L.tools.bowl);
   spring(G.bowl, bowlTarget.x, bowlTarget.y, dt, G.bowl.grab ? 22 : 8);
 
   for (let i = G.sparkles.length - 1; i >= 0; i--) {
@@ -197,6 +217,9 @@ export function update(G, L, dt) {
     case S.DRAW:
     case S.MENU: updDraw(G, L, dt); break;
   }
+
+  // 角度も毎フレーム変わるので、最後に必ず画面内へ収める
+  keepToolsOnScreen(G, L);
 
   if (G.omelet.wobT < 9) G.omelet.wobT += dt;
 
@@ -218,7 +241,9 @@ function spring(o, tx, ty, dt, k) {
   o.y = lerp(o.y, ty, a);
 }
 
-function panPour(L) { return { x: L.pan.cx - L.pan.r * 0.22, y: L.pan.cy - L.pan.ry * 1.25 }; }
+function panPour(L, G) {
+  return clampTool(L, 'bowl', L.pan.cx - L.pan.r * 0.22, L.pan.cy - L.pan.ry * 1.25, G ? G.bowl.angle : 0);
+}
 
 // ---------- 1. ケチャップ ----------
 function updKetchup(G, L, dt) {
@@ -287,14 +312,36 @@ function squirt(G, L, x, y, quiet = false) {
 }
 
 // ---------- 2. 混ぜる ----------
+// 皿の縁で誘うヘラの位置。上端に近くて柄の先が切れそうな機種では、
+// 右 → 右下 → 下 … と、道具の絵がまるごと画面に収まる向きへ回す。
+const LURE_ANGLES = [-0.22, 0.02, 0.24, 0.5, 0.76, 0.98].map((k) => k * Math.PI);
+const LURE_TILT = [-0.74, -0.26];       // 誘い中のヘラの傾きの振れ幅
+
+export function mixLure(G, L) {
+  const P = L.plate;
+  const bobMax = P.ry * 0.18;
+  // 上端は「ぎりぎり収まる」では窮屈なので、道具の大きさに応じた余裕を足して判定する
+  const opt = { padTop: L.toolR * 0.45 };
+  for (const a of LURE_ANGLES) {
+    const x = P.cx + Math.cos(a) * P.r * 1.04;
+    const y = P.cy + Math.sin(a) * P.ry * 1.06;
+    const ok = LURE_TILT.every((t) => toolFits(L, 'spatula', x, y, t, opt) && toolFits(L, 'spatula', x, y - bobMax, t, opt));
+    if (ok) return { x, y, a };
+  }
+  // どの向きも入らない極端な画面：右上のまま画面内へ寄せる（揺れ幅ぶんも見込む）
+  const a = LURE_ANGLES[0];
+  const c = clampTool(L, 'spatula', P.cx + Math.cos(a) * P.r * 1.04, P.cy + Math.sin(a) * P.ry * 1.06 - bobMax, LURE_TILT[0]);
+  return { x: c.x, y: c.y + bobMax, a };
+}
+
 function updMix(G, L, dt) {
   const s = G.spatula;
   const P = L.plate;
   if (!s.grab) {
-    const a = -Math.PI * 0.22;
+    const lure = mixLure(G, L);
     const bob = Math.abs(Math.sin(G.time * 3.4)) * P.ry * 0.18;
-    const tx = P.cx + Math.cos(a) * P.r * 1.04;
-    const ty = P.cy + Math.sin(a) * P.ry * 1.06 - bob;
+    const tx = lure.x;
+    const ty = lure.y - bob;
     spring(s, tx, ty, dt, 10);
     s.angle = lerp(s.angle, -0.5 + Math.sin(G.time * 3.4) * 0.24, 1 - Math.exp(-8 * dt));
   } else {
@@ -551,16 +598,14 @@ export function pointerDown(G, L, p) {
     case S.KETCHUP: {
       if (G.ketchup.full) return;
       G.bottle.grab = true;
-      G.bottle.tx = p.x;
-      G.bottle.ty = p.y - L.toolR * 0.6;
+      follow(G, L, 'bottle', p.x, p.y - L.toolR * 0.6);
       squirt(G, L, p.x, p.y + L.toolR * 1.1);   // 押した瞬間に一滴出る
       break;
     }
     case S.MIX: {
       if (G.mix.done) return;
       G.spatula.grab = true;
-      G.spatula.tx = p.x;
-      G.spatula.ty = p.y;
+      follow(G, L, 'spatula', p.x, p.y);
       rub(G, L, p.x, p.y);
       break;
     }
@@ -568,7 +613,7 @@ export function pointerDown(G, L, p) {
       if (G.egg.poured) return;
       const b = G.bowl;
       if (Math.hypot(p.x - b.x, p.y - b.y) < L.toolR * 2.4) {
-        b.grab = true; b.tx = p.x; b.ty = p.y;
+        b.grab = true; follow(G, L, 'bowl', p.x, p.y);
       } else {
         G.egg.pouring = true;   // どこを触っても注ぎに向かう
       }
@@ -622,8 +667,7 @@ export function pointerMove(G, L, p) {
   switch (G.state) {
     case S.KETCHUP: {
       if (!G.bottle.grab) break;
-      G.bottle.tx = p.x;
-      G.bottle.ty = p.y - L.toolR * 0.6;
+      follow(G, L, 'bottle', p.x, p.y - L.toolR * 0.6);
       const P = L.plate;
       // ノズルは指の少し先（指の影に隠れない位置）。皿から外れたら指の位置へ吸着。
       const nz = { x: G.bottle.tx, y: G.bottle.ty + L.toolR * 1.7 };
@@ -638,13 +682,12 @@ export function pointerMove(G, L, p) {
     }
     case S.MIX: {
       if (!G.spatula.grab) break;
-      G.spatula.tx = p.x;
-      G.spatula.ty = p.y;
+      follow(G, L, 'spatula', p.x, p.y);
       rub(G, L, p.x, p.y);
       break;
     }
     case S.POUR: {
-      if (G.bowl.grab) { G.bowl.tx = p.x; G.bowl.ty = p.y; }
+      if (G.bowl.grab) follow(G, L, 'bowl', p.x, p.y);
       break;
     }
     case S.GATHER: {

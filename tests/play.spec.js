@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import {
   state, geom, prog, waitState, boot, drag, P,
-  doKetchup, doMix, doPour, doGather, doSlide, doCut, expectHandleClear,
+  doKetchup, doMix, doPour, doGather, doSlide, doCut, expectHandleClear, expectToolsOnScreen,
 } from './helpers.js';
 
 const SHOTS = 'screenshots';
@@ -33,18 +33,22 @@ async function doDraw(page) {
 async function playthrough(page, dev, ori, opts = {}) {
   await expect.poll(() => state(page)).toBe('RICE_KETCHUP');
   await expectHandleClear(page);
+  await expectToolsOnScreen(page, 'RICE_KETCHUP');
   await shot(page, dev, ori, 1, 'RICE_KETCHUP');
 
   await doKetchup(page);
   expect((await prog(page)).strokes).toBeGreaterThan(0);
+  await expectToolsOnScreen(page, 'RICE_MIX');
   await shot(page, dev, ori, 2, 'RICE_MIX');
 
   await doMix(page);
   expect((await prog(page)).cover).toBeGreaterThan(0.79);
+  await expectToolsOnScreen(page, 'EGG_POUR');
   await shot(page, dev, ori, 3, 'EGG_POUR');
 
   await doPour(page);
   expect((await prog(page)).spread).toBeGreaterThan(0.99);
+  await expectToolsOnScreen(page, 'EGG_GATHER');
   await shot(page, dev, ori, 4, 'EGG_GATHER');
 
   await doGather(page);
@@ -66,6 +70,7 @@ async function playthrough(page, dev, ori, opts = {}) {
     const g = await geom(page);
     expect(g.portrait).toBe(size.height > size.width ? false : true);
     await expectHandleClear(page);
+    await expectToolsOnScreen(page, 'EGG_SLIDE-rotated');
     await shot(page, dev, ori, 6, 'EGG_SLIDE-rotated');
   }
 
@@ -83,10 +88,12 @@ async function playthrough(page, dev, ori, opts = {}) {
   await shot(page, dev, ori, 8, 'OPEN');
 
   await waitState(page, 'DRAW', 10000);
+  await expectToolsOnScreen(page, 'DRAW');
   await shot(page, dev, ori, 9, 'DRAW');
 
   await doDraw(page);
   expect((await prog(page)).drawPoints).toBeGreaterThan(5);
+  await expectToolsOnScreen(page, 'DONE_MENU');
   await shot(page, dev, ori, 10, 'DONE_MENU');
 
   // 🔁 もう一回
@@ -111,6 +118,47 @@ for (const c of CASES) {
     const errors = await boot(page, c.w, c.h);
     await playthrough(page, c.dev, c.ori);
     expect(errors, 'JS エラーが出ていないこと').toEqual([]);
+  });
+}
+
+// 指で画面の隅まで引っぱっても、道具の絵が画面から切れないこと
+for (const c of [
+  { dev: 'iphone', ori: 'portrait', w: 390, h: 844 },
+  { dev: 'iphone', ori: 'landscape', w: 844, h: 390 },
+  { dev: 'ipad', ori: 'portrait', w: 820, h: 1180 },
+  { dev: 'ipad', ori: 'landscape', w: 1180, h: 820 },
+]) {
+  test(`${c.dev} ${c.ori}: 道具を画面の隅まで引っぱっても絵が切れない`, async ({ page }) => {
+    await boot(page, c.w, c.h);
+    const corners = [
+      { x: 1, y: 1 }, { x: c.w - 1, y: 1 },
+      { x: 1, y: c.h - 1 }, { x: c.w - 1, y: c.h - 1 },
+      { x: c.w / 2, y: 1 }, { x: c.w / 2, y: c.h - 1 },
+    ];
+    // ケチャップのボトルを掴んだまま四隅へ
+    const b = await page.evaluate(() => window.__game.hit('bottle'));
+    await page.mouse.move(b.x, b.y);
+    await page.mouse.down();
+    for (const p of corners) {
+      await page.mouse.move(p.x, p.y, { steps: 6 });
+      await page.waitForTimeout(120);
+      await expectToolsOnScreen(page, `KETCHUP 掴み ${p.x},${p.y}`);
+    }
+    await page.mouse.up();
+
+    // 混ぜる工程でヘラを掴んだまま四隅へ
+    await doKetchup(page);
+    await page.waitForTimeout(400);
+    await expectToolsOnScreen(page, 'RICE_MIX 誘い');
+    const s0 = await page.evaluate(() => window.__game.hit('spatula'));
+    await page.mouse.move(s0.x, s0.y);
+    await page.mouse.down();
+    for (const p of corners) {
+      await page.mouse.move(p.x, p.y, { steps: 6 });
+      await page.waitForTimeout(120);
+      await expectToolsOnScreen(page, `RICE_MIX 掴み ${p.x},${p.y}`);
+    }
+    await page.mouse.up();
   });
 }
 

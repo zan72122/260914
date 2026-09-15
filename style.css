@@ -1,4 +1,11 @@
-:root { color-scheme: light; }
+:root {
+  color-scheme: light;
+  /* ノッチ／ホームバーの逃げ幅。JS から読んでレイアウトに渡す */
+  --sa-top: env(safe-area-inset-top, 0px);
+  --sa-right: env(safe-area-inset-right, 0px);
+  --sa-bottom: env(safe-area-inset-bottom, 0px);
+  --sa-left: env(safe-area-inset-left, 0px);
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
   width: 100%;
