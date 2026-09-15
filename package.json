@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node tests/walkthrough.spec.mjs"
+    "test": "node tests/walkthrough.spec.mjs",
+    "pretest": "vite build"
   },
   "dependencies": {
     "three": "^0.186.0",

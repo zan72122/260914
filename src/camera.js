@@ -89,8 +89,8 @@ export class FollowCamera {
       _b.copy(gp).sub(pd); _b.y = 0;
       if (_b.lengthSq() < 1) _b.set(0, 0, 1);
       _b.normalize();
-      const panPos = pd.clone().addScaledVector(_b, this.portrait ? 15 : 13);
-      panPos.y = this.portrait ? 7.5 : 6.5;
+      const panPos = pd.clone().addScaledVector(_b, this.portrait ? 13 : 11.5);
+      panPos.y = this.portrait ? 5.6 : 5.0;
       lookTarget.lerp(pd, e);
       desired.lerp(panPos, e);
       if (k >= 1) this.pan = null;

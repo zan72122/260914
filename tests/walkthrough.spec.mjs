@@ -180,7 +180,7 @@ async function runViewport(browser, vp, base) {
 
     // 6. next house lights up
     await waitState(page, ['NEXT', 'FIND', 'ENDING'], 90000);
-    if (await state(page) === 'NEXT') await page.waitForTimeout(1200);
+    if (await state(page) === 'NEXT') await page.waitForTimeout(380);
     await shot(page, dir, `${tag}-8-next`);
 
     if (visit < 5) {
