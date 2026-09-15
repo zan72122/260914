@@ -40,7 +40,7 @@ export class Fireflies {
     this.target = null;
     this.attract = 0;
   }
-  flowTo(v) { this.target = v ? v.clone() : null; this.attract = 1; }
+  flowTo(v, strength = 1) { this.target = v ? v.clone() : null; this.attract = strength; }
   reset() {
     this.target = null; this.attract = 0;
     for (const f of this.data) { f.p.copy(f.home); f.v.set(0, 0, 0); }
@@ -63,7 +63,7 @@ export class Fireflies {
         _v.copy(this.target).sub(f.p);
         const dist = _v.length();
         if (dist < 26) {
-          _v.normalize().multiplyScalar(dt * this.attract * 1.5 * (1 - dist / 26));
+          _v.normalize().multiplyScalar(dt * this.attract * 1.9 * (1 - dist / 26));
           f.v.add(_v);
         }
       }
@@ -240,7 +240,7 @@ export class Sparkles {
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     this.geo = geo;
     this.points = new THREE.Points(geo, new THREE.PointsMaterial({
-      size: 0.3, map: T.glowTexture(), transparent: true, depthWrite: false,
+      size: 0.42, map: T.glowTexture(), transparent: true, depthWrite: false,
       blending: THREE.AdditiveBlending, vertexColors: true
     }));
     this.points.frustumCulled = false;
@@ -371,11 +371,11 @@ export class Fireworks {
     this.scene = scene;
   }
   reset() { this.rockets.length = 0; }
-  launch(x, z, color) {
+  launch(x, z, color, power = 1) {
     this.rockets.push({
       p: new THREE.Vector3(x, 1, z),
-      v: new THREE.Vector3((rand() - 0.5) * 2, 15 + rand() * 5, (rand() - 0.5) * 2),
-      t: 1.0 + rand() * 0.4,
+      v: new THREE.Vector3((rand() - 0.5) * 2, (15 + rand() * 5) * power, (rand() - 0.5) * 2),
+      t: (1.0 + rand() * 0.4) * power,
       color: color || [0xff8a2e, 0xffd24a, 0x8affc2, 0xff7ab8, 0x9fd4ff][(rand() * 5) | 0]
     });
   }
@@ -388,27 +388,27 @@ export class Fireworks {
       this.sparkles.burst(r.p, 2, r.color, 0.25, 0.4);
       if (r.t <= 0) {
         // pumpkin-shaped burst
-        const n = 46;
+        const n = 84;
         for (let k = 0; k < n; k++) {
           const a = (k / n) * Math.PI * 2;
           // pumpkin silhouette: wide ellipse with ribbed radius
           const rad = (1 + 0.12 * Math.cos(a * 6)) * (Math.abs(Math.cos(a)) * 1.25 + 0.75);
           const it = this.sparkles.items[this.sparkles.next];
           this.sparkles.next = (this.sparkles.next + 1) % this.sparkles.max;
-          it.life = 1.4 + rand() * 0.8;
+          it.life = 2.3 + rand() * 1.1;     // long enough to be seen, not a blink
           it.maxLife = it.life;
           it.p.copy(r.p);
-          it.v.set(Math.cos(a) * rad * 5.5, Math.sin(a) * rad * 5.0, (rand() - 0.5) * 1.6);
+          it.v.set(Math.cos(a) * rad * 3.0, Math.sin(a) * rad * 2.8, (rand() - 0.5) * 1.2);
           it.c.setHex(r.color);
           it.g = 0.35;
         }
         // stem
-        for (let k = 0; k < 6; k++) {
+        for (let k = 0; k < 10; k++) {
           const it = this.sparkles.items[this.sparkles.next];
           this.sparkles.next = (this.sparkles.next + 1) % this.sparkles.max;
-          it.life = 1.2; it.maxLife = 1.2;
+          it.life = 2.0; it.maxLife = 2.0;
           it.p.copy(r.p);
-          it.v.set((rand() - 0.5) * 0.8, 6.2 + k * 0.4, (rand() - 0.5) * 0.8);
+          it.v.set((rand() - 0.5) * 0.8, 5.0 + k * 0.35, (rand() - 0.5) * 0.8);
           it.c.setHex(0x8fd44a);
           it.g = 0.35;
         }
