@@ -49,7 +49,8 @@ const VOICE_AT = 2.0;           // s after the device blazes: ripple at the hori
 const LEAVE_AT = 6.0;          // s after the blaze: let the child drink in the widest view, then shrink
 const LEAVE_AFTER_UP = 2.0;    // ...but never leave while a finger is still on the glass
 const LEAVE_HARD = 26.0;       // safety net if an up event is ever lost
-const TAP_MS = 120;            // touches shorter than this are taps: they must not turn the device
+const ARM_RATIO = 0.06;        // a touch only turns the device once it has MOVED this much of S
+                               // (a tap of any duration, even a wobbly one, never counts)
 const DEMO_DUR = 1.7;          // the wordless demo: one panel rides the groove one full turn
 
 export default {
@@ -104,9 +105,8 @@ export default {
     let demoSpin = 0;
     let nextDemo = 0;               // scene time of the next demo repeat
     let finger = null;              // {x,y} css px while a finger is on the glass
-    let downPt = null;              // the pending touch, held back until TAP_MS has passed
-    let downAt = 0;
-    let armed = false;              // true once the touch is long enough to count as a turn
+    let downPt = null;              // the press point; angle only counts once the finger leaves it
+    let armed = false;              // true once the touch has travelled far enough to be a turn
 
     // ------------------------------------------------------------ props (deterministic)
     const panels = [];
@@ -1089,20 +1089,20 @@ export default {
         beginChange();
       },
 
-      // A pure tap (< TAP_MS) never reaches the circle recognizer, so it cannot add
-      // angle: the device only turns for a real swipe or circle (§review E-c).
+      // A tap never reaches the circle recognizer, however long or wobbly it is: the
+      // angle only starts counting once the finger has actually TRAVELLED (§review 新-2).
       onPointerDown(p) {
         fingerDown = true;
         finger = { x: p.x, y: p.y };
-        downPt = p;
-        downAt = p.t || performance.now();
+        downPt = { x: p.x, y: p.y };
         armed = false;
       },
       onPointerMove(p) {
         finger = { x: p.x, y: p.y };
-        const now = p.t || performance.now();
         if (!armed) {
-          if (now - downAt < TAP_MS) return;
+          if (!downPt) return;
+          const moved = Math.hypot(p.x - downPt.x, p.y - downPt.y);
+          if (moved < ARM_RATIO * engine.S) return;   // still a tap's wobble: no angle
           armed = true;
           rec.down(p);                 // start counting the angle from here
           return;
