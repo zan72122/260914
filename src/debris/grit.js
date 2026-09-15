@@ -29,6 +29,30 @@ export class GritTrail extends Debris {
     this.color = opts.color || '#e3cb98';
   }
   get type() { return 'grit'; }
+  translate(dx, dy) {
+    super.translate(dx, dy);
+    for (let i = 0; i < this.g.length; i++) {
+      const p = this.g[i];
+      p.x += dx; p.y += dy; p.hx += dx; p.hy += dy;
+    }
+  }
+  /**
+   * A trail has no single position: aim at one live grain (the one nearest the
+   * trail's centre of mass), so the harness sweeps the trail instead of hovering
+   * over an average of it.
+   */
+  aim(out) {
+    out = out || { x: 0, y: 0 };
+    let best = null, bd = 1e9;
+    for (let i = 0; i < this.g.length; i++) {
+      const p = this.g[i];
+      if (!p.on) continue;
+      const d = (p.x - this.x) * (p.x - this.x) + (p.y - this.y) * (p.y - this.y);
+      if (d < bd) { bd = d; best = p; }
+    }
+    out.x = best ? best.x : this.x; out.y = best ? best.y : this.y;
+    return out;
+  }
 
   /** Add one clump of grit at a world point. */
   add(x, y) {

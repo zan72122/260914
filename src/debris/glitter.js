@@ -45,6 +45,23 @@ export class GlitterPatch extends Debris {
     this.seed = rng.range(0, 100);
   }
   get type() { return 'glitter'; }
+  translate(dx, dy) {
+    super.translate(dx, dy);
+    for (let i = 0; i < this.bits.length; i++) {
+      const b = this.bits[i];
+      b.x += dx; b.y += dy;
+      if (b.hx !== undefined) { b.hx += dx; b.hy += dy; }
+    }
+  }
+  aim(out) {
+    out = out || { x: 0, y: 0 };
+    for (let i = 0; i < this.bits.length; i++) {
+      const b = this.bits[i];
+      if (b.gone) continue;
+      out.x = b.x; out.y = b.y; return out;
+    }
+    out.x = this.x; out.y = this.y; return out;
+  }
 
   update(dt, vac, world) {
     if (this.state === State.DONE) return;
@@ -235,6 +252,23 @@ export class BeadPile extends Debris {
     this._tick = 0;
   }
   get type() { return 'beads'; }
+  translate(dx, dy) {
+    super.translate(dx, dy);
+    for (let i = 0; i < this.beads.length; i++) {
+      const b = this.beads[i];
+      b.x += dx; b.y += dy;
+      if (b.hx !== undefined) { b.hx += dx; b.hy += dy; }
+    }
+  }
+  aim(out) {
+    out = out || { x: 0, y: 0 };
+    for (let i = 0; i < this.beads.length; i++) {
+      const b = this.beads[i];
+      if (b.gone) continue;
+      out.x = b.x; out.y = b.y; return out;
+    }
+    out.x = this.x; out.y = this.y; return out;
+  }
 
   update(dt, vac, world) {
     if (this.state === State.DONE) return;

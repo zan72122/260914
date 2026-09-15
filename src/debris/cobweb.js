@@ -52,6 +52,15 @@ export class Cobweb extends Debris {
     for (let i = 0; i < n; i++) this.pts.push({ x: 0, y: 0 });
   }
   get type() { return 'cobweb'; }
+  translate(dx, dy) {
+    super.translate(dx, dy);
+    for (let i = 0; i < this.n; i++) {
+      this.nx[i] += dx; this.ny[i] += dy;
+      this.hx2[i] += dx; this.hy2[i] += dy;
+    }
+  }
+  /** The free tip, which streams toward the mouth first. */
+  aim(out) { out = out || { x: 0, y: 0 }; out.x = this.nx[this.n - 1]; out.y = this.ny[this.n - 1]; return out; }
 
   update(dt, vac, world) {
     if (this.state === State.DONE) return;

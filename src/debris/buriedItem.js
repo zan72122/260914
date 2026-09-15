@@ -49,6 +49,16 @@ export class BuriedItem extends Debris {
   }
 
   get type() { return this.inner ? 'buried-' + this.inner.type : 'buried'; }
+
+  /** Moving a buried thing moves what is buried, tufts and all. */
+  translate(dx, dy) {
+    super.translate(dx, dy);
+    if (this.inner && this.inner.translate) this.inner.translate(dx, dy);
+    else if (this.inner) {
+      this.inner.x += dx; this.inner.y += dy;
+      if (typeof this.inner.hx === 'number') { this.inner.hx += dx; this.inner.hy += dy; }
+    }
+  }
   get pending() { return this.state !== State.DONE; }
 
   update(dt, vac, world) {

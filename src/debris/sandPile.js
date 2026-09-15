@@ -91,6 +91,18 @@ export class SandPile extends Debris {
   }
 
   get type() { return 'sand'; }
+  /** A mass has no centre worth aiming at: point at its highest remaining cell. */
+  aim(out) {
+    out = out || { x: 0, y: 0 };
+    const hf = this.hf;
+    let bi = -1, bv = 0.35;
+    for (let i = 0; i < hf.h.length; i++) if (hf.h[i] > bv) { bv = hf.h[i]; bi = i; }
+    if (bi < 0) { out.x = this.x; out.y = this.y; return out; }
+    out.x = hf.worldX(bi % hf.cols);
+    out.y = hf.worldY(Math.floor(bi / hf.cols));
+    return out;
+  }
+  translate() {}
 
   // ------------------------------------------------------------- building
 
@@ -113,21 +125,7 @@ export class SandPile extends Debris {
   }
 
   /** Blend the heaps into one mound so the lobes do not read as separate domes. */
-  smooth(passes = 2, k = 0.4) {
-    const h = this.hf.h, d = this.hf._d, C = this.cols, R = this.rows;
-    for (let p = 0; p < passes; p++) {
-      for (let y = 0; y < R; y++) {
-        for (let x = 0; x < C; x++) {
-          const i = y * C + x;
-          const l = x > 0 ? h[i - 1] : h[i], r = x < C - 1 ? h[i + 1] : h[i];
-          const u = y > 0 ? h[i - C] : h[i], w = y < R - 1 ? h[i + C] : h[i];
-          d[i] = h[i] + ((l + r + u + w) * 0.25 - h[i]) * k;
-        }
-      }
-      for (let i = 0; i < h.length; i++) h[i] = d[i];
-    }
-    return this;
-  }
+  smooth(passes = 2, k = 0.4) { this.hf.smooth(passes, k); return this; }
 
   /** Call once the heaps are in: records the reference mass. */
   seal() {
@@ -138,6 +136,8 @@ export class SandPile extends Debris {
   heightAt(x, y) { return this.hf.get(x, y); }
   get mass() { return this.hf.total(); }
   get fraction() { return this.hf.total() / this.mass0; }
+  /** 0..1 how hard the mass is draining right now (drives the "zazaa"). */
+  get roar() { return this._roar; }
 
   /**
    * Orientation change: the grid is laid out relative to the mat and has the
@@ -160,7 +160,7 @@ export class SandPile extends Debris {
 
   // -------------------------------------------------------------- update
 
-  update(dt, vac, world, sctx) {
+  update(dt, vac, world) {
     if (this.state === State.DONE) {
       if (!this._cleared) { this.hf.h.fill(0); this._cleared = true; this._killGrains(); }
       return;
@@ -251,7 +251,7 @@ export class SandPile extends Debris {
     this._slumpT -= dt;
     if (this._slumpT <= 0) {
       this._slumpT = 0.08;
-      if (this._slumpCool <= 0) this._checkSlump(mx, my, world, sctx);
+      if (this._slumpCool <= 0) this._checkSlump(mx, my, world);
     }
     if (this.slumpFX.t > 0) this.slumpFX.t -= dt;
 
@@ -390,7 +390,7 @@ export class SandPile extends Debris {
    * Find the steepest step between neighbouring cells near the mouth. Past the
    * angle of repose a whole chunk breaks away at once instead of creeping.
    */
-  _checkSlump(mx, my, world, sctx) {
+  _checkSlump(mx, my, world) {
     const hf = this.hf, h = hf.h, C = this.cols, R = this.rows;
     const REACH = 150;
     const c0 = Math.max(1, hf.cx(mx - REACH)), c1 = Math.min(C - 2, hf.cx(mx + REACH));
@@ -441,7 +441,7 @@ export class SandPile extends Debris {
       p.life = 1.5; p.m = moved * 0.02; p.c = this.rng.int(0, 2);
       p.rot = this.rng.range(0, TAU); p.spin = this.rng.range(-8, 8);
     }
-    if (sctx && sctx.camera) sctx.camera.kick(3.4);
+    if (world && world.camera) world.camera.kick(3.4);
     const audio = world && world.audio;
     if (audio) audio.pop('whoosh', 0.45);
   }
