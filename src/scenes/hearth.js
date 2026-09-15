@@ -31,6 +31,99 @@ const HOLD_SECONDS = 3.0;      // coloured-flame window where the spectroscope c
 const SNAP_RATIO = 0.18;       // §1.4 magnetic snap radius
 const SPECTRO_SNAP = 0.20;     // §3 spectroscope snap radius
 const IDLE_WIRE_AFTER = 8.0;   // §1.3 wire loop descends after 8s
+const TAP_MOVE_RATIO = 0.09;   // §1.4 a press that strays less than this (of S) counts as a tap
+
+/**
+ * Mini-diorama for a returned world — drawn on the hearth shelf and reused by the
+ * spectroscope scene (§3 "world icon" hook). Self-contained: pass your own clock.
+ * @param {CanvasRenderingContext2D} g
+ * @param {Object} def   an ELEMENTS entry
+ * @param {number} x @param {number} y @param {number} r
+ * @param {number} [alpha=1] @param {number} [time=0] seconds, drives the animation
+ */
+export function drawDiorama(g, def, x, y, r, alpha = 1, time = 0) {
+  g.save();
+  g.globalAlpha = alpha;
+  // base bubble
+  glowCircle(g, x, y, r * 1.5, def.glowColor, 0.35 * alpha);
+  g.fillStyle = withAlpha('#0b0810', 0.85);
+  g.beginPath();
+  g.ellipse(x, y, r, r * 0.86, 0, 0, Math.PI * 2);
+  g.fill();
+  g.save();
+  g.beginPath();
+  g.ellipse(x, y, r * 0.98, r * 0.84, 0, 0, Math.PI * 2);
+  g.clip();
+  const k = time;
+  switch (def.id) {
+    case 'lithium': {                                  // a rover keeps driving
+      const px = x - r * 0.7 + ((k * 0.35) % 1) * r * 1.4;
+      g.fillStyle = withAlpha('#c9a27a', 0.5);
+      g.fillRect(x - r, y + r * 0.3, r * 2, r * 0.6);
+      g.fillStyle = def.flameColor;
+      fillRoundRect(g, px - r * 0.2, y + r * 0.02, r * 0.4, r * 0.26, r * 0.1);
+      glowCircle(g, px + r * 0.24, y + r * 0.12, r * 0.4, '#ffd9a0', 0.8);
+      break;
+    }
+    case 'copper': {                                   // windows blink on a dark town
+      for (let i = 0; i < 5; i++) {
+        const wx = x - r * 0.6 + i * r * 0.3;
+        const on = (Math.sin(k * 2 + i * 1.9) + 1) / 2;
+        g.fillStyle = withAlpha('#0e1a20', 0.9);
+        fillRoundRect(g, wx - r * 0.1, y - r * 0.1 - i % 2 * r * 0.1, r * 0.2, r * 0.5, r * 0.05);
+        g.fillStyle = withAlpha(def.flameColor, 0.3 + on * 0.7);
+        fillRoundRect(g, wx - r * 0.05, y - r * 0.02 - i % 2 * r * 0.1, r * 0.1, r * 0.12, r * 0.03);
+      }
+      break;
+    }
+    case 'sodium': {                                   // a street lamp glows yellow
+      g.strokeStyle = withAlpha('#4a4030', 0.9);
+      g.lineWidth = r * 0.09;
+      g.beginPath(); g.moveTo(x, y + r * 0.6); g.lineTo(x, y - r * 0.2); g.stroke();
+      const on = 0.6 + 0.4 * Math.sin(k * 1.6);
+      glowCircle(g, x, y - r * 0.28, r * 0.85, def.flameColor, 0.55 + on * 0.4);
+      break;
+    }
+    case 'strontium': {        // two phase-offset bursts: the slot is never empty
+      for (let b = 0; b < 2; b++) {
+        const ph = ((k * 0.5) + b * 0.5) % 1;
+        const fade = Math.max(0, 1 - ph);
+        const rr = r * 0.2 + ph * r * 0.7;
+        g.strokeStyle = withAlpha(def.flameColor, fade * 0.9);
+        g.lineWidth = r * 0.08;
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2 + b * 0.39;
+          g.beginPath();
+          g.moveTo(x + Math.cos(a) * rr * 0.5, y + Math.sin(a) * rr * 0.5);
+          g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+          g.stroke();
+        }
+        glowCircle(g, x, y, r * 0.4 * fade, def.glowColor, 0.8 * fade);
+      }
+      break;
+    }
+    default: {                                         // barium: a green ripple spreads
+      for (let j = 0; j < 2; j++) {
+        const ph = ((k * 0.4) + j * 0.5) % 1;
+        g.strokeStyle = withAlpha(def.flameColor, (1 - ph) * 0.8);
+        g.lineWidth = r * 0.07;
+        g.beginPath();
+        g.ellipse(x, y + r * 0.2, r * ph, r * 0.4 * ph, 0, 0, Math.PI * 2);
+        g.stroke();
+      }
+      glowCircle(g, x, y + r * 0.2, r * 0.4, def.glowColor, 0.5);
+      break;
+    }
+  }
+  g.restore();
+  // glass
+  g.strokeStyle = withAlpha('#ffffff', 0.18);
+  g.lineWidth = r * 0.08;
+  g.beginPath();
+  g.ellipse(x, y, r, r * 0.86, 0, 0, Math.PI * 2);
+  g.stroke();
+  g.restore();
+}
 
 /**
  * @param {Object} engine
@@ -63,8 +156,8 @@ export function createHearth(engine, handoff, finish) {
   let ambientFade = 0;             // leftover colour when returning from the spectroscope
   let ambientColor = HEARTH.flameColor;
   let flameLoop = null;
-  let pressT = 0;
   let pressPt = null;
+  let pressMax = 0;               // furthest the finger strayed from the press point (css px)
   let L = null;                    // layout
   let ctxRef = null;
   let started = false;
@@ -310,7 +403,7 @@ export function createHearth(engine, handoff, finish) {
       {
         onStart: (p) => {
           touched();
-          pressT = p.t; pressPt = { x: p.x, y: p.y };
+          pressPt = { x: p.x, y: p.y }; pressMax = 0;
           if (spectroGrabbable() && Math.hypot(p.x - spectro.x, p.y - spectro.y) <= L.spectro.r * 1.9) {
             spectro.held = true;
             engine.audio.play('pick');
@@ -321,6 +414,7 @@ export function createHearth(engine, handoff, finish) {
         },
         onMove: (p) => {
           touched();
+          if (pressPt) pressMax = Math.max(pressMax, Math.hypot(p.x - pressPt.x, p.y - pressPt.y));
           if (spectro.held) {
             spectro.x = p.x; spectro.y = p.y;
             if (phase === 'hold' && flameDist(p.x, p.y) <= L.S * SPECTRO_SNAP) {
@@ -341,8 +435,7 @@ export function createHearth(engine, handoff, finish) {
           }
         },
         onEnd: (p) => {
-          const held = (p.t || performance.now()) - pressT;
-          const moved = pressPt ? Math.hypot(p.x - pressPt.x, p.y - pressPt.y) : 0;
+          const moved = Math.max(pressMax, pressPt ? Math.hypot(p.x - pressPt.x, p.y - pressPt.y) : 0);
           if (spectro.held) {
             spectro.held = false;
             if (phase === 'hold' && flameDist(p.x, p.y) <= L.S * SPECTRO_SNAP) { gotoSpectroscope(); return; }
@@ -356,8 +449,10 @@ export function createHearth(engine, handoff, finish) {
             carry.fromX = carry.x; carry.fromY = carry.y;
             return;
           }
-          // §1.4 tap alternative: a short, barely-moved press flies the sample anyway
-          if (moved <= L.S * 0.06 && held <= 700) { autoFly(carry.dishIndex); return; }
+          // §1.4 tap alternative: a barely-moved press flies the sample anyway.
+          // Deliberately DURATION-INDEPENDENT: a 4-year-old (or a slow event pipeline) can rest a
+          // finger on a dish for seconds; only how far the finger strayed decides tap vs drag.
+          if (moved <= L.S * TAP_MOVE_RATIO) { autoFly(carry.dishIndex); return; }
           dropBack();
         }
       },
@@ -938,90 +1033,9 @@ export function createHearth(engine, handoff, finish) {
       }
       const arriving = returning && returning.idx === i && !returning.placed;
       if (arriving) continue;   // it is still flying in
-      drawDiorama(g, def, slot.x, slot.y, slot.r, 1);
+      drawDiorama(g, def, slot.x, slot.y, slot.r, 1, t);
     }
     void S;
-  }
-
-  function drawDiorama(g, def, x, y, r, alpha) {
-    g.save();
-    g.globalAlpha = alpha;
-    // base bubble
-    glowCircle(g, x, y, r * 1.5, def.glowColor, 0.35 * alpha);
-    g.fillStyle = withAlpha('#0b0810', 0.85);
-    g.beginPath();
-    g.ellipse(x, y, r, r * 0.86, 0, 0, Math.PI * 2);
-    g.fill();
-    g.save();
-    g.beginPath();
-    g.ellipse(x, y, r * 0.98, r * 0.84, 0, 0, Math.PI * 2);
-    g.clip();
-    const k = t;
-    switch (def.id) {
-      case 'lithium': {                                  // a rover keeps driving
-        const px = x - r * 0.7 + ((k * 0.35) % 1) * r * 1.4;
-        g.fillStyle = withAlpha('#c9a27a', 0.5);
-        g.fillRect(x - r, y + r * 0.3, r * 2, r * 0.6);
-        g.fillStyle = def.flameColor;
-        fillRoundRect(g, px - r * 0.2, y + r * 0.02, r * 0.4, r * 0.26, r * 0.1);
-        glowCircle(g, px + r * 0.24, y + r * 0.12, r * 0.4, '#ffd9a0', 0.8);
-        break;
-      }
-      case 'copper': {                                   // windows blink on a dark town
-        for (let i = 0; i < 5; i++) {
-          const wx = x - r * 0.6 + i * r * 0.3;
-          const on = (Math.sin(k * 2 + i * 1.9) + 1) / 2;
-          g.fillStyle = withAlpha('#0e1a20', 0.9);
-          fillRoundRect(g, wx - r * 0.1, y - r * 0.1 - i % 2 * r * 0.1, r * 0.2, r * 0.5, r * 0.05);
-          g.fillStyle = withAlpha(def.flameColor, 0.3 + on * 0.7);
-          fillRoundRect(g, wx - r * 0.05, y - r * 0.02 - i % 2 * r * 0.1, r * 0.1, r * 0.12, r * 0.03);
-        }
-        break;
-      }
-      case 'sodium': {                                   // a street lamp glows yellow
-        g.strokeStyle = withAlpha('#4a4030', 0.9);
-        g.lineWidth = r * 0.09;
-        g.beginPath(); g.moveTo(x, y + r * 0.6); g.lineTo(x, y - r * 0.2); g.stroke();
-        const on = 0.6 + 0.4 * Math.sin(k * 1.6);
-        glowCircle(g, x, y - r * 0.28, r * 0.85, def.flameColor, 0.55 + on * 0.4);
-        break;
-      }
-      case 'strontium': {                                // a small red firework, again and again
-        const ph = (k * 0.5) % 1;
-        const rr = r * 0.2 + ph * r * 0.7;
-        g.strokeStyle = withAlpha(def.flameColor, Math.max(0, 1 - ph) * 0.9);
-        g.lineWidth = r * 0.08;
-        for (let i = 0; i < 8; i++) {
-          const a = (i / 8) * Math.PI * 2;
-          g.beginPath();
-          g.moveTo(x + Math.cos(a) * rr * 0.5, y + Math.sin(a) * rr * 0.5);
-          g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
-          g.stroke();
-        }
-        glowCircle(g, x, y, r * 0.4 * (1 - ph), def.glowColor, 0.8 * (1 - ph));
-        break;
-      }
-      default: {                                         // barium: a green ripple spreads
-        for (let j = 0; j < 2; j++) {
-          const ph = ((k * 0.4) + j * 0.5) % 1;
-          g.strokeStyle = withAlpha(def.flameColor, (1 - ph) * 0.8);
-          g.lineWidth = r * 0.07;
-          g.beginPath();
-          g.ellipse(x, y + r * 0.2, r * ph, r * 0.4 * ph, 0, 0, Math.PI * 2);
-          g.stroke();
-        }
-        glowCircle(g, x, y + r * 0.2, r * 0.4, def.glowColor, 0.5);
-        break;
-      }
-    }
-    g.restore();
-    // glass
-    g.strokeStyle = withAlpha('#ffffff', 0.18);
-    g.lineWidth = r * 0.08;
-    g.beginPath();
-    g.ellipse(x, y, r, r * 0.86, 0, 0, Math.PI * 2);
-    g.stroke();
-    g.restore();
   }
 
   function drawSpectroscope(g) {
@@ -1121,7 +1135,7 @@ export function createHearth(engine, handoff, finish) {
     const r = lerp(Math.max(L.w, L.h) * 0.62, slot.r, e);
     g.save();
     g.globalAlpha = 1;
-    drawDiorama(g, def, x, y, r, 1);
+    drawDiorama(g, def, x, y, r, 1, t);
     g.restore();
   }
 
