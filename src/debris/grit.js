@@ -35,6 +35,10 @@ export class GritTrail extends Debris {
       const p = this.g[i];
       p.x += dx; p.y += dy; p.hx += dx; p.hy += dy;
     }
+    if (this.bounds) {
+      this.bounds.x0 += dx; this.bounds.x1 += dx;
+      this.bounds.y0 += dy; this.bounds.y1 += dy;
+    }
   }
   /**
    * A trail has no single position: aim at one live grain (the one nearest the
@@ -73,6 +77,39 @@ export class GritTrail extends Debris {
     this.left++;
     this._center();
     return this;
+  }
+
+  /**
+   * Fence the grit into the area it was laid out in.
+   *
+   * A clump that breaks stiction really moves (ACC 1500 with almost no
+   * friction), and if the mouth swings past it at speed it skates. Over a long
+   * session a grain could be flung somewhere the nozzle cannot follow — off the
+   * bottom of the screen, behind the step — and then the room can never be
+   * finished. Everything started within reach, so the area it started in is the
+   * right fence. Call it once, after the last add().
+   */
+  seal(margin = 0) {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = 0; i < this.g.length; i++) {
+      const p = this.g[i];
+      if (p.x < x0) x0 = p.x;
+      if (p.x > x1) x1 = p.x;
+      if (p.y < y0) y0 = p.y;
+      if (p.y > y1) y1 = p.y;
+    }
+    if (!isFinite(x0)) return this;
+    this.bounds = { x0: x0 - margin, y0: y0 - margin, x1: x1 + margin, y1: y1 + margin };
+    return this;
+  }
+
+  _fence(p) {
+    const b = this.bounds;
+    if (!b) return;
+    if (p.x < b.x0) { p.x = b.x0; if (p.vx < 0) p.vx = -p.vx * 0.3; }
+    else if (p.x > b.x1) { p.x = b.x1; if (p.vx > 0) p.vx = -p.vx * 0.3; }
+    if (p.y < b.y0) { p.y = b.y0; if (p.vy < 0) p.vy = -p.vy * 0.3; }
+    else if (p.y > b.y1) { p.y = b.y1; if (p.vy > 0) p.vy = -p.vy * 0.3; }
   }
 
   _center() {
@@ -114,6 +151,7 @@ export class GritTrail extends Debris {
         const d = Math.exp(-KINETIC * dt);
         p.vx *= d; p.vy *= d;
         p.x += p.vx * dt; p.y += p.vy * dt;
+        this._fence(p);
         const spd = Math.hypot(p.vx, p.vy);
         p.spin += (spd * 0.02 - p.spin) * (1 - Math.exp(-5 * dt));
         p.rot += p.spin * dt;

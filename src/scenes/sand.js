@@ -147,6 +147,9 @@ export class SandScene extends Scene {
       this.props.push(this.rack);
     }
 
+    // nothing may skate off to somewhere the nozzle cannot follow
+    grit.seal(0);
+
     // ---- progress kept across an orientation change -----------------------
     pile.loadFrom(this.persist);
     if (this.persist.gritGone) {
