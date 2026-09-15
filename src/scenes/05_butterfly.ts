@@ -104,8 +104,14 @@ export class ButterflyScene extends CrowdScene {
     this.crowd.bounds.bottom = halfH;
     this.exitX = halfW + 300;
     // "The edge of the picture": far enough out that the player really did
-    // lead the butterfly off screen, close enough to reach in one sweep.
-    this.edgeX = halfW - 40;
+    // lead the butterfly across, but inside what a finger can actually reach.
+    //
+    // A finger cannot touch the very edge of the glass, and the butterfly
+    // trails behind it besides, so a target at halfW - 40 was unreachable by
+    // hand on a phone: the scene could only ever be ended by its own 30s
+    // rescue. A body's width further in, one firm sweep to the right-hand side
+    // of the screen carries the butterfly (and the crowd) out.
+    this.edgeX = halfW - 170;
     if (!this.laidOut) {
       this.laidOut = true;
       this.crowd.scatter(Math.min(halfW * 0.8, 420), Math.min(halfH * 0.6, 300));

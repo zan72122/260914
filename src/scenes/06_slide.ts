@@ -246,7 +246,17 @@ export class SlideScene extends CrowdScene {
     }
     // Anywhere else: whoever is nearest joins the ladder. A tap always does
     // something, wherever it lands.
-    this.sendNearest(x, y, Number.POSITIVE_INFINITY);
+    if (this.sendNearest(x, y, Number.POSITIVE_INFINITY)) return;
+    // Nobody left to send up (or the ladder is full): a tap anywhere now
+    // nudges whoever is sitting at the top instead. Without this, the one kid
+    // who starts the scene sitting up there can only be released by a tap that
+    // lands on him, and a child who taps everywhere else waits for nothing.
+    for (let i = 0; i < this.roles.length; i++) {
+      if (this.roles[i] === ROLE_TOP) {
+        this.letGo(i);
+        return;
+      }
+    }
   }
 
   override applyHands(hands: Iterable<Hand>, dt: number): void {
