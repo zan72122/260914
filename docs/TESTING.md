@@ -5,10 +5,10 @@ Everything below runs headless with SwiftShader; no GPU required.
 ```bash
 npm install
 npm run build:test          # dist-test/  (testability layer ON)
-npm test                    # the default scenario set  (~10 min)
-npm test -- bell:2          # one scenario only         (~2 min)
+npm test                    # the default scenario set  (~45 s)
+npm test -- bell:2          # one scenario only         (~16 s)
 npm test -- bell:2 reveal:3 --shots
-npm run test:full           # the whole 5-house walkthrough in 3 viewports (slow, ~2 h)
+npm run test:full           # the whole 5-house walkthrough in 3 viewports (~9 min)
 npm run build               # dist/  (testability layer OFF - this is what ships)
 ```
 
