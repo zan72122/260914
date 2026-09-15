@@ -12,32 +12,54 @@ test.describe('spectroscope @spectro', () => {
   test.skip(() => !hasSpectroscope(), 'src/scenes/spectroscope.js does not exist yet (owned by engineer G)');
   test.describe.configure({ timeout: 90_000 });
 
-  /** Unlock, put a sample in the flame, then drag the spectroscope into it. */
-  async function look(page, elementId, { reset = true } = {}) {
-    await page.evaluate((doReset) => {
-      if (doReset) window.__game.resetProgress();
-      window.__game.setProgress({ plays: { lithium: 1, strontium: 1 }, spectroscopeUnlocked: true });
-      window.__game.goto('hearth');
-    }, reset);
-    await waitIdle(page);
+  /**
+   * Unlock, put a sample in the flame, then grab the spectroscope while the
+   * flame is still coloured. That window is narrow at both ends: the scope only
+   * reacts once the flame has taken the element's colour (~0.5s after the
+   * sample lands) and the hearth hands off to the world at ~2.4s (§1.5). We aim
+   * for the middle of it and retry from the hub if we fall into the world.
+   */
+  async function look(page, elementId, { reset = true, attempts = 3 } = {}) {
+    let landed = null;
+    for (let i = 0; i < attempts; i++) {
+      await page.evaluate(
+        ([doReset]) => {
+          if (doReset) window.__game.resetProgress();
+          window.__game.setProgress({ plays: { lithium: 1, strontium: 1 }, spectroscopeUnlocked: true });
+          window.__game.goto('hearth');
+        },
+        [reset && i === 0]
+      );
+      await waitIdle(page);
 
-    // 2. the spectroscope is present once unlocked
-    const scope = await hit(page, 'spectroscope', { timeout: 10_000 });
-    expect(scope).toBeTruthy();
+      // 2. the spectroscope is present once unlocked
+      const scope = await hit(page, 'spectroscope', { timeout: 10_000 });
+      expect(scope, 'the spectroscope must be reachable once unlocked').toBeTruthy();
 
-    // 3. sample -> flame, then scope -> flame
-    const dish = await hit(page, `dish:${elementId}`);
-    const flame = await hit(page, 'flame');
-    await drag(page, { x: dish.x, y: dish.y }, { x: flame.x, y: flame.y }, { steps: 24, jitter: 10, ms: 800 });
-    await sleep(600);
+      // 3. sample -> flame, then immediately scope -> flame
+      const dish = await hit(page, `dish:${elementId}`);
+      const flame = await hit(page, 'flame');
+      await drag(page, { x: dish.x, y: dish.y }, { x: flame.x, y: flame.y }, { steps: 20, jitter: 10, ms: 500 });
+      await sleep(600); // let the flame take the element's colour
+      await drag(page, { x: scope.x, y: scope.y }, { x: flame.x, y: flame.y }, { steps: 16, jitter: 8, ms: 350 });
 
-    const scope2 = await hit(page, 'spectroscope', { timeout: 10_000 });
-    const flame2 = await hit(page, 'flame');
-    await drag(page, { x: scope2.x, y: scope2.y }, { x: flame2.x, y: flame2.y }, { steps: 24, jitter: 10, ms: 800 });
-
-    await page.waitForFunction(() => window.__game.sceneId === 'spectroscope', null, { timeout: 30_000 });
-    await waitIdle(page, 30_000);
-    return page.evaluate(() => window.__game.state);
+      try {
+        await page.waitForFunction(() => window.__game.sceneId === 'spectroscope', null, { timeout: 8_000 });
+        await waitIdle(page, 30_000);
+        return page.evaluate(() => window.__game.state);
+      } catch {
+        landed = await page.evaluate(() => window.__game.sceneId).catch(() => '<unavailable>');
+        // The coloured-flame window was missed (we fell into the world instead);
+        // go back to the hub and try again.
+        await page.evaluate(() => window.__game.goto('hearth'));
+        await waitIdle(page, 30_000);
+      }
+    }
+    throw new Error(
+      `the spectroscope never opened for "${elementId}" after ${attempts} attempts ` +
+        `(last sceneId after the scope drag: "${landed}"). The scope must be grabbable ` +
+        `while the flame is coloured, before the hearth hands off to the world.`
+    );
   }
 
   test('lithium shows a sparse spectrum @spectro', async ({ page }) => {

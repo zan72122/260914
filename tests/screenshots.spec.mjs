@@ -16,7 +16,7 @@ import { test } from '@playwright/test';
 import path from 'node:path';
 import { hasApp, hasWorld, ELEMENTS, repoRoot } from './helpers/app.mjs';
 import { sleep, waitIdle } from './helpers/gestures.mjs';
-import { startGame, enterWorld, playUntilComplete, waitReturnToHearth, PLAY } from './helpers/flows.mjs';
+import { startGame, enterWorld, playUntilComplete, waitReturnToHearth, isComplete, PLAY } from './helpers/flows.mjs';
 
 const shotDir = (project) => path.join(repoRoot, 'tests', '__screens__', project);
 
@@ -40,15 +40,20 @@ test.describe('screenshots @shots', () => {
       await sleep(600);
       await shot(`${element}-unfinished`);
 
-      // one pass of the world's gesture, captured while it is happening
-      const mid = PLAY[element](page);
+      // One pass of the world's gesture, captured while it is happening.
+      // A single pass often already completes the world (they are forgiving by
+      // design) and the world then returns to the hub on its own, so everything
+      // after this is conditional on still being in the world.
+      const mid = PLAY[element](page).catch(() => {});
       await sleep(700);
       await shot(`${element}-mid`);
-      await mid.catch(() => {});
+      await mid;
 
-      await playUntilComplete(page, element, { attempts: 4, timeout: 60_000 });
-      await sleep(500);
-      await shot(`${element}-changed`);
+      const stillHere = async () => (await page.evaluate(() => window.__game.sceneId)) === element;
+      if ((await stillHere()) && !(await isComplete(page))) {
+        await playUntilComplete(page, element, { attempts: 4, timeout: 60_000 });
+      }
+      if (await stillHere()) await shot(`${element}-changed`);
 
       await waitReturnToHearth(page, 30_000);
       await waitIdle(page);

@@ -37,9 +37,19 @@ test.describe('playthrough @play', () => {
 
       // 5-6. the world-specific bad gesture, until the world changes.
       if (element === 'strontium') {
-        const { firedTooEarly } = await PLAY.strontium(page);
-        // 250ms press must not launch anything (§2.4 tolerance rules)
-        expect(firedTooEarly, 'a 250ms press must not fire').toBe(0);
+        const { firedTooEarly, shortPressMs } = await PLAY.strontium(page);
+        // A sub-300ms press must not launch anything (§2.4 tolerance rules).
+        // Only assert it if the harness really did press for < 280ms; CDP
+        // round-trips can stretch the press past the threshold, and that is a
+        // harness artefact, not a game bug.
+        if (shortPressMs <= 280) {
+          expect(firedTooEarly, `a ${shortPressMs}ms press must not fire`).toBe(0);
+        } else {
+          test.info().annotations.push({
+            type: 'skipped-assertion',
+            description: `short-press check skipped: harness pressed for ${shortPressMs}ms (> 280ms)`,
+          });
+        }
       }
       await playUntilComplete(page, element, { attempts: 4, timeout: 60_000 });
       await waitComplete(page, 60_000);

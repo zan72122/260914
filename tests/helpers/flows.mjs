@@ -147,13 +147,16 @@ export async function playStrontium(page) {
   await sleep(600);
 
   const t2 = await h(page, 'tube', 'strontium');
-  await longPress(page, t2.x, t2.y, 250); // below the 300ms threshold: a dud
+  // Below the 300ms threshold: a dud. CDP dispatch latency can push the real
+  // press over the line, so we report what actually happened and let the caller
+  // decide whether the assertion is meaningful.
+  const { pressedMs } = await longPress(page, t2.x, t2.y, 250);
   await sleep(500);
   const firedTooEarly = await page.evaluate(() => Number((window.__game.state || {}).shots || 0));
 
   await longPress(page, t2.x, t2.y, 900); // comfortably over the threshold
   await sleep(500);
-  return { firedTooEarly };
+  return { firedTooEarly, shortPressMs: pressedMs };
 }
 
 /** barium: stir in circles, wandering radius, two direction reversals. */

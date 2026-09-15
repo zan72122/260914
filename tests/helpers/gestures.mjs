@@ -105,14 +105,23 @@ export async function sloppyTap(page, x, y, { drift = 9, ms = 160 } = {}) {
  */
 export async function longPress(page, x, y, ms = 900, { jitter = 5 } = {}) {
   await touchStart(page, x, y);
-  const tick = 60;
-  const n = Math.max(1, Math.round(ms / tick));
-  for (let i = 0; i < n; i++) {
-    await sleep(tick);
+  const t0 = Date.now();
+  // Short presses (the deliberate "too short to fire" case) get no intermediate
+  // moves at all: every CDP dispatch costs a round-trip and would overshoot the
+  // 300ms threshold we are trying to stay under.
+  const moves = ms < 320 ? 0 : Math.max(1, Math.round(ms / 60));
+  for (let i = 0; i < moves; i++) {
+    await dwellSleep(ms / (moves + 1));
     await touchMove(page, x + rnd(jitter), y + rnd(jitter));
   }
+  const remaining = ms - (Date.now() - t0);
+  if (remaining > 0) await sleep(remaining);
+  const pressedMs = Date.now() - t0;
   await touchEnd(page, x + rnd(jitter), y + rnd(jitter));
   await sleep(30);
+  // Wall-clock duration the page actually saw the finger down (best effort:
+  // measured around the dispatches, so it is an upper bound).
+  return { pressedMs };
 }
 
 /**
