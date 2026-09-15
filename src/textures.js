@@ -407,17 +407,63 @@ export function faceTexture(kind) {
 export function girlFaceTexture() {
   return tex('girlface', 256, 256, (g, w, h) => {
     g.clearRect(0, 0, w, h);
-    g.fillStyle = '#2a1a22';
-    g.beginPath(); g.ellipse(92, 120, 13, 17, 0, 0, 7); g.fill();
-    g.beginPath(); g.ellipse(164, 120, 13, 17, 0, 0, 7); g.fill();
-    g.fillStyle = '#fff';
-    g.beginPath(); g.arc(96, 114, 5, 0, 7); g.fill();
-    g.beginPath(); g.arc(168, 114, 5, 0, 7); g.fill();
-    g.fillStyle = 'rgba(255,140,150,0.4)';
-    g.beginPath(); g.arc(62, 152, 19, 0, 7); g.fill();
-    g.beginPath(); g.arc(194, 152, 19, 0, 7); g.fill();
-    g.strokeStyle = '#7a3040'; g.lineWidth = 6; g.lineCap = 'round';
-    g.beginPath(); g.arc(128, 158, 22, 0.35, Math.PI - 0.35); g.stroke();
+    // big readable eyes
+    for (const ex of [88, 168]) {
+      g.fillStyle = '#2a1a22';
+      g.beginPath(); g.ellipse(ex, 118, 21, 26, 0, 0, 7); g.fill();
+      g.fillStyle = '#ffffff';
+      g.beginPath(); g.arc(ex + 6, 109, 8.5, 0, 7); g.fill();
+      g.beginPath(); g.arc(ex - 6, 127, 4, 0, 7); g.fill();
+    }
+    // lashes / brows, kept light so the face stays friendly
+    g.strokeStyle = '#3a2028'; g.lineWidth = 5; g.lineCap = 'round';
+    g.beginPath(); g.arc(88, 86, 20, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
+    g.beginPath(); g.arc(168, 86, 20, Math.PI * 1.15, Math.PI * 1.85); g.stroke();
+    // blush
+    g.fillStyle = 'rgba(255,132,144,0.5)';
+    g.beginPath(); g.ellipse(54, 156, 22, 15, 0, 0, 7); g.fill();
+    g.beginPath(); g.ellipse(202, 156, 22, 15, 0, 0, 7); g.fill();
+    // smile
+    g.strokeStyle = '#7a3040'; g.lineWidth = 8; g.lineCap = 'round';
+    g.beginPath(); g.arc(128, 152, 30, 0.3, Math.PI - 0.3); g.stroke();
+    g.fillStyle = 'rgba(255,150,170,0.85)';
+    g.beginPath(); g.ellipse(128, 176, 11, 7, 0, 0, 7); g.fill();
+  }, { wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping });
+}
+
+/** what you see through an open front door: a warm little room */
+export function doorInteriorTexture() {
+  return tex('doorinterior', 256, 256, (g, w, h) => {
+    const bg = g.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, '#2e1b0c');
+    bg.addColorStop(0.45, '#5a3818');
+    bg.addColorStop(1, '#1d1008');
+    g.fillStyle = bg; g.fillRect(0, 0, w, h);
+    // warm pool of lamplight on the back wall
+    const pool = g.createRadialGradient(168, 120, 8, 168, 120, 130);
+    pool.addColorStop(0, 'rgba(255,198,126,0.7)');
+    pool.addColorStop(0.45, 'rgba(226,138,62,0.22)');
+    pool.addColorStop(1, 'rgba(200,120,50,0)');
+    g.fillStyle = pool; g.fillRect(0, 0, w, h);
+    // skirting board
+    g.fillStyle = 'rgba(40,22,10,0.8)'; g.fillRect(0, 214, w, 12);
+    g.fillStyle = 'rgba(30,16,8,0.85)'; g.fillRect(0, 226, w, 30);
+    // side table silhouette
+    g.fillStyle = '#3a2011';
+    g.fillRect(126, 176, 86, 10);
+    g.fillRect(134, 186, 8, 30);
+    g.fillRect(196, 186, 8, 30);
+    // table lamp
+    g.fillStyle = '#2e1a0e';
+    g.fillRect(164, 156, 8, 20);
+    g.fillStyle = 'rgba(255,214,150,0.86)';
+    g.beginPath();
+    g.moveTo(146, 156); g.lineTo(190, 156); g.lineTo(182, 124); g.lineTo(154, 124);
+    g.closePath(); g.fill();
+    // a coat hook and a framed picture, so it reads as somebody's hallway
+    g.fillStyle = 'rgba(58,32,16,0.9)'; g.fillRect(40, 92, 46, 38);
+    g.fillStyle = 'rgba(150,100,58,0.5)'; g.fillRect(45, 97, 36, 28);
+    g.fillStyle = '#33200f'; g.fillRect(62, 140, 6, 18);
   }, { wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping });
 }
 
