@@ -114,6 +114,24 @@ async function drag(page, from, to) {
   await page.waitForTimeout(420);
 }
 
+/** Do two client rectangles overlap at all? (R2) */
+function intersects(a, b) {
+  if (!a || !b) return true;
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
+
+/** Everything about the board that must come back exactly as it started (R3). */
+const frameStyle = (page) => page.evaluate(() => {
+  const b = getComputedStyle(document.getElementById('board'));
+  const c = getComputedStyle(document.querySelector('.cell'));
+  return {
+    gap: b.columnGap, rowGap: b.rowGap,
+    borderWidth: c.borderTopWidth, borderStyle: c.borderTopStyle,
+    borderColor: c.borderTopColor, radius: c.borderTopLeftRadius,
+    background: c.backgroundColor
+  };
+});
+
 /* -------------------------------- suite -------------------------------- */
 
 const SIZES = [
@@ -239,6 +257,7 @@ try {
   const play = await ctx2.newPage();
   watchConsole(play, errors);
   await ready(play);
+  const style0 = await frameStyle(play);
 
   // P1: T2 (bottom-right) onto the empty cell above T1
   await drag(play, await cellPoint(play, 1, 1), await cellPoint(play, 0, 0));
@@ -284,6 +303,57 @@ try {
   }), 'ending: the seed is at least 64px across');
   await play.screenshot({ path: path.join(SHOT_DIR, 'ending.png') });
 
+  // R1: the flower keeps its full colour, the wash is only a rim vignette and the
+  // top row has become sky with the risen sun.
+  const finale = await play.evaluate(() => {
+    const t1 = window.__game.board.tiles.get('T1');
+    const flower = t1.layer('flower');
+    const fcs = getComputedStyle(flower);
+    const tcs = getComputedStyle(t1.el);
+    const wing = document.querySelector('#fx .butterfly-flyer [data-layer="butterfly"]');
+    const r = (el) => { const b = el.getBoundingClientRect();
+      return { left: b.left, right: b.right, top: b.top, bottom: b.bottom }; };
+    return {
+      flowerOpacity: fcs.opacity, flowerFilter: fcs.filter,
+      tileFilter: tcs.filter, tileOpacity: tcs.opacity,
+      bloom: getComputedStyle(document.getElementById('bloom')).backgroundImage,
+      sky: +getComputedStyle(document.getElementById('sky')).opacity,
+      birds: document.querySelectorAll('#sky .birds').length,
+      sun: !!document.querySelector('#fx .sun-rise'),
+      flowerRect: r(flower),
+      wingRect: wing ? r(wing) : null
+    };
+  });
+  ok(finale.flowerOpacity === '1' && finale.flowerFilter === 'none',
+     'R1: the flower layer is fully opaque and unfiltered', JSON.stringify(finale.flowerOpacity));
+  ok(finale.tileFilter === 'saturate(1)' && finale.tileOpacity === '1',
+     'R1: the room tile keeps full saturation during the ending', finale.tileFilter);
+  ok(/rgba\(240, 214, 172, 0\)/.test(finale.bloom),
+     'R1: the ending wash is a rim vignette (transparent in the middle)', finale.bloom);
+  ok(finale.sky > 0.9 && finale.birds === 2, 'R1: the top row is sky, with birds', JSON.stringify(finale.sky));
+  ok(finale.sun, 'R1: the sun has risen out of the window into the top row');
+  ok(finale.wingRect && !intersects(finale.wingRect, finale.flowerRect),
+     'R2: the resting butterfly does not overlap the flower',
+     JSON.stringify({ wing: finale.wingRect, flower: finale.flowerRect }));
+
+  // R4: the seed lies on the floor in front of the table, beside the legs
+  const seedPos = await play.evaluate(() => {
+    const t1 = window.__game.board.tiles.get('T1');
+    const at = window.__game.board.locate('T1');
+    const g = window.__game.board.cellGeom(at.r, at.c);
+    const bb = window.__game.board.boardEl.getBoundingClientRect();
+    const el = document.querySelector('#fx .seed-drop circle');
+    const r = el.getBoundingClientRect();
+    const toArt = (px, py) => ({ x: ((px - bb.left - g.x) / g.size) * 1000,
+                                 y: ((py - bb.top - g.y) / g.size) * 1000 });
+    const a = toArt(r.left, r.top);
+    const b = toArt(r.right, r.bottom);
+    return { x0: a.x, y0: a.y, x1: b.x, y1: b.y };
+  });
+  ok(seedPos.y0 > 800, 'R4: the seed rests on the floor, below the table bar', JSON.stringify(seedPos));
+  ok(seedPos.x0 > 140 && seedPos.x1 < 450,
+     'R4: the seed is clear of both table legs (x=118 / x=470)', JSON.stringify(seedPos));
+
   // tapping the seed floats everything back to the start
   const seedBox = await (await play.$('#fx .seed-drop')).boundingBox();
   await play.mouse.move(seedBox.x + seedBox.width / 2, seedBox.y + seedBox.height / 2);
@@ -295,6 +365,13 @@ try {
   ok(JSON.stringify(back.cells) === INITIAL, 'restart: the board is back to its first arrangement', JSON.stringify(back.cells));
   ok(!(await play.evaluate(() => window.__game.board.busy)), 'restart: input is released (board.busy === false)');
   ok(await play.evaluate(() => document.querySelectorAll('#fx *').length === 0), 'restart: the overlay is empty');
+  const style1 = await frameStyle(play);
+  ok(JSON.stringify(style1) === JSON.stringify(style0),
+     'R3: after the restart the grid gap and the cell frames are back to their initial values',
+     `${JSON.stringify(style0)} vs ${JSON.stringify(style1)}`);
+  ok(await play.evaluate(() => +getComputedStyle(document.getElementById('sky')).opacity === 0 &&
+                               +getComputedStyle(document.getElementById('bloom')).opacity === 0),
+     'R3: the ending sky and vignette are cleared');
   await play.screenshot({ path: path.join(SHOT_DIR, 'restart.png') });
 
   /* --- 4. wordless --- */
@@ -307,8 +384,126 @@ try {
   ok(alts === 0, 'no alt/aria-label/title attributes that could render text');
   await ctx2.close();
 
-  /* --- 5. console --- */
-  console.log('\n[5] console');
+  /* --- 5. save / restore / hidden reset (docs/03.md F5) --- */
+  console.log('\n[5] localStorage save, silent restore, 3s hold on the flower');
+  const ctx3 = await browser.newContext({ viewport: { width: 844, height: 844 }, deviceScaleFactor: 1, hasTouch: true });
+  const sv = await ctx3.newPage();
+  watchConsole(sv, errors);
+  await ready(sv);
+  ok(await sv.evaluate(() => localStorage.getItem('tane:p') === null), 'save: a fresh start stores nothing');
+
+  await drag(sv, await cellPoint(sv, 1, 1), await cellPoint(sv, 0, 0));
+  await settled(sv, 1);
+  ok(await sv.evaluate(() => localStorage.getItem('tane:p')) === '1', 'save: P1 is written to localStorage');
+
+  await drag(sv, await cellPoint(sv, 1, 1), await cellPoint(sv, 1, 0));
+  await settled(sv, 2);
+  ok(await sv.evaluate(() => localStorage.getItem('tane:p')) === '2', 'save: P2 is written to localStorage');
+
+  // reload: the world must already be there, with no staging and no leftovers
+  await ready(sv);
+  const rest = await sv.evaluate(() => {
+    const b = window.__game.board;
+    const t1 = b.tiles.get('T1');
+    const op = (n) => +getComputedStyle(t1.layer(n)).opacity;
+    return {
+      cells: JSON.stringify(b.snapshot().cells),
+      index: window.__game.runner.index,
+      current: window.__game.runner.current() ? window.__game.runner.current().id : null,
+      busy: b.busy,
+      bud: op('bud'), sprout: op('sprout'), wet: op('soil-wet'), seed: op('seed'),
+      flower: op('flower'),
+      t2grey: b.tiles.get('T2').el.classList.contains('desaturated'),
+      t4grey: b.tiles.get('T4').el.classList.contains('desaturated'),
+      fx: document.querySelectorAll('#fx *').length,
+      anims: document.getAnimations ? document.getAnimations().length : 0
+    };
+  });
+  ok(rest.cells === '[[["T2"],["T4"]],[["T3","T1"],[]]]',
+     'restore: the reloaded board is exactly the state after P2', rest.cells);
+  ok(rest.index === 2 && rest.current === 'P3' && rest.busy === false,
+     'restore: the story continues at P3', JSON.stringify(rest));
+  ok(rest.bud === 1 && rest.sprout === 1 && rest.wet === 1 && rest.seed === 0 && rest.flower === 0,
+     'restore: bud, sprout and wet soil are already there', JSON.stringify(rest));
+  ok(rest.t2grey && !rest.t4grey, 'restore: the spent cloud is grey, the garden has colour');
+  ok(rest.fx === 0 && rest.anims === 0, 'restore: nothing is being staged (no animation, no overlay)',
+     JSON.stringify(rest));
+
+  // finish the story from the restored state
+  await drag(sv, await cellPoint(sv, 0, 1), await cellPoint(sv, 1, 1));
+  await sv.waitForFunction(() => document.body.classList.contains('ending'), null, { timeout: 30000 });
+  ok(await sv.evaluate(() => localStorage.getItem('tane:p') === null),
+     'save: reaching the ending wipes the save');
+  await sv.waitForSelector('#fx .seed-drop', { timeout: 30000 });
+
+  // the only hidden gesture: three seconds on the open flower
+  const bloomPt = await svgPoint(sv, 'T1', 270, 360);
+  await sv.mouse.move(bloomPt.x, bloomPt.y);
+  await sv.mouse.down();
+  await sv.waitForTimeout(3300);
+  await sv.mouse.up();
+  await sv.waitForFunction(() => !document.body.classList.contains('ending') &&
+                                 window.__game.runner.index === 0, null, { timeout: 30000 });
+  await sv.waitForTimeout(700);
+  ok(JSON.stringify((await state(sv)).cells) === INITIAL,
+     'hold: 3 seconds on the flower returns the world to the seed');
+  ok(await sv.evaluate(() => localStorage.getItem('tane:p') === null), 'hold: the save is cleared too');
+
+  // a short tap on the flower must NOT reset anything
+  await drag(sv, await cellPoint(sv, 1, 1), await cellPoint(sv, 0, 0));
+  await settled(sv, 1);
+  await sv.mouse.move(bloomPt.x, bloomPt.y);
+  await sv.mouse.down(); await sv.mouse.up();
+  await sv.waitForTimeout(400);
+  ok((await runner(sv)).index === 1, 'hold: a short press is not a reset');
+  await ctx3.close();
+
+  /* --- 6. no AudioContext at all: the game still plays --- */
+  console.log('\n[6] silence (AudioContext removed)');
+  const ctx4 = await browser.newContext({ viewport: { width: 844, height: 844 }, deviceScaleFactor: 1, hasTouch: true });
+  const mute = await ctx4.newPage();
+  watchConsole(mute, errors);
+  await mute.addInitScript(() => {
+    try { window.AudioContext = undefined; } catch (_) {}
+    try { window.webkitAudioContext = undefined; } catch (_) {}
+  });
+  await ready(mute);
+  ok(await mute.evaluate(() => window.__game.audio.available === false),
+     'silence: the audio layer reports itself unavailable');
+  ok(await mute.evaluate(() => {
+    const a = window.__game.audio;
+    a.unlock(); a.lift(); a.drop(); a.snap(); a.rain(200); a.light(); a.bloom(); a.seed();
+    a.startAmbience(); a.stopAmbience(); a.resume();
+    return true;
+  }), 'silence: every sound entry point is a safe no-op');
+
+  await drag(mute, await cellPoint(mute, 1, 1), await cellPoint(mute, 0, 0));
+  await settled(mute, 1);
+  await drag(mute, await cellPoint(mute, 1, 1), await cellPoint(mute, 1, 0));
+  await settled(mute, 2);
+  ok(JSON.stringify((await state(mute)).cells) === '[[["T2"],["T4"]],[["T3","T1"],[]]]',
+     'silence: P1 and P2 still play through without sound');
+
+  /* --- 7. PWA manifest + icon --- */
+  console.log('\n[7] manifest / icon');
+  const mf = await mute.evaluate(async () => {
+    const link = document.querySelector('link[rel="manifest"]');
+    const res = await fetch(link.getAttribute('href'));
+    const json = await res.json();
+    const icon = await fetch(json.icons[0].src);
+    const svg = await icon.text();
+    return { status: res.status, json, iconStatus: icon.status, iconType: icon.headers.get('content-type'),
+             iconHasText: /<text|<tspan/.test(svg) };
+  });
+  ok(mf.status === 200 && mf.json.display === 'standalone' && mf.json.orientation === 'any',
+     'manifest: standalone, any orientation', JSON.stringify(mf.json));
+  ok(mf.json.background_color === '#efe6d2', 'manifest: parchment background colour');
+  ok(mf.iconStatus === 200 && /svg/.test(mf.iconType || ''), 'manifest: art/icon.svg is served');
+  ok(!mf.iconHasText, 'manifest: the icon carries no text either');
+  await ctx4.close();
+
+  /* --- 8. console --- */
+  console.log('\n[8] console');
   ok(errors.length === 0, `console errors = ${errors.length}`, errors.join(' | '));
 } finally {
   await browser.close();
