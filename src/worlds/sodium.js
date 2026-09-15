@@ -45,9 +45,10 @@ const LAMP_N = 5;
 const CHAIN_AFTER = 4;         // 4 lamps lit by hand -> the last one chains (§review H)
 
 const T_LIFT = 0.45;           // s after the 3rd sprinkle: one cube lifts and starts to glow
-const T_RISE = 0.95;           // a 0.5s beat after the cube lifts: it is seen leaving first
+const LIFT_FLY = 0.90;         // cube: salt cluster -> hovering just inside the window
+const WAIT_AUTO = 4.0;         // the cube waits to be sent; after this it leaves by itself
 const RISE_DUR = 2.00;
-const FLY_DUR = 2.55;          // cube: table -> window -> inside the first lamp
+const FLY_DUR = 1.90;          // cube: window -> inside the first lamp
 const TINT_DUR = 0.70;         // how long the whole screen takes to turn yellow
 const HOLD_AFTER = 2.20;       // savour the yellow street before pulling back
 const LEAVE_DUR = 1.20;
@@ -110,7 +111,9 @@ export default {
     // transition
     let climaxT = -1;
     let lifted = false;
-    let traveler = null;          // {x,y,glow,k,from,ctrl,to}
+    let traveler = null;          // {x,y,glow,k,mode,from,ctrl,to}
+    let waiting = false;          // the glowing cube hovers at the window, asking to be sent
+    let waitT = 0;
     let riseT = -1;
     let tiltStage = 0;
 
@@ -205,7 +208,7 @@ export default {
     function sprinkle() {
       if (stage !== 1 || saltTaps >= MAX_TAPS) return;
       saltTaps++;
-      idleT = 0; nudge = 0;
+      idleT = 0; nudge = 0; waitT = 0;
       if (phase === 'intro' || phase === 'invite') phase = 'acting';
       punch = 0.03;                                    // §2.3 punch-in 1.0 -> 1.03
       engine.audio.play('sprinkle');
@@ -247,14 +250,47 @@ export default {
       const f = floats.shift();
       const p = f ? floatPos(f, t) : { x: L.salt.x, y: L.salt.y };
       traveler = {
-        x: p.x, y: p.y, glow: 0, k: 0, rot: f ? f.rot : 0, size: f ? f.size : 1,
+        x: p.x, y: p.y, glow: 0, k: 0, mode: 'toWindow',
+        rot: f ? f.rot : 0, size: f ? f.size : 1,
         from: { x: p.x, y: p.y },
-        ctrl: { x: L.win.x * 1.15, y: L.win.y + 40 },
-        mid: { x: L.win.x, y: L.win.y },
-        ctrl2: { x: L.win.x * 1.5, y: 430 },
-        to: { x: lamps[0].x, y: L.lampTopY + L.hoodH * 0.72 }
+        ctrl: { x: L.win.x * 0.72, y: L.win.y + 78 },
+        to: { x: L.win.x - L.win.hw * 0.34, y: L.win.y }
       };
       engine.audio.play('whoosh');
+    }
+
+    /** the hovering cube's screen position + its (generous) touch radius */
+    function cubeTarget() {
+      if (!waiting || !traveler || !L) return null;
+      const p = w2s(traveler.x, traveler.y);
+      const c = engine.clampSafe(p.x, p.y, 8);
+      return { x: c.x, y: c.y, r: L.S * 0.16 };
+    }
+
+    function nearCube(x, y) {
+      const c = cubeTarget();
+      if (!c) return false;
+      if (Math.hypot(x - c.x, y - c.y) <= c.r) return true;
+      // the window itself counts too (the cube is asking to go out through it)
+      const a = w2s(L.win.x - L.win.hw, L.win.y - L.win.hh);
+      const b = w2s(L.win.x + L.win.hw, L.win.y + L.win.hh);
+      const pad = L.S * 0.06;
+      return x >= Math.min(a.x, b.x) - pad && x <= Math.max(a.x, b.x) + pad
+        && y >= Math.min(a.y, b.y) - pad && y <= Math.max(a.y, b.y) + pad;
+    }
+
+    /** the child sends the cube out (or 4s pass and it goes by itself) */
+    function sendCube() {
+      if (!waiting) return;
+      waiting = false;
+      if (traveler) {
+        traveler.mode = 'toLamp';
+        traveler.k = 0;
+        traveler.from = { x: traveler.x, y: traveler.y };
+        traveler.ctrl = { x: L.win.x * 1.5, y: 430 };
+        traveler.to = { x: lamps[0].x, y: L.lampTopY + L.hoodH * 0.72 };
+      }
+      startRise();
     }
 
     function startRise() {
@@ -317,7 +353,8 @@ export default {
     // ------------------------------------------------------------- gestures
 
     function installGestures() {
-      rec.onTap('any', () => {
+      rec.onTap('any', (p) => {
+        if (waiting && (nearCube(p.x, p.y) || p.y < L.h * 0.5)) { sendCube(); return; }
         if (stage !== 1) return;
         if (sprinkledWhileHolding) return;
         sprinkle();
@@ -331,8 +368,8 @@ export default {
 
       // lamps: a tap lights one, a slide lights every lamp it crosses (drag-through)
       rec.onDrag('any', {
-        onStart: (p) => tryLight(p.x, p.y),
-        onMove: (p) => tryLight(p.x, p.y)
+        onStart: (p) => { if (waiting && nearCube(p.x, p.y)) sendCube(); else tryLight(p.x, p.y); },
+        onMove: (p) => { if (waiting && nearCube(p.x, p.y)) sendCube(); else tryLight(p.x, p.y); }
       }, { returnOnRelease: false });
     }
 
@@ -444,32 +481,45 @@ export default {
       if (climaxT >= 0) {
         climaxT += dt;
         if (!lifted && climaxT >= T_LIFT) liftCube();
-        if (stage === 1 && climaxT >= T_RISE) startRise();
       }
       if (traveler) {
         const tr = traveler;
-        tr.k = clamp(tr.k + dt / FLY_DUR);
         tr.glow = clamp(tr.glow + dt / 0.55);
-        const e = easeInOutCubic(tr.k);
-        if (e < 0.42) {
-          const u = e / 0.42;
-          tr.x = bez(tr.from.x, tr.ctrl.x, tr.mid.x, u);
-          tr.y = bez(tr.from.y, tr.ctrl.y, tr.mid.y, u);
+        if (tr.mode === 'toWindow') {
+          tr.k = clamp(tr.k + dt / LIFT_FLY);
+          const e = easeInOutCubic(tr.k);
+          tr.x = bez(tr.from.x, tr.ctrl.x, tr.to.x, e);
+          tr.y = bez(tr.from.y, tr.ctrl.y, tr.to.y, e);
+          tr.rot += dt * 0.35;
+          if (tr.k >= 1) { tr.mode = 'hover'; waiting = true; waitT = 0; phase = 'invite'; }
+        } else if (tr.mode === 'hover') {
+          // it bobs toward the window and pulses: "send me out there"
+          const b = 0.5 - 0.5 * Math.cos(t * 2.6);
+          tr.x = tr.to.x + b * L.win.hw * 0.60;
+          tr.y = tr.to.y - Math.sin(t * 1.7) * 7 - b * 5;
+          tr.rot += dt * 0.5;
         } else {
-          const u = (e - 0.42) / 0.58;
-          tr.x = bez(tr.mid.x, tr.ctrl2.x, tr.to.x, u);
-          tr.y = bez(tr.mid.y, tr.ctrl2.y, tr.to.y, u);
+          tr.k = clamp(tr.k + dt / FLY_DUR);
+          const e = easeInOutCubic(tr.k);
+          tr.x = bez(tr.from.x, tr.ctrl.x, tr.to.x, e);
+          tr.y = bez(tr.from.y, tr.ctrl.y, tr.to.y, e);
+          tr.rot += dt * 0.35;
+          if (tr.k >= 1) {
+            traveler = null;
+            lamps[0].primed = 1;
+            engine.audio.play('snap');
+            const p = w2s(lamps[0].x, L.lampTopY + L.hoodH * 0.8);
+            engine.particles.burst(p.x, p.y, 8, {
+              speed: [10, 60], life: [0.3, 0.7], r: [1.2, 2.6], drag: 0.88, color: [DEF.glowColor]
+            });
+          }
         }
-        tr.rot += dt * 0.35;
-        if (tr.k >= 1) {
-          traveler = null;
-          lamps[0].primed = 1;
-          engine.audio.play('snap');
-          const p = w2s(lamps[0].x, L.lampTopY + L.hoodH * 0.8);
-          engine.particles.burst(p.x, p.y, 8, {
-            speed: [10, 60], life: [0.3, 0.7], r: [1.2, 2.6], drag: 0.88, color: [DEF.glowColor]
-          });
-        }
+      }
+
+      // the one wait in the world: nobody is ever stuck, it leaves on its own after WAIT_AUTO
+      if (waiting) {
+        waitT += dt;
+        if (waitT >= WAIT_AUTO) sendCube();
       }
 
       // ---- camera rise
@@ -847,7 +897,8 @@ export default {
 
     function drawFragment(g) {
       // yellow light droplets (the other half of the かけら) drifting toward the window
-      const dropA = riseT >= 0 ? 1 - clamp(riseT / 0.8) : 1;
+      // while the cube waits it must be the hero: the droplets step back a little
+      const dropA = (riseT >= 0 ? 1 - clamp(riseT / 0.8) : 1) * (waiting ? 0.62 : 1);
       if (dropA > 0.01) {
         for (const d of drops) {
           const rr = L.cubeSize * (0.5 + 0.35 * d.r) * (0.9 + 0.1 * Math.sin(t * 3 + d.ph));
@@ -953,7 +1004,14 @@ export default {
     function drawTraveler(g) {
       if (!traveler) return;
       const tr = traveler;
-      drawCube(g, tr.x, tr.y, L.cubeSize * Math.max(0.85, tr.size), tr.rot, tr.glow);
+      if (waiting) {
+        // a slow halo ping: the cube asks to be sent, with no word and no arrow
+        const ping = (t * 0.7) % 1;
+        glowCircle(g, tr.x, tr.y, L.cubeSize * (1.6 + ping * 4.2), DEF.flameColor,
+          0.38 * (1 - ping) * (1 - ping) * A);
+        glowCircle(g, tr.x, tr.y, L.cubeSize * (2.2 + 0.4 * Math.sin(t * 2.6)), DEF.glowColor, 0.30 * A);
+      }
+      drawCube(g, tr.x, tr.y, L.cubeSize * Math.max(0.85, tr.size) * (waiting ? 1.32 : 1), tr.rot, tr.glow);
     }
 
     // ------------------------------------------------------------- scene
@@ -1043,6 +1101,8 @@ export default {
           stage,
           elementId: DEF.id,
           saltTaps,
+          waiting,
+          waitT: Math.round(waitT * 100) / 100,
           landed: landed.length,
           lampsLit: litCount,
           climax: Math.round(climaxT * 100) / 100,
@@ -1056,7 +1116,15 @@ export default {
       hitPoints() {
         if (finished || !L) return [];
         const out = [];
-        if (stage === 1) {
+        if (waiting) {
+          // the glowing cube is the only thing left to touch; 'tap' is aliased onto it so a
+          // finger that is still poking the salt area sends it too
+          const c = cubeTarget();
+          if (c) {
+            out.push({ id: 'cube', x: c.x, y: c.y, r: c.r });
+            out.push({ id: 'tap', x: c.x, y: c.y, r: c.r });
+          }
+        } else if (stage === 1) {
           // §2.3: the potato's hit area is the WHOLE upper half of the screen
           const r = Math.min(L.w, L.h) * 0.32;
           const c = engine.clampSafe(L.w * 0.5, L.h * 0.26, 8);
@@ -1079,9 +1147,10 @@ export default {
       complete() {
         if (finished) return;
         if (climaxT < 0) { saltTaps = NEED_TAPS; stage1Climax(); }
-        climaxT = Math.max(climaxT, T_RISE);
+        climaxT = Math.max(climaxT, LIFT_FLY);
         gloss = 1;
         lifted = true;
+        waiting = false;
         traveler = null;
         stage = 2;
         tiltStage = 2;
