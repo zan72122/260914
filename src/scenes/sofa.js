@@ -10,8 +10,8 @@ import { makeCanvas } from '../floors/floor.js';
 import { Prop, resolveProps } from '../props/prop.js';
 import { LightLayer } from '../core/light.js';
 import {
-  drawSofa, drawBackWall, drawSlot, makeLeg, makeToy,
-  makeCarpet, drawCarpetImage, makeSofaImage,
+  drawSofa, drawSlot, makeLeg, makeToy, makeCarpet, drawCarpetImage,
+  makeSofaImage, makeBackWallImage, drawBackWallImage,
 } from '../props/sofa.js';
 import { clamp, lerp, smoothstep, TAU, noise1 } from '../core/math.js';
 
@@ -45,6 +45,10 @@ export class SofaScene extends Scene {
     super('sofa', rng);
     this.light = new LightLayer();
     this.light.scale = 0.42;          // the darkness is soft; a fraction of the res is plenty
+    // under the furniture the dark is a real dark, and cold: a night-blue, so
+    // the warm beam has something to be warm AGAINST
+    this.light.darkColor = '4,6,20';
+    this.light.glowColor = '255,204,138';
     this.u = 0;             // 0 = out in the room, 1 = right under the sofa
     this.motes = [];
     this.sparks = [];
@@ -168,6 +172,7 @@ export class SofaScene extends Scene {
 
     this.carpetImg = makeCarpet(this.carpet, this.carpetEdge);
     this.sofaImg = makeSofaImage(s);
+    this.wallImg = makeBackWallImage(s);
     this._buildFilm();
     this._replayClean();
     this._buildMotes();
@@ -301,13 +306,16 @@ export class SofaScene extends Scene {
     this._camera(dt, cam, vac, u);
 
     // darkness + headlight: the reveal is the whole scene
-    this.light.setDark(0.855 * smoothstep(0.02, 0.85, lightU));
+    this.light.setDark(0.945 * smoothstep(0.02, 0.85, lightU));
     const hl = vac.headlight;
     hl.on = lightU > 0.035;
     hl.r = (this.pose === 'portrait' ? 215 : 205);
     hl.cone = 0.16;                       // a torch beam, not a floodlight
     hl.softness = 1;                      // ...with a spill, so it has no cut edge
-    hl.intensity = clamp(lightU * 1.35, 0, 1);
+    hl.intensity = clamp(lightU * 1.25, 0, 1);
+    // warm light ADDED back inside the cone: a cut-out alone can only ever be
+    // "less dark", which is what made the cavity read as murky grey
+    hl.warm = 0.30 * smoothstep(0.05, 0.5, lightU);
     this.lightU = lightU;
 
     // debris
@@ -441,6 +449,11 @@ export class SofaScene extends Scene {
   draw(ctx, cam) {
     const s = this.sofa;
     const see = this.see === undefined ? this.u : this.see;
+    // Out in the lit room the boards are the picture and get the filter. Under
+    // the sofa they are behind a 94% darkness and a dust film, where the
+    // bilinear filter on that one full-screen blit is pure cost: on a soft
+    // rasteriser it is worth several frames a second and nothing is visible.
+    this.floor.smoothBase = see < 0.55;
     this.drawFloor(ctx, cam);
     ctx.save();
     cam.apply(ctx);
@@ -449,8 +462,14 @@ export class SofaScene extends Scene {
     if (cp.x1 > VR.x0 && cp.x0 < VR.x1 && cp.y1 > VR.y0 && cp.y0 < VR.y1) {
       drawCarpetImage(ctx, this.carpetImg);
     }
-    if (this.film && see > 0.04) ctx.drawImage(this.film.canvas, this.film.x, this.film.y, this.film.w, this.film.h);
-    drawBackWall(ctx, s);
+    if (this.film && see > 0.04) {
+      // half-res soft dust magnified by the camera: the bilinear filter on that
+      // one blit is dearer than everything it is smoothing
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(this.film.canvas, this.film.x, this.film.y, this.film.w, this.film.h);
+      ctx.imageSmoothingEnabled = true;
+    }
+    drawBackWallImage(ctx, this.wallImg, s);
     for (let i = 0; i < this.props.length; i++) {
       const p = this.props[i];
       if (p.data && p.data.leg) p.draw(ctx);
@@ -465,7 +484,53 @@ export class SofaScene extends Scene {
     this._drawMotes(ctx);
     this._drawSparks(ctx);
     drawSlot(ctx, s, see);
-    drawSofa(ctx, s, 1 - smoothstep(0.08, 0.62, see) * 0.94, this.sofaImg);
+    // Under the furniture the sofa is a ghost frame, and the last few percent
+    // of the solid image cost as much as the whole floor did: a full-screen
+    // drawImage at alpha 0.06 is a full-screen blend. The outline carries it.
+    drawSofa(ctx, s, 1 - smoothstep(0.08, 0.62, see) * 0.94, this.sofaImg, 0.14);
+    ctx.restore();
+  }
+
+  /**
+   * Dust in the beam. The motes themselves are drawn in world space and so are
+   * under the darkness with everything else; what makes them read as dust
+   * hanging in a torch beam is a warm speck ADDED for each one the beam is
+   * actually on — brightest where the air is moving it fastest.
+   */
+  _litMotes(L, cam, vac, u) {
+    const mx = vac.mouthX, my = vac.mouthY;
+    const r = vac.headlight.r * 1.15;
+    const list = this.motes;
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i];
+      const dx = m.x - mx, dy = m.y - my;
+      const d = Math.hypot(dx, dy);
+      if (d > r) continue;
+      const align = d < 1 ? 1 : (dx * vac.dirX + dy * vac.dirY) / d;
+      if (align < 0.55) continue;                       // outside the cone
+      const k = (1 - d / r) * smoothstep(0.55, 0.9, align) * u;
+      if (k <= 0.02) continue;
+      cam.toScreen(m.x, m.y, SP);
+      L.addSpark(SP.x, SP.y, (2.4 + m.r * 2.0) * cam.zoom, 0.42 * k);
+    }
+  }
+
+  /**
+   * Same as the base, but culled to the view. Under the sofa the camera is
+   * zoomed in and tilted, so half the cavity — and the whole trail out in the
+   * room — is off screen, and a dust bunny is ~30 fibre strokes each.
+   */
+  drawDebris(ctx, cam) {
+    cam.viewRect(VR, 80);
+    ctx.save();
+    cam.apply(ctx);
+    const list = this.debris;
+    for (let i = 0; i < list.length; i++) {
+      const d = list[i];
+      if (d.dormant) continue;
+      if (d.x < VR.x0 || d.x > VR.x1 || d.y < VR.y0 || d.y > VR.y1) continue;
+      d.draw(ctx, cam);
+    }
     ctx.restore();
   }
 
@@ -495,6 +560,12 @@ export class SofaScene extends Scene {
     if (u <= 0.02) return;
     const s = this.sofa;
     const zoom = cam.zoom;
+    // A weak wash all round the head. Not enough to light anything: just enough
+    // that a clump sitting OUTSIDE the beam is a faint silhouette, so the child
+    // can see there is more out there than the beam is on.
+    cam.toScreen(vac.mouthX, vac.mouthY, SP);
+    L.addLight(SP.x, SP.y, 250 * zoom, 0.19 * u);
+    this._litMotes(L, cam, vac, u);
     if (this.pose === 'portrait') {
       cam.toScreen(0, s.yEdge + this.vh * 0.30, SP);
       L.addLight(SP.x, SP.y, this.vw * 0.95 * zoom, 0.55 * u);

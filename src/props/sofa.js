@@ -45,12 +45,42 @@ export function drawSlot(ctx, s, u) {
   const a = 1 - u * 0.88;
   if (a <= 0.02) return;
   const top = s.yEdge - s.gap, bot = s.yEdge + 14;
-  const g = ctx.createLinearGradient(0, top - 6, 0, bot);
-  g.addColorStop(0, 'rgba(8,6,12,' + (0.78 * a).toFixed(3) + ')');
-  g.addColorStop(0.45, 'rgba(10,8,16,' + (0.60 * a).toFixed(3) + ')');
-  g.addColorStop(1, 'rgba(12,10,18,0)');
+  // the gradient never changes shape, only how strong it is, so it is built
+  // once and the strength is carried by globalAlpha: createLinearGradient in a
+  // draw loop is a new object and a new raster every single frame
+  let g = s._slotG;
+  if (!g) {
+    g = ctx.createLinearGradient(0, top - 6, 0, bot);
+    g.addColorStop(0, 'rgba(8,6,12,0.78)');
+    g.addColorStop(0.45, 'rgba(10,8,16,0.60)');
+    g.addColorStop(1, 'rgba(12,10,18,0)');
+    s._slotG = g;
+  }
+  ctx.globalAlpha = a;
   ctx.fillStyle = g;
   ctx.fillRect(s.x0, top - 8, s.x1 - s.x0, bot - top + 8);
+  ctx.globalAlpha = 1;
+}
+
+/**
+ * The skirting board / wall at the far end of the cavity, painted once into
+ * its own canvas. It never changes, and as a live draw it was a full-width
+ * gradient fill plus four bars every frame.
+ */
+export function makeBackWallImage(s) {
+  const H = 360;
+  const w = Math.max(1, Math.round(s.x1 - s.x0) + 300);
+  const h = H + 12;
+  const canvas = makeCanvas(w, h);
+  const g = canvas.getContext('2d');
+  g.translate(-(s.x0 - 150), -(s.yBack - H));
+  drawBackWall(g, s);
+  return { canvas, x: s.x0 - 150, y: s.yBack - H, w, h };
+}
+
+export function drawBackWallImage(ctx, img, s) {
+  if (img) ctx.drawImage(img.canvas, img.x, img.y);
+  else drawBackWall(ctx, s);
 }
 
 /** The skirting board / wall at the far end of the cavity. */
@@ -91,11 +121,12 @@ export function makeSofaImage(s) {
   return { canvas, x: s.x0 - pad, y: s.yBack - 8 - pad, w, h };
 }
 
-/** alpha 1 = solid; 0 = you are underneath and it is only a ghost frame. */
-export function drawSofa(ctx, s, alpha, img) {
-  const x0 = s.x0, x1 = s.x1, W = x1 - x0;
-  const yb = s.yBack, ye = s.yEdge - s.gap, D = ye - yb;
-  if (alpha > 0.02) {
+/**
+ * alpha 1 = solid; 0 = you are underneath and it is only a ghost frame.
+ * `floor` is the alpha below which the solid image is not drawn at all.
+ */
+export function drawSofa(ctx, s, alpha, img, floor) {
+  if (alpha > (floor === undefined ? 0.02 : floor)) {
     ctx.save();
     ctx.globalAlpha = alpha;
     if (img) ctx.drawImage(img.canvas, img.x, img.y, img.w, img.h);
