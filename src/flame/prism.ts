@@ -160,3 +160,40 @@ function computeBands(element: SpectrumElementId | null): SpectrumBand[] {
   bands.sort((a, b) => a.wavelengthNm - b.wavelengthNm);
   return bands;
 }
+
+/* ------------------------------------------------------------------ *
+ * 描画のための補助（帯の中心・幅・明るさは上の純関数のまま変えない）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 帯の縁のやわらかさ。中心からの距離 [nm] を、表示上の明るさの割合 0..1 に写す。
+ *
+ * 分光器で見える帯の縁は、スリットの像と目の分解能でぼける。ここではその
+ * 「にじみ」だけを表す。帯の**中心・幅・相対的な明るさは何も変えない**
+ * （`spectrumBands()` の出力はそのまま）。
+ *
+ * 表示値（sRGB を通した後の画素値）に対する割合として定義する。線形光に掛けると
+ * sRGB 伝達関数が低い側を持ち上げ、細い原子線まで太く見えてしまうため。
+ *
+ *  - |Δ| ≤ 幅/4       … 平ら（帯の芯）
+ *  - 幅/4 < |Δ| < 幅×0.75 … なめらかに落ちる
+ *  - |Δ| ≥ 幅×0.75    … 0（描かない）
+ *
+ * この形なら、明るさが山の 1/4 になる所までの全幅がほぼ幅そのもの
+ * （原子線 6nm なら約 7nm、分子バンド 14nm なら約 16nm）になり、
+ * 「Li は一本、Sr は帯」という見分けが縁をぼかしても保たれる。
+ */
+export function bandFalloff(deltaNm: number, widthNm: number): number {
+  const d = Math.abs(deltaNm);
+  const flat = widthNm * 0.25;
+  const edge = widthNm * 0.75;
+  if (d <= flat) return 1;
+  if (d >= edge) return 0;
+  const t = (d - flat) / (edge - flat);
+  return 1 - t * t * (3 - 2 * t);
+}
+
+/** 帯が描かれる範囲（中心からの片側の広がり）[nm]。 */
+export function bandSupportNm(widthNm: number): number {
+  return widthNm * 0.75;
+}

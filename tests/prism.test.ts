@@ -7,6 +7,8 @@ import { SCENARIOS, type ScenarioName } from '../src/scenarios/scenarios';
 import {
   ATOMIC_WIDTH_NM,
   MOLECULAR_WIDTH_NM,
+  bandFalloff,
+  bandSupportNm,
   SPECTRUM_MAX_NM,
   SPECTRUM_MIN_NM,
   bandWidthNm,
@@ -386,5 +388,50 @@ describe('プリズム', () => {
     h.step(16);
     expect(h.world.stateView().prism.at).toBe('bench');
     expect(h.world.stateView().held?.id).toBe('strontium_grains');
+  });
+});
+
+describe('帯の縁のにじみ（描画用の補助・純関数）', () => {
+  it('中心は満光で、幅の 3/4 より外では消えている', () => {
+    for (const w of [ATOMIC_WIDTH_NM, MOLECULAR_WIDTH_NM]) {
+      expect(bandFalloff(0, w)).toBe(1);
+      expect(bandFalloff(w * 0.25, w)).toBe(1);
+      expect(bandFalloff(w * 0.75, w)).toBe(0);
+      expect(bandFalloff(w * 2, w)).toBe(0);
+      expect(bandSupportNm(w)).toBeCloseTo(w * 0.75, 10);
+    }
+  });
+
+  it('左右で対称に、外へ行くほど単調に暗くなる', () => {
+    const w = MOLECULAR_WIDTH_NM;
+    let prev = 1;
+    for (let d = 0; d <= w; d += 0.25) {
+      const v = bandFalloff(d, w);
+      expect(v).toBeCloseTo(bandFalloff(-d, w), 12);
+      expect(v).toBeLessThanOrEqual(prev + 1e-12);
+      prev = v;
+    }
+  });
+
+  it('山の 1/4 の明るさまでの全幅は、原子線でも幅そのものに収まる', () => {
+    // e2e（prism.spec.ts）は「Δ赤が山の 25% を超える波長が続く幅」で
+    // Li の一本と Sr の帯を分ける。にじみを足しても原子線が太らないことをここで抑える。
+    const widthAtQuarter = (w: number): number => {
+      let d = 0;
+      while (d < w * 2 && bandFalloff(d, w) >= 0.25) d += 0.01;
+      return d * 2;
+    };
+    expect(widthAtQuarter(ATOMIC_WIDTH_NM)).toBeLessThanOrEqual(ATOMIC_WIDTH_NM * 1.3);
+    expect(widthAtQuarter(MOLECULAR_WIDTH_NM)).toBeGreaterThan(ATOMIC_WIDTH_NM * 1.3);
+  });
+
+  it('帯の中心・幅・明るさ・色は、にじみを足しても変わっていない', () => {
+    // 描画用の補助を足しただけで spectrumBands() の出力は同じであること
+    const li = spectrumBands('lithium');
+    const main = li.find((b) => Math.round(b.wavelengthNm) === 671);
+    expect(main).toBeDefined();
+    expect(main!.level).toBe(1);
+    expect(main!.widthNm).toBe(ATOMIC_WIDTH_NM);
+    expect(bandFalloff(0, main!.widthNm)).toBe(1);
   });
 });
