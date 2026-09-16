@@ -7,10 +7,16 @@
 // popping up clear of the finger and then tumbling down into the room. Tap
 // them one at a time and that works exactly the same way.
 //
-// Nothing here is pulled and nothing here is thrown: the only thing a child
-// has to discover is that their finger is enough. When the last clip is empty
-// the frame has no reason to stay outside, so it comes in by itself and the
-// child gathers the pile into the basket: one layer, six small sounds.
+// And because a child who has learned "pull it toward the room" on everything
+// else will try exactly that here too, pulling the frame itself does the same
+// thing from the other end: past the threshold the clips start going off one
+// after another, a tenth of a second apart, running along the row in the
+// direction of the pull -- pachi, pachi, pachi -- until the rack is bare. Two
+// ways in, one result.
+//
+// When the last clip is empty the frame has no reason to stay outside, so it
+// comes in by itself and the child gathers the pile into the basket: one
+// layer, six small sounds.
 
 import { Item } from './base.js';
 import { Cloth, makePalette, drawCloth } from '../cloth.js';
@@ -52,6 +58,7 @@ export class Pinch extends Item {
       this.minis[k].cloth.windScale = 1.15;
     }
     this.pops = 0;
+    this.lean = 0;
     this.autoT = -1;
     this.lastTX = 0;
     this.lastTY = 0;
@@ -63,14 +70,37 @@ export class Pinch extends Item {
   /** Distance between two neighbouring clips. */
   clipGap() { return this.anchor.w / 6; }
 
-  /** The frame is rigid: every node of the top row is held by the hanger. */
+  /**
+   * The frame is rigid: every node of the top row is held by the hanger.
+   *
+   * Which means that, unlike every other item here, a hand on the cloth moves
+   * nothing -- the constraint solver puts it straight back. So the answer to a
+   * hand is to swing the whole rack: `lean` slides the hanger itself toward
+   * the room, the way a rack on a pole does when a child leans on it. It is
+   * the pinch hanger's version of the cloth coming up off its rest shape, and
+   * it is what makes a touch here feel like a touch anywhere else.
+   */
   applyPins() {
     const cl = this.cloth;
+    const d = this.world.inDir;
+    const L = this.lean || 0;
     cl.unpinAll();
     if (this.state !== 'HANGING') return;
     for (let c = 0; c < cl.cols; c++) {
-      cl.pin(cl.idx(c, 0), this.anchor.x + (c / (cl.cols - 1)) * this.anchor.w, this.anchor.y);
+      cl.pin(cl.idx(c, 0),
+        this.anchor.x + (c / (cl.cols - 1)) * this.anchor.w + d.x * L,
+        this.anchor.y + d.y * L);
     }
+  }
+
+  /** The rack goes with the hand at once, and comes back when it is let go. */
+  _updateLean(dt) {
+    const kick = Math.max(4, this.world.min * 0.016);
+    const target = this.grabbing
+      ? kick + clamp(this.along || 0, 0, this.pullThreshold()) * 0.30
+      : 0;
+    const k = target > this.lean ? 14 : 5;
+    this.lean += (target - this.lean) * Math.min(1, dt * k);
   }
 
   layout(world) {
@@ -117,13 +147,23 @@ export class Pinch extends Item {
     this.grabbing = true;
     this.occl = 0;
     this.stretch = 0;
+    this.along = 0;
+    this.beatT = 0;
+    this.poppedThisGrab = false;
+    this.pullX = p.x; this.pullY = p.y;
     this.lastTX = p.x; this.lastTY = p.y;
+    this.grabFeedback();
+    this.lean = Math.max(4, this.world.min * 0.016);
+    this.applyPins();
     this.touchAt(p.x, p.y);
     return true;
   }
 
   onPointerMove(p) {
     if (!this.grabbing) return;
+    this.pullX = p.x; this.pullY = p.y;
+    this.along = p.along;
+    this.stretch = clamp(p.along / this.pullThreshold(), 0, 1);
     // Sample along the stroke so a fast swipe cannot jump over a clip.
     const r = this.touchRadius() * 0.5;
     const dx = p.x - this.lastTX, dy = p.y - this.lastTY;
@@ -141,16 +181,28 @@ export class Pinch extends Item {
     this.grabbing = false;
     this.occl = 0;
     this.stretch = 0;
+    this.along = 0;
+    this.beatT = 0;
   }
 
-  /** Every clip within a generous radius of this point opens, now. */
+  /**
+   * Every clip within a generous radius of this point opens, now.
+   *
+   * The point is taken in the *rack's* frame, not the screen's: the whole
+   * hanger slides toward the room under the hand (see applyPins), and a finger
+   * resting on a clip has to stay on that clip while it does, exactly as it
+   * would if the two were really touching.
+   */
   touchAt(x, y) {
+    const d = this.world.inDir;
+    const L = this.lean || 0;
+    const px = x + d.x * L, py = y + d.y * L;
     const r = this.touchRadius();
     const r2 = r * r;
     for (let k = 0; k < this.clipCols.length; k++) {
       if (this.popped[k]) continue;
       this.clipPos(k, TMP);
-      const dx = TMP.x - x, dy = TMP.y - y;
+      const dx = TMP.x - px, dy = TMP.y - py;
       if (dx * dx + dy * dy <= r2) this.popClip(k);
     }
   }
@@ -162,7 +214,17 @@ export class Pinch extends Item {
   popClip(k) {
     let i = k;
     if (typeof i !== 'number') {
-      i = this.popped.findIndex((v) => !v);
+      // Called by the shared pull: take the clip nearest the hand, so the row
+      // unzips outward from wherever the finger is dragging.
+      const p = k || { x: this.pullX, y: this.pullY };
+      let bestD = Infinity;
+      i = -1;
+      for (let n = 0; n < this.clipCols.length; n++) {
+        if (this.popped[n]) continue;
+        this.clipPos(n, TMP);
+        const d = Math.abs(TMP.x - p.x) + Math.abs(TMP.y - p.y) * 0.25;
+        if (d < bestD) { bestD = d; i = n; }
+      }
       if (i < 0) return;
     }
     if (this.popped[i]) return;
@@ -203,6 +265,8 @@ export class Pinch extends Item {
 
   // ---- simulation -------------------------------------------------------
   update(dt, wind, rain) {
+    this._updateLean(dt);
+    if (this.state === 'HANGING') this.applyPins();
     for (let k = 0; k < this.flash.length; k++) {
       this.flash[k] = Math.max(0, this.flash[k] - dt * 3.4);
     }
@@ -327,16 +391,17 @@ export class Pinch extends Item {
 
   snapshot(out) {
     super.snapshot(out);
-    const pts = [];
-    for (let k = 0; k < this.clipCols.length; k++) {
-      this.clipPos(k, TMP);
-      pts.push({
-        x: Math.round(TMP.x * 10) / 10,
-        y: Math.round(TMP.y * 10) / 10,
-        popped: !!this.popped[k],
-      });
+    if (!this._clipSnap) {
+      this._clipSnap = this.clipCols.map(() => ({ x: 0, y: 0, popped: false }));
     }
-    out.clipPts = pts;
+    for (let k = 0; k < this.clipCols.length; k++) {
+      const c = this._clipSnap[k];
+      this.clipPos(k, TMP);
+      c.x = Math.round(TMP.x * 10) / 10;
+      c.y = Math.round(TMP.y * 10) / 10;
+      c.popped = !!this.popped[k];
+    }
+    out.clipPts = this._clipSnap;
     return out;
   }
 }

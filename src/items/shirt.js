@@ -1,17 +1,19 @@
 // items/shirt.js -- item #2, the T-shirt on a wire hanger.
 //
-// The constraint is not a peg: it is a *hook over a bar*. You cannot pull a
-// hook off a bar by pulling sideways, and this shirt refuses to pretend
-// otherwise. Pull straight toward the room and the hook just grips: the shirt
-// stretches, the hanger tilts and clinks against the pole, and everything
-// springs back when the finger lets go. Nothing is lost, nothing fails -- the
-// clink is a hint.
+// The constraint is not a peg: it is a *hook over a bar*, and a hook has to be
+// lifted before it will come off. But a four year old is not going to draw an
+// arc in the air to explain that, so the shirt does the lifting itself.
 //
-// Lift the shirt a little first (a couple of centimetres of finger travel
-// upward, in either orientation) and the hook visibly rises clear of the bar,
-// with a "karan" and a real gap drawn between hook and pole. From there the
-// smallest move toward the room swings it free: lift, then arc. That is the
-// whole gesture, and it is the gesture a real hanger teaches you.
+// Pull toward the room and the hanger answers: it tilts, the hook rotates in
+// its groove and rides up the pole, clinking, and at the top of the pull it
+// clears the bar with a "karan" and slides off. The finger only ever went one
+// way -- toward the room -- and the world supplied the geometry. That is the
+// whole of DESIGN.md's 「プレイヤーの意図を一本指入力へ変換」 in one item.
+//
+// Anyone who *does* lift -- a couple of centimetres of upward travel, in
+// either orientation -- gets the hook off early, and the shirt swings free
+// from there. Both roads lead to the same place; only one of them has to be
+// discovered.
 
 import { Item } from './base.js';
 import { SLEEVE_OVERHANG } from './index.js';
@@ -59,7 +61,7 @@ export class Shirt extends Item {
   liftThreshold() { return clamp(22 * this.world.unit, 18, 28); }
 
   /** After the lift, the shirt swings free almost immediately. */
-  arcThreshold() { return this.pullThreshold() * 0.8; }
+  arcThreshold() { return this.pullThreshold() * 0.55; }
 
   // ---- pins -------------------------------------------------------------
   /** Both shoulders hang from the ends of the hanger, never from the pole. */
@@ -140,15 +142,19 @@ export class Shirt extends Item {
 
     if (!g.lifted) {
       const lift = this.liftThreshold();
-      g.lift = clamp(up, 0, lift) * 0.9;
-      if (up >= lift) { this.liftOff(p); return; }
-      // Pulling inward without lifting: the hook grips the bar.
-      this.stretch = clamp(p.along / this.pullThreshold(), 0, 1);
-      g.snag = clamp(p.along / this.pullThreshold(), 0, 1);
-      if (p.along > this.pullThreshold() * 0.45 && g.clink <= 0) {
-        g.clink = 0.26;
+      const th = this.pullThreshold();
+      const pull = clamp(p.along / th, 0, 1);
+      // The hook rides up the pole as the pull grows: the world performs the
+      // lift the gesture implies, instead of demanding the gesture.
+      g.lift = Math.max(clamp(up, 0, lift) * 0.9, pull * lift);
+      this.stretch = pull;
+      g.snag = pull;
+      if (p.along > th * 0.30 && g.clink <= 0) {
+        // Metal turning in its groove, again and again as it climbs.
+        g.clink = 0.22;
         if (this.audio) this.audio.hangerClink();
       }
+      if (up >= lift || p.along >= th) { this.liftOff(p); return; }
       return;
     }
 
@@ -160,7 +166,13 @@ export class Shirt extends Item {
     if (arc >= th) this.release();
   }
 
-  /** The hook clears the bar: "karan", and a gap you can see. */
+  /**
+   * The shirt has no pegs to pop: its release is the hook leaving the bar,
+   * which onPointerMove decides. The shared peg-by-peg pull must keep out.
+   */
+  updatePull() { /* the hanger is the constraint; see onPointerMove */ }
+
+  /** The hook clears the bar: "karan", and a real lift you can see. */
   liftOff(p) {
     const g = this.hanger();
     g.lifted = true;
@@ -230,7 +242,8 @@ export class Shirt extends Item {
       // Pendulum about the hook: lateral wind and gusts rock it, the snagged
       // pull twists it, and it always settles back to hanging straight.
       const tgt = this.grabbing && !g.lifted
-        ? clamp((g.px - g.hx) / (this.anchor.w * 1.6), -0.45, 0.45) * (0.35 + g.snag)
+        ? clamp((g.px - g.hx) / (this.anchor.w * 1.6), -0.55, 0.55) * (0.35 + g.snag) +
+          this.world.inDir.x * g.snag * 0.30
         : 0;
       const stiff = 46;
       g.tiltV += (tgt - g.tilt) * stiff * dt + wind.x * 0.02 * dt;
@@ -338,22 +351,30 @@ export class Shirt extends Item {
 
     if (this.state === 'HANGING') {
       const lifted = hg.lift > 1.2;
-      if (lifted) {
-        // Draw the gap: the hook is demonstrably off the bar now.
-        ctx.globalAlpha = 0.5;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = Math.max(1, s * 0.10);
-        ctx.setLineDash([s * 0.22, s * 0.3]);
+      // Where the hook is *touching* the bar: a small contact shadow on the
+      // pole, exactly as heavy as the hook is resting on it. As the hook rides
+      // up, the shadow softens and spreads and a rim of light opens under the
+      // metal -- the same thing a real object does when it leaves a surface,
+      // and no measurement line anywhere.
+      const off = clamp(hg.lift / Math.max(1, this.liftThreshold()), 0, 1);
+      const cw = s * (0.55 + 0.75 * off);
+      ctx.globalAlpha = (1 - off) * 0.45;
+      ctx.fillStyle = 'rgba(48,40,34,1)';
+      ctx.beginPath();
+      ctx.ellipse(g.hx, world.pole.y + world.pole.thickness * 0.30, cw, s * 0.16, 0, 0, Math.PI * 2);
+      ctx.fill();
+      if (off > 0.02) {
+        ctx.globalAlpha = Math.min(1, off * 1.2) * 0.85;
+        ctx.strokeStyle = '#fffaf0';
+        ctx.lineWidth = Math.max(1.2, s * 0.13);
         ctx.beginPath();
-        ctx.moveTo(g.hx, g.hy + s * 0.05);
-        ctx.lineTo(g.hx, world.pole.y);
+        ctx.arc(g.hx, g.hy + s * 0.06, s * 0.46, Math.PI * 1.15, Math.PI * 1.85);
         ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.globalAlpha = 1;
       }
-      if (this.rainStarted) {
+      ctx.globalAlpha = 1;
+      if (this.rainStarted || this.cueGlint > 0.02) {
         const glint = Math.max(0, Math.sin(world.t * 4.2) * 0.5 + 0.5) *
-          (0.35 + 0.65 * this.gust) + (lifted ? 0.4 : 0);
+          (0.35 + 0.65 * this.gust) + (lifted ? 0.4 : 0) + this.cueGlint * 0.7;
         ctx.globalAlpha = Math.min(1, glint) * 0.95;
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();

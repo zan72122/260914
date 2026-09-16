@@ -21,13 +21,28 @@
 // Geometry (slot / wFrac / hFrac) is NOT the item's business: it comes from
 // items/index.js and nothing here may override it.
 //
-// The base behaviour is the two-peg pull: drag toward `world.inDir`, each
-// stroke past the threshold pops one peg, the last peg frees the cloth. The
-// towel is the fully-tuned reference implementation of it; the other four
-// items currently inherit it and are marked as placeholders.
+// THE ONE GESTURE.
+//
+// Put a finger anywhere on the cloth and pull it toward the room. That is the
+// whole game, on every item, in both orientations. A pull past the item's
+// threshold pops the first peg; keeping it there pops the next one a beat
+// later, and the next, until the cloth is free. Nothing else is ever
+// *required*: no lift, no hold, no aiming at a peg.
+//
+// What differs between the five is what the world does back -- how far it
+// wants to be pulled, how long the beats are, whether the hanger rides up the
+// pole or a row of little clips goes off like a zip, how the cloth moves,
+// what it sounds like. The intent is one finger pulling; the answer is five
+// different things happening. (docs/DESIGN.md: 「現実の指使いではなく、
+// プレイヤーの意図を一本指入力へ変換」.)
+//
+// The per-item flourishes are still there for anyone who finds them -- touch
+// a peg on the sheet and it opens, lift the shirt off its hook by hand -- but
+// they are shortcuts, never the price of admission.
 
 import {
   Cloth, makePalette, drawClothLit, drawWetSpot, setClothScale, relaxShear,
+  settleCloth, clampClothVelocity,
 } from '../cloth.js';
 import { clamp } from '../layout.js';
 
@@ -77,6 +92,14 @@ export class Item {
     this.occl = 0;          // finger-occlusion offset ramp, 0..1
     this.poppedThisGrab = false;
     this.stretch = 0;       // 0..1, how far this stroke has got (visual feedback)
+    this.along = 0;         // this stroke's travel toward the room, css px
+    this.pullX = 0;
+    this.pullY = 0;
+    this.beatT = 0;         // time since the last peg went, this stroke
+    this.grabLit = 0;       // "I have hold of it": the cloth brightens
+    this.grabWob = 0;       // ...and the pegs holding it wobble
+    this.settleT = 0;       // extra constraint work after the finger lets go
+    this.cueGlint = 0;      // set while the child is pointing at this one
     this.releaseT = 0;
     this.spots = [];
     this.gust = 0;
@@ -188,6 +211,19 @@ export class Item {
    */
   hitDistance(x, y) {
     const cl = this.cloth;
+    // On the cloth is on the cloth: if the point is inside any cell of the
+    // mesh the distance is zero, whatever the vertices are doing. Measuring to
+    // the nearest *vertex* instead used to hand the middle of the pinch
+    // hanger -- a rigid frame four rows deep, so its vertices are a long way
+    // apart -- to whichever neighbour happened to have a vertex nearer, and a
+    // finger squarely on one item ended up dragging another.
+    const cols = cl.cols, rows = cl.rows;
+    for (let r = 0; r < rows - 1; r++) {
+      for (let c = 0; c < cols - 1; c++) {
+        const i = r * cols + c;
+        if (inQuad(x, y, cl, i, i + 1, i + cols + 1, i + cols)) return 0;
+      }
+    }
     let best = Infinity;
     for (let i = 0; i < cl.n; i++) {
       const dx = cl.x[i] - x, dy = cl.y[i] - y;
@@ -195,6 +231,19 @@ export class Item {
       if (d < best) best = d;
     }
     return Math.sqrt(best);
+  }
+
+  /** Is the finger on one of the pegs still holding this up? */
+  nearPeg(x, y) {
+    const r = Math.max(28, this.world.min * 0.07);
+    const r2 = r * r;
+    for (let k = 0; k < this.clipCols.length; k++) {
+      if (this.popped[k]) continue;
+      this.clipPos(k, TMP);
+      const dx = TMP.x - x, dy = TMP.y - y;
+      if (dx * dx + dy * dy <= r2) return true;
+    }
+    return false;
   }
 
   /**
@@ -217,26 +266,24 @@ export class Item {
   get cy() { this.cloth.centroid(TMP); return TMP.y; }
 
   // ---- input ------------------------------------------------------------
+  /** The piece of cloth under the finger. The whole body is fair game. */
+  grabPoint(x, y) {
+    const cl = this.cloth;
+    let best = -1, bestD = Infinity;
+    for (let i = 0; i < cl.n; i++) {
+      if (cl.pinned[i]) continue;
+      const dx = cl.x[i] - x, dy = cl.y[i] - y;
+      const d = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    if (best < 0) best = cl.idx((cl.cols / 2) | 0, cl.rows - 1);
+    return best;
+  }
+
   onPointerDown(p) {
     if (this.state !== 'HANGING') return false;
-    // Grab the edge of the cloth that keeps the rest of it clear of the
-    // finger: the hem in portrait, the inner edge in landscape.
     const cl = this.cloth;
-    const cols = cl.cols, rows = cl.rows;
-    let best = -1, bestD = Infinity;
-    if (this.world.portrait) {
-      for (let c = 0; c < cols; c++) {
-        const i = cl.idx(c, rows - 1);
-        const d = Math.abs(cl.x[i] - p.x);
-        if (d < bestD) { bestD = d; best = i; }
-      }
-    } else {
-      for (let r = 1; r < rows; r++) {
-        const i = cl.idx(0, r);
-        const d = Math.abs(cl.y[i] - p.y);
-        if (d < bestD) { bestD = d; best = i; }
-      }
-    }
+    const best = this.grabPoint(p.x, p.y);
     this.grabIdx = best;
     this.grabOX = cl.x[best] - p.x;
     this.grabOY = cl.y[best] - p.y;
@@ -244,7 +291,47 @@ export class Item {
     this.occl = 0;
     this.poppedThisGrab = false;
     this.stretch = 0;
+    this.along = 0;
+    this.beatT = 0;
+    this.settleT = 0;
+    this.pullX = p.x;
+    this.pullY = p.y;
+    this.grabFeedback();
     return true;
+  }
+
+  /**
+   * The answer to the touch, before the finger has moved a millimetre.
+   *
+   * The playtest was unambiguous about this: the washing is always swaying in
+   * the wind, so a tap that does nothing and a tap that took hold look exactly
+   * the same, and a child who cannot tell them apart stops trying. So the
+   * moment a finger lands the cloth comes *off* its rest shape toward the
+   * room, brightens as if it had turned into the light, the pegs holding it
+   * jump, and there is a soft "fusa". All four say the same thing: I have it.
+   */
+  grabFeedback() {
+    const cl = this.cloth;
+    const d = this.world.inDir;
+    const k = Math.max(5, this.world.min * 0.030);
+    const rows = cl.rows, cols = cl.cols;
+    for (let r = 0; r < rows; r++) {
+      // The hem moves most; the row under the pegs barely can.
+      const rv = rows > 1 ? r / (rows - 1) : 1;
+      const a = k * (0.30 + 0.70 * rv);
+      for (let c = 0; c < cols; c++) {
+        const i = r * cols + c;
+        if (cl.pinned[i]) continue;
+        cl.x[i] += d.x * a;
+        cl.y[i] += d.y * a;
+        // ...and keep going for a moment: a lift, not a teleport.
+        cl.ox[i] -= d.x * a * 0.22;
+        cl.oy[i] -= d.y * a * 0.22;
+      }
+    }
+    this.grabLit = 1;
+    this.grabWob = 1;
+    if (this.audio && this.audio.fusa) this.audio.fusa();
   }
 
   onPointerMove(p) {
@@ -254,9 +341,45 @@ export class Item {
     const tx = p.x + this.grabOX + fo.x * this.occl * 0.55;
     const ty = p.y + this.grabOY + fo.y * this.occl * 0.55;
     this.cloth.pin(this.grabIdx, tx, ty);
-    const th = this.pullThreshold();
-    this.stretch = clamp(p.along / th, 0, 1);
-    if (!this.poppedThisGrab && p.along >= th) this.popClip(p);
+    this.pullX = p.x;
+    this.pullY = p.y;
+    this.along = p.along;
+    this.stretch = clamp(this.pullDistance() / this.pullThreshold(), 0, 1);
+  }
+
+  /**
+   * How far this stroke counts as having pulled. The finger's own travel,
+   * unless the item has a reason to measure something else (the jeans measure
+   * the waistband, which is always a long way behind the finger).
+   */
+  pullDistance() { return this.along; }
+
+  /** Seconds between the pegs of one continued pull. */
+  popBeat() { return this.spec.popBeat === undefined ? 0.20 : this.spec.popBeat; }
+
+  /**
+   * The pull, resolved once per frame rather than per pointermove.
+   *
+   * Beats are the whole point. The first peg goes the moment the pull is far
+   * enough; the next one waits, and in that gap the cloth does something worth
+   * watching -- the towel swings onto the diagonal, the sheet's freed corner
+   * fills with air. A finger that stays where it is keeps the pull alive and
+   * the beats keep coming; a finger that lets go leaves the rest for the next
+   * pull, which is just as good a way to play.
+   */
+  updatePull(dt) {
+    if (!this.grabbing || this.state !== 'HANGING') return;
+    this.beatT += dt;
+    if (this.pullDistance() < this.pullThreshold()) return;
+    if (this.poppedThisGrab && this.beatT < this.popBeat()) return;
+    this.beatT = 0;
+    this.popClip(this.pullPoint());
+  }
+
+  pullPoint() {
+    const o = this._pp || (this._pp = { x: 0, y: 0 });
+    o.x = this.pullX; o.y = this.pullY;
+    return o;
   }
 
   onPointerUp() { this.endGrab(); }
@@ -267,7 +390,14 @@ export class Item {
     this.grabbing = false;
     this.stretch = 0;
     this.occl = 0;
-    if (this.state === 'HANGING') this.applyPins(); // springs back on its own
+    this.along = 0;
+    this.beatT = 0;
+    if (this.state === 'HANGING') {
+      this.applyPins();
+      // Hand back a cloth, not a wreck. See settleCloth in cloth.js.
+      settleCloth(this.cloth, 8, 0.5);
+      this.settleT = 0.6;
+    }
     this.grabIdx = -1;
   }
 
@@ -343,12 +473,19 @@ export class Item {
     this.cloth.unpinAll();
   }
 
-  addSpot(u, v, r) { this.spots.push({ u, v, r: r || 0.12, a: 0 }); }
+  addSpot(u, v, r) { this.spots.push({ u, v, r: r || 0.12, a: 0, grow: 0 }); }
 
   // ---- simulation -------------------------------------------------------
   update(dt, wind, rain) {
     const sp = this.spec;
     if (this.grabbing) this.occl = Math.min(1, this.occl + dt * 6);
+    this.updatePull(dt);
+    // "I have hold of it" fades, but never all the way while the finger is
+    // still down: a child who looks away and back must still be able to tell.
+    const litFloor = this.grabbing ? 0.55 : 0;
+    this.grabLit = Math.max(litFloor, this.grabLit - dt * 2.2);
+    this.grabWob = Math.max(0, this.grabWob - dt * 2.0);
+    this.cueGlint = Math.max(0, this.cueGlint - dt * 1.6);
     if (!this.selfBillow) this._billow(dt);
 
     if (this.state === 'HANGING' || this.state === 'RELEASING') {
@@ -356,8 +493,13 @@ export class Item {
         this.wetness = clamp(this.wetness + dt * rain * 0.055, 0, 0.85);
       }
     }
+    // The wet marks: they arrive quickly and then keep spreading, because a
+    // stain that has stopped spreading is scenery and a stain that is still
+    // spreading is a reason to hurry.
     for (let i = 0; i < this.spots.length; i++) {
-      this.spots[i].a = Math.min(1, this.spots[i].a + dt * 1.4);
+      const sp2 = this.spots[i];
+      sp2.a = Math.min(1, sp2.a + dt * 1.8);
+      sp2.grow = Math.min(1, (sp2.grow || 0) + dt * 0.13);
     }
     // Popped pegs tumble away for a moment: immediate visual feedback.
     for (let k = 0; k < this.clipAnim.length; k++) {
@@ -392,6 +534,26 @@ export class Item {
       if (this.state !== 'IN_BASKET') relaxShear(this.cloth, 0.30);
       this._updateZ();
     }
+    this._settle(dt);
+  }
+
+  /**
+   * The half second after the finger lets go.
+   *
+   * Three extra relaxation passes a frame and a speed limit, for as long as it
+   * takes the mesh to forget it was being hauled on. Without it the cloth can
+   * sit there stretched or kinked for long enough to read as broken -- which
+   * is exactly what the playtest saw, over and over.
+   */
+  _settle(dt) {
+    if (this.settleT <= 0) return;
+    this.settleT -= dt;
+    const cl = this.cloth;
+    for (let k = 0; k < 3; k++) {
+      cl.solve();
+      relaxShear(cl, 0.5);
+    }
+    clampClothVelocity(cl, Math.max(4, this.world.min * 0.03));
   }
 
   /**
@@ -469,6 +631,16 @@ export class Item {
     }
   }
 
+  /** The pole was rung: every peg on this item swings. */
+  nudge() {
+    this.grabWob = 1;
+    const cl = this.cloth;
+    for (let i = 0; i < cl.n; i++) {
+      if (cl.pinned[i]) continue;
+      cl.ox[i] += 0.8;
+    }
+  }
+
   setWeather(gust, gustPulse, started) {
     this.gust = gust;
     this.gustPulse = gustPulse;
@@ -481,7 +653,7 @@ export class Item {
     // Lit strips, not flat ones: the same renderer the sheet uses, so a gust
     // puts real light and shade into every piece of washing on the line.
     drawClothLit(ctx, this.cloth, this.palette, this.wetness, this.z,
-      0, 0, LIGHT_BIAS + this.stretch * 0.05);
+      0, 0, LIGHT_BIAS + this.stretch * 0.05 + this.grabLit * 0.11);
     this.drawSpots(ctx);
     this.drawClips(ctx, world);
   }
@@ -495,7 +667,9 @@ export class Item {
       const c = clamp(Math.round(s.u * (cols - 1)), 0, cols - 1);
       const r = clamp(Math.round(s.v * (rows - 1)), 0, rows - 1);
       const idx = cl.idx(c, r);
-      drawWetSpot(ctx, cl.x[idx], cl.y[idx], this.anchor.w * s.r * (0.5 + s.a * 0.9), s.a * 0.9);
+      drawWetSpot(ctx, cl.x[idx], cl.y[idx],
+        this.anchor.w * s.r * (0.75 + s.a * 1.15 + (s.grow || 0) * 1.5),
+        Math.min(1, s.a * 1.05));
     }
   }
 
@@ -519,15 +693,36 @@ export class Item {
         continue;
       }
       this.clipPos(k, TMP);
-      const wob = this.rainStarted
+      let wob = this.rainStarted
         ? Math.sin(world.t * 9 + k * 2.1) * 0.20 * (0.25 + this.gust)
         : 0;
+      // Grabbed: the pegs holding it jump, because something just pulled.
+      wob += Math.sin(world.t * 27 + k * 1.7) * 0.34 * this.grabWob;
       ctx.save();
       ctx.translate(TMP.x, TMP.y);
+      // Pointed at: a soft halo, so the eye lands on what is holding it down.
+      if (this.cueGlint > 0.02) {
+        const pulse = 0.5 + 0.5 * Math.sin(world.t * 6.2 + k);
+        ctx.globalAlpha = this.cueGlint * (0.30 + 0.45 * pulse);
+        ctx.fillStyle = '#ffe9a0';
+        ctx.beginPath();
+        ctx.arc(0, 0, size * (1.5 + 0.9 * pulse), 0, Math.PI * 2);
+        ctx.fill();
+        // ...and a ring going out from it, so the halo survives being drawn
+        // over a bright sky.
+        ctx.globalAlpha = this.cueGlint * (1 - pulse) * 0.85;
+        ctx.strokeStyle = '#fff6d8';
+        ctx.lineWidth = Math.max(1.5, size * 0.16);
+        ctx.beginPath();
+        ctx.arc(0, 0, size * (1.3 + 1.5 * pulse), 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
       ctx.rotate(wob);
       this.drawClipShape(ctx, size, 0);
-      if (this.rainStarted) {
-        const glint = Math.max(0, Math.sin(world.t * 4 + k) * 0.5 + 0.5) * (0.35 + 0.65 * this.gust);
+      if (this.rainStarted || this.cueGlint > 0.02) {
+        const glint = Math.max(0, Math.sin(world.t * 4 + k) * 0.5 + 0.5) *
+          (0.35 + 0.65 * this.gust) + this.cueGlint * 0.7;
         ctx.globalAlpha = glint * 0.9;
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
@@ -569,18 +764,36 @@ export class Item {
     out.x = Math.round(TMP.x * 10) / 10;
     out.y = Math.round(TMP.y * 10) / 10;
     out.clips = this.popped.filter((v) => !v).length;
+    // Mutated, never rebuilt: this runs every drawn frame.
     const b = this.visualBox(this._vb || (this._vb = {}));
-    out.box = { x0: r1(b.x0), y0: r1(b.y0), x1: r1(b.x1), y1: r1(b.y1) };
+    const ob = out.box || (out.box = { x0: 0, y0: 0, x1: 0, y1: 0 });
+    ob.x0 = r1(b.x0); ob.y0 = r1(b.y0); ob.x1 = r1(b.x1); ob.y1 = r1(b.y1);
     this.cloth.bounds(BOX);
-    out.bounds = { x0: r1(BOX.x0), y0: r1(BOX.y0), x1: r1(BOX.x1), y1: r1(BOX.y1) };
+    const on = out.bounds || (out.bounds = { x0: 0, y0: 0, x1: 0, y1: 0 });
+    on.x0 = r1(BOX.x0); on.y0 = r1(BOX.y0); on.x1 = r1(BOX.x1); on.y1 = r1(BOX.y1);
     out.pad = Math.round(this.hitPad * 10) / 10;
     out.spots = this.spots.length;
     out.billow = Math.round(this.billow * 1000) / 1000;
+    out.grabbed = !!this.grabbing;
+    out.lit = Math.round(this.grabLit * 100) / 100;
+    out.stretch = Math.round(this.stretch * 100) / 100;
     return out;
   }
 }
 
 function r1(v) { return Math.round(v * 10) / 10; }
+
+/** Is (x, y) inside the quad a-b-c-d? Same winding both ways, so either. */
+function inQuad(x, y, cl, a, b, c, d) {
+  let pos = 0, neg = 0;
+  const idx = [a, b, c, d];
+  for (let k = 0; k < 4; k++) {
+    const i = idx[k], j = idx[(k + 1) & 3];
+    const cross = (cl.x[j] - cl.x[i]) * (y - cl.y[i]) - (cl.y[j] - cl.y[i]) * (x - cl.x[i]);
+    if (cross > 0) pos++; else if (cross < 0) neg++;
+  }
+  return pos === 0 || neg === 0;
+}
 
 export function defaultClipCols(cols, count) {
   const n = Math.max(1, count || 2);

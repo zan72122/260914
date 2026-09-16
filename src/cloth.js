@@ -10,6 +10,12 @@
 const SHADES = 32;
 const WETS = 6;
 
+// Per-quad seam stroke: off. See quad() below -- the half-pixel expansion does
+// the same job without a second path per cell. Kept as a switch so the old
+// behaviour can be compared side by side.
+const SEAM_STROKE = false;
+const EXPAND = 0.5;
+
 export function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 
 /**
@@ -194,6 +200,7 @@ export function drawCloth(ctx, cl, palette, wetness, lightBias) {
   const pal = palette[wetBucket(wetness)];
   const rest = cl.restH * cl.restV;
   const lb = lightBias === undefined ? 0 : lightBias;
+  if (SEAM_STROKE) ctx.lineWidth = 1;
   for (let r = 0; r < rows - 1; r++) {
     for (let c = 0; c < cols - 1; c++) {
       const i = r * cols + c;
@@ -210,26 +217,44 @@ export function drawCloth(ctx, cl, palette, wetness, lightBias) {
       t = t * 0.9 + lb;
       const si = clamp((t * SHADES) | 0, 0, SHADES - 1);
       ctx.fillStyle = pal[si];
-      ctx.beginPath();
-      ctx.moveTo(ax, ay);
-      ctx.lineTo(bx, by);
-      ctx.lineTo(cx2, cy2);
-      ctx.lineTo(dx2, dy2);
-      ctx.closePath();
+      quad(ctx, ax, ay, bx, by, cx2, cy2, dx2, dy2);
       ctx.fill();
-      // Same-colour hairline stroke hides the seams between quads.
-      ctx.strokeStyle = pal[si];
-      ctx.lineWidth = 1;
-      ctx.stroke();
+      if (SEAM_STROKE) {
+        ctx.strokeStyle = pal[si];
+        ctx.stroke();
+      }
     }
   }
 }
+
+/**
+ * One quad, expanded half a pixel outward from its own centre.
+ *
+ * The seam between two neighbouring cells is a hairline of background colour:
+ * the two triangles either side of the shared edge are antialiased
+ * independently and neither covers the edge completely. Stroking every quad
+ * in its own fill colour hid it, at the cost of a stroke per cell -- and on a
+ * phone that stroke is the single most expensive thing the cloth does.
+ * Growing the quad by half a pixel covers the same seam with no extra path.
+ */
+function quad(ctx, ax, ay, bx, by, cx, cy, dx, dy) {
+  const mx = (ax + bx + cx + dx) * 0.25;
+  const my = (ay + by + cy + dy) * 0.25;
+  ctx.beginPath();
+  ctx.moveTo(ax + sgn(ax - mx), ay + sgn(ay - my));
+  ctx.lineTo(bx + sgn(bx - mx), by + sgn(by - my));
+  ctx.lineTo(cx + sgn(cx - mx), cy + sgn(cy - my));
+  ctx.lineTo(dx + sgn(dx - mx), dy + sgn(dy - my));
+  ctx.closePath();
+}
+
+function sgn(v) { return v > 0 ? EXPAND : v < 0 ? -EXPAND : 0; }
 
 /** Soft dark blotch used for the first wet spots. */
 export function drawWetSpot(ctx, x, y, r, alpha) {
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.fillStyle = 'rgba(40,58,86,0.55)';
+  ctx.fillStyle = 'rgba(30,46,74,0.72)';
   ctx.beginPath();
   ctx.ellipse(x, y, r, r * 0.86, 0, 0, Math.PI * 2);
   ctx.fill();
@@ -305,6 +330,7 @@ export function drawClothLit(ctx, cl, palette, wetness, z, sheen, sheenPos, ligh
   if (qc < 1 || qr < 1) return;
   const raw = scratchA(qc * qr);
   const lit = scratchB(qc * qr);
+  if (SEAM_STROKE) ctx.lineWidth = 1;
 
   // --- pass 1: how bright each quad wants to be -------------------------
   for (let r = 0; r < qr; r++) {
@@ -360,17 +386,12 @@ export function drawClothLit(ctx, cl, palette, wetness, z, sheen, sheenPos, ligh
       const l = k + 1;
       const si = clamp((lit[r * qc + c] * SHADES) | 0, 0, SHADES - 1);
       ctx.fillStyle = pal[si];
-      ctx.beginPath();
-      ctx.moveTo(cl.x[i], cl.y[i]);
-      ctx.lineTo(cl.x[j], cl.y[j]);
-      ctx.lineTo(cl.x[l], cl.y[l]);
-      ctx.lineTo(cl.x[k], cl.y[k]);
-      ctx.closePath();
+      quad(ctx, cl.x[i], cl.y[i], cl.x[j], cl.y[j], cl.x[l], cl.y[l], cl.x[k], cl.y[k]);
       ctx.fill();
-      // Same-colour hairline stroke hides the seam between quads.
-      ctx.strokeStyle = pal[si];
-      ctx.lineWidth = 1;
-      ctx.stroke();
+      if (SEAM_STROKE) {
+        ctx.strokeStyle = pal[si];
+        ctx.stroke();
+      }
     }
   }
 }
@@ -424,4 +445,34 @@ function shear(cl, a, b, rest, s) {
   const ox = dx * diff, oy = dy * diff;
   cl.x[a] += ox * fa; cl.y[a] += oy * fa;
   cl.x[b] -= ox * fb; cl.y[b] -= oy * fb;
+}
+
+/**
+ * Put a cloth back into a shape a cloth can actually have.
+ *
+ * A finger that has been hauling on one vertex leaves the mesh stretched: a
+ * row of cells three times their rest length, or -- when the same point has
+ * been dragged past the pins several times -- a spike, a rod, or a jagged
+ * fan. The physics gets there on its own eventually, but "eventually" is
+ * several seconds, and a four year old reads a cloth that is still the wrong
+ * shape as something she has broken.
+ *
+ * So the moment the finger lets go the constraints are solved hard, right
+ * there, in one call: distances first, then the diagonals, enough times that
+ * nothing is left more than a few percent off its rest length. Velocity is
+ * clamped at the same time, because a point that was being dragged at arm's
+ * speed would otherwise take all that momentum into the spring-back.
+ */
+export function settleCloth(cl, iterations, shear) {
+  const it = iterations === undefined ? 14 : iterations;
+  for (let k = 0; k < it; k++) {
+    cl.solve();
+    relaxShear(cl, shear === undefined ? 0.55 : shear);
+  }
+  // The spring-back is the cloth's own weight, not the speed of the hand that
+  // let it go: zero the Verlet velocity of everything that just moved.
+  for (let i = 0; i < cl.n; i++) {
+    cl.ox[i] = cl.x[i];
+    cl.oy[i] = cl.y[i];
+  }
 }

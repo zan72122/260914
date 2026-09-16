@@ -7,17 +7,19 @@
 // thing swinging on its two fat clips -- there is no speed you can reach that
 // will beat a clip that is gripping denim.
 //
-// What works is leaning on it. Pull a good way toward the room and *keep
-// pulling*: after a quarter of a second of steady tension the first clip gives
-// with a low "pachi", and if the finger simply stays there the second one goes
-// too, on the same long pull. Then the weight takes over -- it drops with real
-// inertia and lands with a "doson".
+// What works is leaning on it. Nothing here asks the finger to *wait* -- the
+// only thing that counts is how far the waistband itself has come, and since
+// the waistband is always a long way behind the hand, getting it far enough
+// takes a long, steady pull whether you meant it to or not. A flick moves the
+// finger, not the jeans, and the jeans are what the clips are holding. Get the
+// waistband far enough toward the room and the first fat clip gives with a low
+// "pachi"; keep the pull there and the second one goes a fifth of a second
+// later. Then the weight takes over -- it drops with real inertia and lands
+// with a "doson".
 
 import { Item } from './base.js';
 import { clamp } from '../layout.js';
 
-const HOLD_FIRST = 0.25;  // seconds of sustained pull before the first clip
-const HOLD_NEXT = 0.22;   // and for each further clip on the same pull
 const OMEGA = 7.0;        // rad/s: the lag of something heavy
 
 export class Pants extends Item {
@@ -26,12 +28,12 @@ export class Pants extends Item {
     const cl = this.cloth;
     this.lagX = cl.x[this.grabIdx];
     this.lagY = cl.y[this.grabIdx];
+    this.lag0X = this.lagX;
+    this.lag0Y = this.lagY;
     this.lagVX = 0;
     this.lagVY = 0;
     this.targetX = this.lagX;
     this.targetY = this.lagY;
-    this.along = 0;
-    this.holdT = 0;
     this.peak = 0;
     return true;
   }
@@ -39,15 +41,40 @@ export class Pants extends Item {
   /** Heavier than anything else on the line: it wants a long pull. */
   pullThreshold() { return super.pullThreshold() * 1.35; }
 
+  /**
+   * Not where the finger has got to -- where the *jeans* have got to.
+   *
+   * This one line is the whole character of the item. The waistband follows
+   * the hand through a critically damped spring, so a flick leaves it almost
+   * where it started and a long lean drags it all the way; measuring the
+   * release off the cloth instead of off the pointer means speed genuinely
+   * buys nothing and patience needs no timer.
+   */
+  pullDistance() {
+    if (this.lagX === undefined) return 0;
+    const d = this.world.inDir;
+    return (this.lagX - this.lag0X) * d.x + (this.lagY - this.lag0Y) * d.y;
+  }
+
+  /** Pegs pop next to the waistband, which is nowhere near the finger. */
+  pullPoint() {
+    const o = this._lp || (this._lp = { x: 0, y: 0 });
+    o.x = this.lagX === undefined ? this.pullX : this.lagX;
+    o.y = this.lagY === undefined ? this.pullY : this.lagY;
+    return o;
+  }
+
   onPointerMove(p) {
     if (!this.grabbing) return;
     const fo = this.world.fingerOffset;
     // Where the waistband is *asked* to be. Where it actually is lags behind.
     this.targetX = p.x + this.grabOX + fo.x * this.occl * 0.55;
     this.targetY = p.y + this.grabOY + fo.y * this.occl * 0.55;
+    this.pullX = p.x;
+    this.pullY = p.y;
     this.along = p.along;
-    this.peak = Math.max(this.peak || 0, p.along);
-    this.stretch = clamp(p.along / this.pullThreshold(), 0, 1);
+    this.peak = Math.max(this.peak || 0, this.pullDistance());
+    this.stretch = clamp(this.pullDistance() / this.pullThreshold(), 0, 1);
   }
 
   endGrab() {
@@ -61,11 +88,10 @@ export class Pants extends Item {
         cl.ox[i] = cl.x[i] - d.x * k;
         cl.oy[i] = cl.y[i] - d.y * k * 0.5;
       }
-      if (this.audio && (this.peak || 0) > this.pullThreshold() * 0.4) this.audio.zushi();
+      if (this.audio && (this.peak || 0) > this.pullThreshold() * 0.25) this.audio.zushi();
     }
-    this.holdT = 0;
-    this.along = 0;
     this.peak = 0;
+    this.lagX = undefined;
     super.endGrab();
   }
 
@@ -83,7 +109,7 @@ export class Pants extends Item {
 
   // ---- simulation -------------------------------------------------------
   update(dt, wind, rain) {
-    if (this.grabbing && this.state === 'HANGING') {
+    if (this.grabbing && this.state === 'HANGING' && this.lagX !== undefined) {
       // Critically damped: it never overshoots, it just takes its time.
       const ax = (this.targetX - this.lagX) * OMEGA * OMEGA - 2 * OMEGA * this.lagVX;
       const ay = (this.targetY - this.lagY) * OMEGA * OMEGA - 2 * OMEGA * this.lagVY;
@@ -92,16 +118,6 @@ export class Pants extends Item {
       this.lagX += this.lagVX * dt;
       this.lagY += this.lagVY * dt;
       this.cloth.pin(this.grabIdx, this.lagX, this.lagY);
-
-      // Time under tension, not speed: this is the whole gesture.
-      const th = this.pullThreshold();
-      if (this.along >= th) this.holdT += dt;
-      else this.holdT = Math.max(0, this.holdT - dt * 2);
-
-      const gone = this.popped.filter((v) => v).length;
-      if (this.holdT >= HOLD_FIRST + gone * HOLD_NEXT) {
-        super.popClip({ x: this.lagX, y: this.lagY });
-      }
     }
     super.update(dt, wind, rain);
   }
@@ -109,8 +125,7 @@ export class Pants extends Item {
   /** How close this pull is to popping the next clip, 0..1. */
   tension() {
     if (!this.grabbing || this.state !== 'HANGING') return 0;
-    const gone = this.popped.filter((v) => v).length;
-    return clamp((this.holdT || 0) / (HOLD_FIRST + gone * HOLD_NEXT), 0, 1);
+    return clamp(this.pullDistance() / this.pullThreshold(), 0, 1);
   }
 
   // ---- drawing ----------------------------------------------------------
@@ -184,7 +199,6 @@ export class Pants extends Item {
 
   snapshot(out) {
     super.snapshot(out);
-    out.hold = Math.round((this.holdT || 0) * 1000) / 1000;
     out.tension = Math.round(this.tension() * 100) / 100;
     return out;
   }

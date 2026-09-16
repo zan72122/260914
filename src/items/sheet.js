@@ -1,10 +1,16 @@
 // items/sheet.js -- item #5, the giant sheet. The set piece.
 //
-// Everything else on this line is a *pull*. The sheet is a *dismantling*: four
-// big pegs, taken off one at a time, in whatever order the child likes. Each
-// one that goes makes the sheet bigger and louder, and the ones still holding
-// get more insistent -- larger, wobbling harder, glinting brighter -- because
-// the one thing a four year old cannot leave alone is an almost-finished row.
+// The sheet is a *dismantling*: four big pegs, taken off one at a time, in
+// whatever order the child likes. Each one that goes makes the sheet bigger
+// and louder, and the ones still holding get more insistent -- larger,
+// wobbling harder, glinting brighter -- because the one thing a four year old
+// cannot leave alone is an almost-finished row.
+//
+// Two ways to take a peg off, and they are the same gesture at different
+// scales. Touch one and it opens. Or just haul on the sheet toward the room
+// and hold: the peg nearest your hand goes, then -- four tenths of a second
+// later, which is exactly long enough to watch that corner fill with air --
+// the next one, and the next, until the last one turns the whole thing over.
 //
 // The feel, in order:
 //   1 peg off  -- a corner lifts and starts slapping. "bata-bata" comes in.
@@ -162,7 +168,13 @@ export class Sheet extends Item {
     this.occl = 0;
     this.poppedThisGrab = false;
     this.stretch = 0;
+    this.along = 0;
+    this.beatT = 0;
+    this.settleT = 0;
+    this.pullX = p.x;
+    this.pullY = p.y;
     this.moved = 0;
+    this.grabFeedback();
     return true;
   }
 
@@ -173,12 +185,14 @@ export class Sheet extends Item {
     this.cloth.pin(this.grabIdx,
       p.x + this.grabOX + fo.x * this.occl * 0.5,
       p.y + this.grabOY + fo.y * this.occl * 0.5);
-    const th = this.pullThreshold();
-    this.stretch = clamp(p.along / th, 0, 1);
+    this.pullX = p.x;
+    this.pullY = p.y;
+    this.along = p.along;
+    this.stretch = clamp(p.along / this.pullThreshold(), 0, 1);
     const m = Math.hypot(p.dx, p.dy);
     if (m > this.moved) this.moved = m;
     // Wrong way round? The sheet stretches and nothing comes off. Ever.
-    if (!this.poppedThisGrab && p.along >= th) this.popClip(p);
+    // (The pegs themselves are popped on the beat, in Item.updatePull.)
   }
 
   onPointerUp(p) {
