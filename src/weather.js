@@ -56,6 +56,15 @@ export class Weather {
     this._splashCd = 0;
     this._tmpA = [0, 0, 0];
     this._tmpB = [0, 0, 0];
+    this.darkFloor = 0;     // the sky goes grey before the rain arrives
+    // Rings from a finger poked into the wet balcony. Not weather: a reply.
+    this.rings = [];
+    // Cached gradients. Building a CanvasGradient is not free, and both of
+    // these were being rebuilt every single frame.
+    this._skyG = null;
+    this._skyKey = '';
+    this._dropG = null;
+    this._dropKey = '';
   }
 
   /** Begin the single drop running down the pane. */
@@ -81,10 +90,26 @@ export class Weather {
 
   setTargetIntensity(v) { this.targetIntensity = clamp(v, 0, 1); }
 
+  /**
+   * How grey the sky is allowed to get before a drop has fallen.
+   *
+   * The playtest found the rain unreadable until eight or nine seconds in --
+   * the wind arrived first and a gust on its own does not say "rain". A sky
+   * that is already darkening while the wind blows does, and it costs nothing
+   * but a floor under `dark`.
+   */
+  setDarkFloor(v) { this.darkFloor = clamp(v, 0, 1); }
+
+  /** A finger in the puddle: one ring, spreading. */
+  ring(x, y) {
+    this.rings.push({ x, y, r: 2, a: 0.9 });
+    if (this.rings.length > 6) this.rings.shift();
+  }
+
   update(dt, world) {
     this.t += dt;
     this.intensity += (this.targetIntensity - this.intensity) * Math.min(1, dt * 0.45);
-    this.dark = clamp(this.intensity * 1.05, 0, 1);
+    this.dark = clamp(Math.max(this.intensity * 1.05, this.darkFloor), 0, 1);
 
     // --- wind -----------------------------------------------------------
     this.windPhase += dt * 1.6;
@@ -173,6 +198,12 @@ export class Weather {
       if (s.a > 0) { s.a -= dt * 2.6; s.r += dt * 42; }
     }
     this._splashCd -= dt;
+    for (let i = this.rings.length - 1; i >= 0; i--) {
+      const r = this.rings[i];
+      r.r += dt * 120;
+      r.a -= dt * 1.5;
+      if (r.a <= 0) this.rings.splice(i, 1);
+    }
 
     // --- streaks on the glass ---------------------------------------------
     if (this.intensity > 0.2 && this.streaks.length < MAX_STREAKS && Math.random() < dt * 4) {
@@ -209,9 +240,21 @@ export class Weather {
 
   drawSky(ctx, world) {
     const op = world.opening;
-    const g = ctx.createLinearGradient(0, op.y, 0, op.bottom);
-    g.addColorStop(0, this.skyTop());
-    g.addColorStop(1, this.skyBottom());
+    // 32 buckets of darkness. The sky crossfades over tens of seconds, so the
+    // step between two buckets is far below what an eye can see -- and the
+    // gradient is built about thirty times in a whole playthrough instead of
+    // sixty times a second.
+    const bucket = Math.round(this.dark * 31);
+    const key = bucket + ':' + Math.round(op.y) + ':' + Math.round(op.bottom);
+    if (key !== this._skyKey) {
+      this._skyKey = key;
+      const t = bucket / 31;
+      const g2 = ctx.createLinearGradient(0, op.y, 0, op.bottom);
+      g2.addColorStop(0, css(mix3(SKY_CALM_TOP, SKY_RAIN_TOP, t, this._tmpA)));
+      g2.addColorStop(1, css(mix3(SKY_CALM_BOT, SKY_RAIN_BOT, t, this._tmpB)));
+      this._skyG = g2;
+    }
+    const g = this._skyG;
     ctx.fillStyle = g;
     ctx.fillRect(op.x, op.y, op.w, op.h);
 
@@ -273,6 +316,16 @@ export class Weather {
       ctx.fill();
       ctx.restore();
     }
+    for (let i = 0; i < this.rings.length; i++) {
+      const rg = this.rings[i];
+      ctx.globalAlpha = Math.max(0, rg.a) * 0.9;
+      ctx.strokeStyle = 'rgba(245,252,255,0.95)';
+      ctx.lineWidth = Math.max(2, world.min * 0.008);
+      ctx.beginPath();
+      ctx.ellipse(rg.x, rg.y, rg.r, rg.r * 0.38, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
     ctx.strokeStyle = 'rgba(255,255,255,0.8)';
     ctx.lineWidth = 1.5;
     for (let i = 0; i < this.splashes.length; i++) {
@@ -350,19 +403,29 @@ export class Weather {
     // yet, in a world that has stopped moving. It gives up a little of itself
     // to the trail as it runs, so it is biggest right at the start.
     const shed = clamp((gd.v - gd.v0) / 0.6, 0, 1);
-    const r = S * (0.062 - 0.020 * shed) * gd.r;
+    // Half again as big as it was: the playtest walked straight past the old
+    // one, and this drop is the game's first word.
+    const r = S * (0.092 - 0.026 * shed) * gd.r;
     const x = X(gd.u), y = Y(gd.v);
     ctx.save();
-    ctx.fillStyle = 'rgba(44,74,102,0.42)';
+    // A real shadow under it, so it reads as a bead sitting on the glass.
+    ctx.fillStyle = 'rgba(38,66,96,0.52)';
     ctx.beginPath();
-    ctx.ellipse(x + r * 0.22, y + r * 0.40, r * 0.86, r * 1.04, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + r * 0.24, y + r * 0.44, r * 0.92, r * 1.10, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.45, r * 0.1, x, y, r * 1.15);
-    g.addColorStop(0, 'rgba(255,255,255,0.95)');
-    g.addColorStop(0.45, 'rgba(226,244,255,0.60)');
-    g.addColorStop(1, 'rgba(160,200,226,0.30)');
-    ctx.fillStyle = g;
+    // The gradient is rebuilt only when the drop actually moves or grows,
+    // rounded to the pixel: one object every few frames instead of one a frame.
+    const key = (x | 0) + ':' + (y | 0) + ':' + ((r * 4) | 0);
+    if (key !== this._dropKey) {
+      this._dropKey = key;
+      const g2 = ctx.createRadialGradient(x - r * 0.35, y - r * 0.45, r * 0.1, x, y, r * 1.15);
+      g2.addColorStop(0, 'rgba(255,255,255,0.98)');
+      g2.addColorStop(0.45, 'rgba(230,246,255,0.76)');
+      g2.addColorStop(1, 'rgba(150,196,226,0.44)');
+      this._dropG = g2;
+    }
+    ctx.fillStyle = this._dropG;
     ctx.beginPath();
     // Teardrop: rounder at the bottom, drawn out at the top as it runs.
     ctx.ellipse(x, y, r * 0.86, r * (1 + gd.speed * 1.6), 0, 0, Math.PI * 2);

@@ -28,11 +28,19 @@ export class Audio {
     }
   }
 
-  /** Called from the very first pointerdown (iOS unlock). */
+  /**
+   * Called from *every* pointerdown, and whenever the page comes back.
+   *
+   * Not only from 'suspended': iOS 17 parks the context in 'interrupted' after
+   * a phone call, an alarm, or another app taking the audio session, and a
+   * context in that state never comes back on its own. Anything that is not
+   * 'running' gets a resume, every time a finger touches the glass, which is
+   * the only moment the browser will honour one anyway.
+   */
   resume() {
     if (!this.ok) return;
     try {
-      if (this.ctx.state === 'suspended') this.ctx.resume();
+      if (this.ctx.state !== 'running') this.ctx.resume();
       this._ensureRain();
     } catch (e) { /* ignore */ }
   }
@@ -320,6 +328,41 @@ export class Audio {
     this._tone({ f0: 96, f1: 34, len: 0.5, gain: 0.34, wave: 'sine' });
     this._tone({ f0: 62, f1: 28, len: 0.62, gain: 0.20, wave: 'triangle', delay: 0.03 });
     this._burst({ type: 'lowpass', freq: 200, len: 0.26, gain: 0.18, attack: 0.008 });
+  }
+
+  // ---- phase 4: the world answers back ---------------------------------
+
+  /** Cloth taking up under a hand, the instant it is touched: "fusa". */
+  fusa(size) {
+    const k = size === undefined ? 1 : size;
+    this._burst({
+      type: 'bandpass', freq: 780 / k, q: 0.6,
+      len: 0.15 * k, gain: 0.085, sweep: 330 / k, attack: 0.012,
+    });
+  }
+
+  /** Poked: a small delighted hop. */
+  giggle() {
+    this._tone({ f0: 620, f1: 880, len: 0.11, gain: 0.10, wave: 'sine' });
+    this._tone({ f0: 900, f1: 1180, len: 0.10, gain: 0.07, wave: 'sine', delay: 0.09 });
+  }
+
+  /** A wicker basket knocked with one finger: a dry, woody "kon". */
+  kon() {
+    this._tone({ f0: 300, f1: 170, len: 0.13, gain: 0.13, wave: 'triangle' });
+    this._burst({ type: 'bandpass', freq: 1500, q: 2.4, len: 0.05, gain: 0.08, sweep: 600 });
+  }
+
+  /** A fingertip in a puddle: "pocha". */
+  plop() {
+    this._tone({ f0: 900, f1: 260, len: 0.16, gain: 0.13, wave: 'sine' });
+    this._burst({ freq: 2000, q: 1.2, len: 0.10, gain: 0.07, sweep: 620 });
+  }
+
+  /** The pole rung with a fingernail: every peg on it swings. */
+  ting() {
+    this._tone({ f0: 2400, f1: 2280, len: 0.22, gain: 0.055, wave: 'triangle' });
+    this._tone({ f0: 3180, f1: 3050, len: 0.16, gain: 0.03, wave: 'triangle', delay: 0.04 });
   }
 
   /** Something heavy swinging on its pegs without coming free: "zushi". */

@@ -16,8 +16,16 @@ import { Sash } from './sash.js';
 import { createItems } from './items/index.js';
 
 const MAX_DT = 1 / 30;      // spec: never let a tab-switch fast-forward the rain
-const SUB_DT = 1 / 50;      // physics substep ceiling
+// One physics step is always exactly this long. See frame().
+const FIXED = 1 / 60;
+const MAX_STEPS = 6;
 const MAX_DPR = 2;
+
+// The pointing cue: how often she points, and how long the arm stays out.
+// Every three seconds, held for two, so at any moment there is a two-in-three
+// chance that a child looking up sees an arm aimed at the washing.
+const CUE_EVERY = 3.0;
+const CUE_HOLD = 2.0;
 
 const PHASE_TIME = {
   CALM: 3.0,
@@ -58,15 +66,20 @@ class Game {
     this.dragSash = false;
 
     this.input = new Input(canvas, () => this.world);
+    // Every touch, not only the first: an iOS context can be interrupted at
+    // any point and only a gesture is allowed to restart it.
     this.input.on('firstTouch', () => this.audio.resume());
     this.input.on('down', (p) => this.onDown(p));
     this.input.on('move', (p) => this.onMove(p));
     this.input.on('up', (p) => this.onUp(p, false));
     this.input.on('cancel', (p) => this.onUp(p, true));
 
+    // `resize` alone. iOS fires `orientationchange` *before* the viewport has
+    // been resized, so relaying out from it measures the old size and then has
+    // to be undone by the resize that follows -- two layouts, one of them
+    // wrong, every rotation.
     this._onResize = () => this.relayout();
     window.addEventListener('resize', this._onResize);
-    window.addEventListener('orientationchange', this._onResize);
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) { this.paused = true; this.audio.suspend(); }
       else { this.paused = false; this.last = 0; this.audio.resume(); }
@@ -117,6 +130,7 @@ class Game {
 
   // ---- input ------------------------------------------------------------
   onDown(p) {
+    this.audio.resume();
     if (this.state === 'AFTER' && this.afterT > 3) { this.restart(); return; }
     if (this.sash.hitHandle(p.x, p.y)) {
       this.dragSash = this.sash.onPointerDown(p);
@@ -134,20 +148,78 @@ class Game {
     // happens to reach further. Only when the point is genuinely on two
     // pieces of cloth at once -- distance zero for both -- does the centroid
     // break the tie, and then the finger takes the one it is most on.
-    let best = null, bestScore = Infinity;
+    let best = null, bestScore = Infinity, bestOn = false;
     for (let i = 0; i < this.items.length; i++) {
       const it = this.items[i];
       if (!it.hitTest(p.x, p.y)) continue;
       const dx = it.cx - p.x, dy = it.cy - p.y;
-      const score = it.hitDistance(p.x, p.y) * 1000 + Math.sqrt(dx * dx + dy * dy);
-      if (score < bestScore) { bestScore = score; best = it; }
+      const d = it.hitDistance(p.x, p.y);
+      const score = d * 1000 + Math.sqrt(dx * dx + dy * dy);
+      if (score < bestScore) { bestScore = score; best = it; bestOn = d === 0; }
     }
+    // The pole, rung like a bar. The washing wins wherever the finger is
+    // genuinely on cloth or on a peg; the pole only gets what is left, which
+    // is the bare line between two items and the strip just above it.
+    if (!bestOn && !(best && best.nearPeg(p.x, p.y)) && this.poleTap(p)) return;
     if (best && best.onPointerDown(p)) {
       this.dragItem = best;
       // She has seen it and taken hold of it: the pointing cue is done.
       this.touched = true;
       this.character.stopPointing();
+      return;
     }
+    this.tapWorld(p);
+  }
+
+  /**
+   * Everything else on the screen, poked.
+   *
+   * The playtest's sharpest single observation: a four year old touches the
+   * character first, and a character who does not react teaches her that the
+   * game does not react. So nothing here is dead. The child hops and laughs,
+   * the basket knocks, the puddle rings, the pole rings and every peg on it
+   * swings. None of it advances anything, none of it is required, and none of
+   * it is a word.
+   */
+  tapWorld(p) {
+    const w = this.world;
+    const a = this.audio;
+    if (this.character.hitTest(p.x, p.y)) {
+      this.character.giggle();
+      if (a) a.giggle();
+      return true;
+    }
+    const b = w.basket;
+    const pad = Math.max(24, w.min * 0.05);
+    if (p.x > b.x - pad && p.x < b.right + pad && p.y > b.y - pad && p.y < b.bottom + pad) {
+      this.basket.knock();
+      if (a) a.kon();
+      return true;
+    }
+    const op = w.opening;
+    const inside = p.x >= op.x && p.x <= op.right && p.y >= op.y && p.y <= op.bottom;
+    if (inside) {
+      if (p.y >= w.floorY - Math.max(10, w.min * 0.03)) {
+        this.weather.ring(p.x, Math.max(p.y, w.floorY + 2));
+        if (a) a.plop();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** A finger on the washing line itself: every peg on it swings. */
+  poleTap(p) {
+    const w = this.world;
+    const pole = w.pole;
+    const op = w.opening;
+    if (p.x < pole.x0 - 8 || p.x > pole.x1 + 8) return false;
+    if (p.y < op.y) return false;
+    const band = Math.max(18, w.min * 0.045);
+    if (Math.abs(p.y - pole.y) > band) return false;
+    for (let i = 0; i < this.items.length; i++) this.items[i].nudge();
+    if (this.audio) this.audio.ting();
+    return true;
   }
 
   onMove(p) {
@@ -167,12 +239,16 @@ class Game {
   }
 
   restart() {
+    // Whatever was being dragged belongs to a game that no longer exists.
+    this.dragItem = null;
+    this.dragSash = false;
     this.state = 'CALM';
     this.stateT = 0;
     this.warm = 0;
     this.afterT = 0;
     this.touched = false;
     this.cueT = 0;
+    this.cueItem = null;
     this.weather = new Weather(this.audio);
     this.basket = new Basket(this.world);
     this.character = new Character(this.world, {
@@ -207,19 +283,26 @@ class Game {
       this.weather.setStill(false);
       const target = this.wettestItem();
       if (target) {
-        target.addSpot(0.35, 0.28, 0.13);
-        target.addSpot(0.62, 0.48, 0.10);
-        this.character.lookAt(target.cx, target.cy);
-        this.character.pointAt(target.cx, target.cy, 2.6);
-        this.cueT = 4.0;
+        target.addSpot(0.35, 0.28, 0.20);
+        target.addSpot(0.62, 0.48, 0.16);
+        this.point(target);
+        this.cueT = CUE_EVERY;
       }
       this.weather.setTargetIntensity(0.05);
+      // The light starts going before the wind does. Between this, the marks
+      // spreading on the washing and the arm pointing at it, "it is going to
+      // rain" is on the screen from about five seconds.
+      this.weather.setDarkFloor(0.18);
     } else if (s === 'WIND') {
       this.weather.startWind();
       this.weather.setTargetIntensity(0.14);
+      // The sky starts going grey with the wind rather than with the rain, so
+      // that "it is going to rain" is readable well before six seconds.
+      this.weather.setDarkFloor(0.34);
       for (const it of this.items) it.setWeather(0, 0, true);
     } else if (s === 'RAIN_RAMP') {
       this.rainRamp = 0;
+      this.weather.setDarkFloor(0.45);
     } else if (s === 'EMPTY_LINE') {
       this.sash.enable();
       const h = this.sash.handlePoint(this._hp || (this._hp = {}));
@@ -266,13 +349,24 @@ class Game {
     if (this.touched) return;
     const s = this.state;
     if (s !== 'SPOT' && s !== 'WIND' && s !== 'RAIN_RAMP') return;
+    // While the arm is out, the pegs on the thing she is pointing at glint:
+    // the gesture and its target light up together, which is the difference
+    // between "she is pointing" and "she is pointing at *that*".
+    if (this.cueItem && this.character.pointT > 0) this.cueItem.cueGlint = 1;
     this.cueT = (this.cueT === undefined ? 0 : this.cueT) - dt;
     if (this.cueT > 0) return;
     const target = this.wettestItem();
     if (!target) return;
-    this.cueT = 4.2;
-    this.character.lookAt(target.cx, target.cy);
-    this.character.pointAt(target.cx, target.cy, 2.2);
+    this.cueT = CUE_EVERY;
+    this.point(target);
+  }
+
+  /** Look at it, and point at it, for long enough to be followed. */
+  point(item) {
+    this.cueItem = item;
+    item.cueGlint = 1;
+    this.character.lookAt(item.cx, item.cy);
+    this.character.pointAt(item.cx, item.cy, CUE_HOLD);
   }
 
   /** The one that most needs rescuing: the wettest thing still on the line. */
@@ -294,6 +388,22 @@ class Game {
   }
 
   // ---- loop -------------------------------------------------------------
+  /**
+   * Fixed timestep, accumulator, and the remainder thrown away.
+   *
+   * Every spring, damping coefficient and decay rate in this game was tuned
+   * against a step of one sixtieth of a second. Feed the same code a step of
+   * one one-hundred-and-twentieth -- which is exactly what a ProMotion iPhone
+   * or iPad does -- and `Math.pow(d, dt*60)`-shaped damping is fine but plain
+   * `v *= d` per step is not: the cloth becomes twice as damped and the whole
+   * world goes stiff and slow on the most expensive devices anybody owns.
+   *
+   * So the clock is decoupled from the display. Real time goes into an
+   * accumulator, physics comes out of it in whole 1/60 steps, and at 120Hz
+   * every other frame simply draws the same simulation again. A frame that
+   * has fallen far behind (a tab coming back, a long GC) runs at most
+   * MAX_STEPS and drops what is left rather than spiralling.
+   */
   frame(now) {
     requestAnimationFrame(this.frame);
     if (this.paused) { this.last = now; return; }
@@ -301,10 +411,17 @@ class Game {
     let raw = (now - this.last) / 1000;
     this.last = now;
     if (!(raw > 0)) raw = 0;
-    const dt = Math.min(raw, MAX_DT) * this.timeScale;
-    const steps = Math.max(1, Math.min(6, Math.ceil(dt / SUB_DT)));
-    const sub = dt / steps;
-    for (let i = 0; i < steps; i++) this.update(sub);
+    this.acc = (this.acc || 0) + Math.min(raw, MAX_DT) * this.timeScale;
+    // The tests drive the world at up to 8x; the cap is there to stop one
+    // slow frame snowballing, not to put a speed limit on the game clock.
+    const cap = Math.min(24, Math.max(MAX_STEPS, Math.ceil(MAX_STEPS * this.timeScale)));
+    let steps = 0;
+    while (this.acc >= FIXED && steps < cap) {
+      this.update(FIXED);
+      this.acc -= FIXED;
+      steps++;
+    }
+    if (steps >= cap) this.acc = 0;   // give up on the backlog, never chase it
     this.draw();
     this.updateDebug();
   }
@@ -427,7 +544,9 @@ class Game {
     const snaps = this.items.map(() => ({}));
     this._snaps = snaps;
     const g = window.__game || (window.__game = {});
-    g.debug = false;
+    // Anything the page set before the game booted (the tests set `debug`)
+    // has to survive a restart.
+    if (g.debug === undefined) g.debug = false;
     if (g.timeScale === undefined) g.timeScale = 1;
     g.state = this.state;
     g.items = snaps;
@@ -443,12 +562,23 @@ class Game {
     this.updateDebug();
   }
 
+  /**
+   * The test hook, and nothing else.
+   *
+   * This runs once per drawn frame, so on a 120Hz device it runs 120 times a
+   * second; every object it builds is garbage a phone has to collect during
+   * the one animation nobody is allowed to see stutter. Unless `debug` has
+   * been set (the Playwright suite sets it before the page loads) the only
+   * thing that happens here is reading back the time scale, and everything it
+   * does write goes into objects that are allocated once and mutated.
+   */
   updateDebug() {
     const g = window.__game;
     if (!g) return;
     if (typeof g.timeScale === 'number' && g.timeScale > 0) {
       this.timeScale = Math.min(8, g.timeScale);
     }
+    if (!g.debug) return;
     g.state = this.state;
     g.rain = Math.round(this.weather.intensity * 1000) / 1000;
     g.sash = Math.round(this.sash.progress * 1000) / 1000;

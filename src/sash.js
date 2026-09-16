@@ -123,7 +123,7 @@ export class Sash {
     ctx.clip();
 
     // glass tint + a diagonal sheen so it reads as glass, not haze
-    ctx.globalAlpha = 0.20 + 0.10 * (1 - this.progress) * 0;
+    ctx.globalAlpha = 0.20;
     ctx.fillStyle = '#dff0fa';
     ctx.fillRect(p.x, p.y, p.w, p.h);
     ctx.globalAlpha = 0.09;

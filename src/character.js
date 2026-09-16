@@ -18,9 +18,14 @@ export class Character {
     this.t = 0;
     this.moodT = 0;
     this.mood = 'calm';     // calm | shiver | smile | relief
-    this.gaze = null;       // {x, y} world point to look at
+    // Reused, never rebuilt: these are written every frame while she is
+    // walking, and a new object per frame is a new object per frame.
+    this.gaze = null;
+    this._gaze = { x: 0, y: 0 };
     this.point = null;      // {x, y} world point to point at
+    this._point = { x: 0, y: 0 };
     this.pointT = 0;
+    this.giggleT = 0;       // poked: a small hop and a laugh
     // The sheet is not caught, it is hugged: arms right round a bundle
     // bigger than she is. `hugging` changes the reach, the carry height and
     // the arms; `hugPulse` is the little squash on the moment of the "gyu".
@@ -101,13 +106,14 @@ export class Character {
     if (this.moodT === 0 && this.mood !== 'relief') this.mood = 'calm';
     this.pointT = Math.max(0, this.pointT - dt);
     this.startleT = Math.max(0, this.startleT - dt);
+    this.giggleT = Math.max(0, this.giggleT - dt);
 
     const w = world;
     if (this.mode === 'toCatch' && this.target) {
       const goal = clamp(this.trackOfItem(this.target), w.trackMin, w.trackMax);
       this._moveTo(goal, dt);
       const it = this.target;
-      this.gaze = { x: it.cx, y: it.cy };
+      this.lookAt(it.cx, it.cy);
       const near = Math.abs(this.pos - goal) < this.h * 0.35;
       // A big bundle needs its moment in the air first, so it may ask to be
       // caught later than the small items.
@@ -142,7 +148,7 @@ export class Character {
       if (this.carrying) {
         this.handPos(HAND);
         this.carrying.setCarry(HAND.x, HAND.y);
-        this.gaze = { x: b.cx, y: b.cy };
+        this.lookAt(b.cx, b.cy);
       }
       if (this.hugHold <= 0 && Math.abs(this.pos - goal) < this.h * 0.22) {
         const it = this.carrying;
@@ -172,9 +178,35 @@ export class Character {
     this.walk = Math.abs(d) > 2;
   }
 
-  lookAt(x, y) { this.gaze = { x, y }; }
-  pointAt(x, y, seconds) { this.point = { x, y }; this.pointT = seconds || 2.2; }
+  lookAt(x, y) { this._gaze.x = x; this._gaze.y = y; this.gaze = this._gaze; }
+
+  pointAt(x, y, seconds) {
+    this._point.x = x; this._point.y = y;
+    this.point = this._point;
+    this.pointT = seconds || 2.2;
+  }
+
   stopPointing() { this.point = null; this.pointT = 0; }
+
+  /**
+   * Poked. The first thing a four year old touches is the person on the
+   * screen, so this is the first thing the game ever has to answer.
+   */
+  giggle() {
+    this.giggleT = 0.55;
+    this.mood = 'smile';
+    this.moodT = 1.4;
+  }
+
+  /** Is the finger on her? A whole-body pad, not a hitbox on the sprite. */
+  hitTest(x, y) {
+    const w = this.world;
+    this.foot(HAND);
+    const h = this.h;
+    const pad = Math.max(18, w.min * 0.04);
+    return x > HAND.x - h * 0.34 - pad && x < HAND.x + h * 0.34 + pad &&
+      y > HAND.y - h * 1.08 - pad && y < HAND.y + h * 0.10 + pad;
+  }
 
   /** Something just happened up there: look, and jump a little. */
   startle(x, y) {
@@ -199,7 +231,11 @@ export class Character {
     // One small startled hop, and then she stays looking up at the glass.
     if (this.startleT > 0) {
       const u = 1 - this.startleT / 0.85;
-      hop += Math.max(0, Math.sin(Math.PI * Math.min(1, u * 2.2))) * h * 0.13;
+      hop += Math.max(0, Math.sin(Math.PI * Math.min(1, u * 2.2))) * h * 0.18;
+    }
+    // Two quick little hops when she has been poked.
+    if (this.giggleT > 0) {
+      hop += Math.abs(Math.sin((0.55 - this.giggleT) * 13)) * h * 0.11;
     }
     fy -= bob + hop;
     fx += shiver;
@@ -281,19 +317,43 @@ export class Character {
       ctx.stroke();
     }
 
-    // pointing arm overrides one side (used for the "look, the laundry!" cue)
+    // The pointing arm. This is the whole tutorial, so it is drawn to be read
+    // in a *still frame*: a straight arm, thicker than her other one, out at
+    // full stretch toward the washing, with a hand on the end of it and a
+    // small jab along its own line so it reads as "that one, there".
     if (this.pointT > 0 && this.point) {
-      const a = Math.min(1, this.pointT / 0.4);
-      const sx = fx + h * 0.17 * Math.sign(this.point.x - fx || 1);
-      const dx = this.point.x - sx, dy = this.point.y - (shoulderY + h * 0.03);
+      const a = Math.min(1, this.pointT / 0.35);
+      const sgn = Math.sign(this.point.x - fx) || 1;
+      const sx = fx + h * 0.16 * sgn;
+      const sy = shoulderY + h * 0.02;
+      const dx = this.point.x - sx, dy = this.point.y - sy;
       const len = Math.max(1, Math.hypot(dx, dy));
-      const ex = sx + dx / len * h * 0.42;
-      const ey = shoulderY + h * 0.03 + dy / len * h * 0.42;
+      const ux = dx / len, uy = dy / len;
+      // The jab: the arm extends and relaxes about twice a second.
+      const jab = 1 + Math.sin(this.t * 6.5) * 0.09;
+      const reach = h * 0.56 * jab;
+      const ex = sx + ux * reach;
+      const ey = sy + uy * reach;
       ctx.globalAlpha = a;
+      ctx.lineWidth = h * 0.115;
       ctx.beginPath();
-      ctx.moveTo(sx, shoulderY + h * 0.03);
+      ctx.moveTo(sx, sy);
       ctx.lineTo(ex, ey);
       ctx.stroke();
+      // hand
+      ctx.fillStyle = '#ffd9b0';
+      ctx.beginPath();
+      ctx.arc(ex, ey, h * 0.072, 0, Math.PI * 2);
+      ctx.fill();
+      // one finger, out past the hand
+      ctx.strokeStyle = '#ffd9b0';
+      ctx.lineWidth = h * 0.048;
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(ex + ux * h * 0.10, ey + uy * h * 0.10);
+      ctx.stroke();
+      ctx.strokeStyle = '#f5a25d';
+      ctx.lineWidth = h * 0.095;
       ctx.globalAlpha = 1;
     }
 
