@@ -222,4 +222,39 @@ export class Audio {
   splash() {
     this._burst({ freq: 1800, q: 1.4, len: 0.09, gain: 0.05, sweep: 700 });
   }
+
+  // ---- phase 2 one-shots ------------------------------------------------
+
+  /** The hanger hook knocking against the pole when it will not come off yet:
+   *  a smaller, duller "karan" that reads as "not yet", never as failure. */
+  hangerClink() {
+    this._tone({ f0: 2150, f1: 1850, len: 0.075, gain: 0.055, wave: 'triangle' });
+    this._burst({ freq: 3400, q: 5, len: 0.03, gain: 0.05, sweep: 2200 });
+  }
+
+  /** Light cloth letting go of the air after the hook clears: "fuwa". */
+  fuwa() {
+    this._burst({ type: 'bandpass', freq: 620, q: 0.5, len: 0.34, gain: 0.09, sweep: 230, attack: 0.09 });
+    this._tone({ f0: 640, f1: 900, len: 0.26, gain: 0.035, wave: 'sine', attack: 0.08 });
+  }
+
+  /** A small light thing landing: the sock at the end of its fall. */
+  tap(pitch) {
+    const p = pitch === undefined ? 1 : pitch;
+    this._burst({ type: 'bandpass', freq: 900 * p, q: 1.6, len: 0.05, gain: 0.07, sweep: 380 * p });
+  }
+
+  /** The really heavy one hitting the floor / the arms: "doson". */
+  doson() {
+    this._tone({ f0: 96, f1: 34, len: 0.5, gain: 0.34, wave: 'sine' });
+    this._tone({ f0: 62, f1: 28, len: 0.62, gain: 0.20, wave: 'triangle', delay: 0.03 });
+    this._burst({ type: 'lowpass', freq: 200, len: 0.26, gain: 0.18, attack: 0.008 });
+  }
+
+  /** Something heavy swinging on its pegs without coming free: "zushi". */
+  zushi() {
+    this._burst({ type: 'lowpass', freq: 420, len: 0.30, gain: 0.10, attack: 0.05 });
+    this._tone({ f0: 180, f1: 120, len: 0.28, gain: 0.07, wave: 'sine', attack: 0.05 });
+  }
+
 }
