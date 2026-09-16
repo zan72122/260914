@@ -27,6 +27,7 @@ const ctx: EpisodeCtx = {
   rng,
   audio,
   phase,
+  safe: layout.safe,
   exit: () => leaveEpisode(),
 };
 
@@ -55,12 +56,56 @@ function leaveEpisode(): void {
 }
 
 layout.onResize((o: Orientation, w: number, h: number) => {
+  ctx.safe = layout.safe;
   hub.layout(o, w, h, layout.safe);
   current?.layout(o, w, h);
 });
 hub.layout(layout.orientation, layout.w, layout.h, layout.safe);
 
+// iOS hardening: no pinch/double-tap zoom, no long-press callout or selection.
+for (const t of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(t, (e) => e.preventDefault(), { passive: false });
+}
+document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+document.addEventListener(
+  'selectstart',
+  (e) => {
+    if (!inDevPanel(e.target)) e.preventDefault();
+  },
+  { passive: false },
+);
+/** the dev panel is real DOM and must stay scrollable/tappable */
+const inDevPanel = (t: EventTarget | null): boolean =>
+  t instanceof Node && !!(t instanceof Element ? t : t.parentElement)?.closest('.dvp, .tgl');
+let lastTouchEnd = 0;
+document.addEventListener(
+  'touchend',
+  (e) => {
+    if (inDevPanel(e.target)) return;
+    const now = performance.now();
+    if (now - lastTouchEnd < 320) e.preventDefault();
+    lastTouchEnd = now;
+  },
+  { passive: false },
+);
+document.addEventListener(
+  'touchmove',
+  (e) => {
+    if (!inDevPanel(e.target)) e.preventDefault();
+  },
+  { passive: false },
+);
+
+// iOS only unlocks WebAudio inside a user gesture: try on the very first
+// pointerdown, again on the touchend that follows it, and whenever the page
+// comes back to the foreground (iOS suspends the context on background).
 input.onFirstDown(() => audio.resume());
+const unlockAudio = (): void => audio.resume();
+window.addEventListener('pointerdown', unlockAudio, { passive: true });
+window.addEventListener('touchend', unlockAudio, { passive: true });
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) audio.resume();
+});
 input.bind((e: PointerEvt) => {
   if (mode === 'hub') hub.pointer(e);
   else current?.pointer(e);
@@ -157,4 +202,4 @@ declare global {
 }
 window.__game = api;
 
-new DevPanel(api, url.has('dev'), canvas);
+new DevPanel(api, url.get('dev') === '1', canvas);

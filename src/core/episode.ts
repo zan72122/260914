@@ -1,6 +1,6 @@
 import type { Audio } from './audio';
 import type { PointerEvt } from './input';
-import type { Orientation } from './layout';
+import type { Orientation, SafeInsets } from './layout';
 import type { PhaseMachine, PhaseName } from './phase';
 import type { Rng } from './rng';
 
@@ -8,6 +8,12 @@ export interface EpisodeCtx {
   rng: Rng;
   audio: Audio;
   phase: PhaseMachine;
+  /**
+   * Device safe-area insets in view units, kept up to date on every resize.
+   * Episodes may read it to keep important things clear of notches / home
+   * indicators; ignoring it is fine too (the object identity never changes).
+   */
+  safe: SafeInsets;
   /** leave the episode and go back to the hub */
   exit(): void;
 }
@@ -21,6 +27,8 @@ export interface Episode {
   readonly id: string;
   /** developer-only label; never shown in play */
   readonly title: string;
+  /** hub ordering; smaller comes first. Falls back to the table in hub.ts, then id. */
+  readonly order?: number;
 
   /** (re)start the episode from scratch */
   init(ctx: EpisodeCtx): void;

@@ -150,6 +150,7 @@ const KINDS: Array<{ kind: Kind; base: RGB; accent: RGB; len: number; halfW: num
 class Laundry implements Episode {
   readonly id = 'laundry';
   readonly title = 'A. 洗濯物 / laundry';
+  readonly order = 1;
 
   private ctx!: EpisodeCtx;
   private rng = new Rng(1);
@@ -201,6 +202,8 @@ class Laundry implements Episode {
   // character
   private chBlink = 0;
   private chBlinkT = 2;
+  /** -1 worried .. 0 neutral .. +1 relieved; drives brows and mouth */
+  private chMood = 0.5;
 
   private held: Garment | null = null;
   private pointerX = 0;
@@ -477,6 +480,7 @@ class Laundry implements Episode {
     ph.intervening = name === 'trouble';
     this.quiet = 0;
     this.comicT = 0;
+    this.chMood = 0.5;
     this.dropBeatI = 0;
     this.firstDropDone = false;
     this.rainStopArmed = false;
@@ -692,6 +696,22 @@ class Laundry implements Episode {
       this.chBlinkT = this.rng.range(2.4, 5.5);
     }
     this.chBlink = Math.max(0, this.chBlink - dt);
+
+    // how the person at the door feels about the washing right now
+    const outside = this.garments.filter((g) => this.outdoors(g));
+    const wetOutside = outside.some((g) => g.wet > 0.2);
+    let mood: number;
+    if (this.ending === 'saved') mood = 1;
+    else if (this.ending === 'soaked') mood = -0.45; // resigned, not panicked
+    else if (outside.length === 0) mood = this.rain > 0.02 ? 0.85 : 0.5;
+    else if (this.rain > 0.02) mood = -1;
+    else if (wetOutside) mood = -0.8;
+    else if (this.firstDropDone) mood = -0.7;
+    else if (this.dim > 0.25) mood = -0.3; // the light goes: uneasy
+    else mood = 0.5;
+    // worry arrives fast (the first drop is a small shock), relief comes slowly
+    const rate = mood < this.chMood ? 7 : 2.6;
+    this.chMood += (mood - this.chMood) * Math.min(1, dt * rate);
 
     if (this.fadeOut) {
       this.fade = Math.min(1, this.fade + dt * 2.2);
@@ -1191,8 +1211,8 @@ class Laundry implements Episode {
     gg.save();
     const clip = new Path2D();
     clip.rect(-w, -h, w * 3, h * 3);
-    const d = this.geo.door;
-    clip.rect(d.x + 6, d.y + 6, d.w - 12, d.h - 6);
+    const dop = this.doorOpening();
+    clip.rect(dop.x, dop.y, dop.w, dop.h);
     gg.clip(clip, 'evenodd');
     this.drawRain(gg, 1, 2);
     gg.restore();
@@ -1478,61 +1498,94 @@ class Laundry implements Episode {
     void P;
   }
 
+  /** the actual opening you can drop clothes through (also used to keep rain out) */
+  private doorOpening(): { x: number; y: number; w: number; h: number } {
+    const d = this.geo.door;
+    const jamb = Math.max(7, d.w * 0.055);
+    const lintel = Math.max(7, d.h * 0.032);
+    return { x: d.x + jamb, y: d.y + lintel, w: d.w - jamb * 2, h: d.h - lintel };
+  }
+
   private drawDoor(gg: CanvasRenderingContext2D, P: ReturnType<Laundry['pal']>): void {
     const d = this.geo.door;
     const side = this.geo.doorSide;
-    const r = Math.min(18, d.w * 0.09);
+    const o = this.doorOpening();
+    const jamb = o.x - d.x;
+    const lintel = o.y - d.y;
+    const thr = Math.max(5, d.h * 0.026); // threshold you step over
+    const floorTop = o.y + o.h * 0.74; // where the interior floor starts
+    const sillY = d.y + d.h - thr;
 
-    // wall slab behind the frame
-    gg.fillStyle = rgb(mix(P.wall, [120, 116, 112], 0.1));
-    this.roundRect(gg, d.x - 6, d.y - 10, d.w + 12, d.h + 14, r + 5);
-    gg.fill();
+    // the wall this door is cut into — it runs off the near edge of the screen,
+    // so the doorway reads as part of a building instead of a floating slab
+    const wallX = side < 0 ? -this.geo.w : d.x - d.w * 0.1;
+    const wallW = side < 0 ? d.x + d.w + d.w * 0.1 - wallX : this.geo.w * 2;
+    gg.fillStyle = rgb(mix(P.wall, [206, 198, 186], 0.35));
+    gg.fillRect(wallX, d.y - d.h * 0.06, wallW, d.h * 1.1);
+    // a shallow band of shadow under the lintel line, so the wall has a plane
+    gg.fillStyle = 'rgba(120,110,96,0.12)';
+    gg.fillRect(wallX, d.y - d.h * 0.06, wallW, d.h * 0.035);
 
-    // interior
+    // ---- the opening (interior) ----
     gg.save();
-    this.roundRect(gg, d.x + 6, d.y + 6, d.w - 12, d.h - 6, r);
+    gg.beginPath();
+    gg.rect(o.x, o.y, o.w, o.h - thr);
     gg.clip();
-    const warm = gg.createLinearGradient(d.x, d.y, d.x + d.w * 0.3, d.y + d.h);
+    const warm = gg.createLinearGradient(o.x, o.y, o.x + o.w * 0.3, o.y + o.h);
     warm.addColorStop(0, 'rgb(252,224,178)');
     warm.addColorStop(0.55, 'rgb(240,198,142)');
     warm.addColorStop(1, 'rgb(206,158,106)');
     gg.fillStyle = warm;
-    gg.fillRect(d.x, d.y, d.w, d.h);
-    // interior floor
-    gg.fillStyle = 'rgb(186,138,92)';
-    gg.fillRect(d.x, d.y + d.h * 0.76, d.w, d.h * 0.24);
+    gg.fillRect(o.x, o.y, o.w, o.h);
+    // interior floor, receding
+    const fl = gg.createLinearGradient(0, floorTop, 0, d.y + d.h);
+    fl.addColorStop(0, 'rgb(168,120,78)');
+    fl.addColorStop(1, 'rgb(198,150,102)');
+    gg.fillStyle = fl;
+    gg.fillRect(o.x, floorTop, o.w, d.y + d.h - floorTop);
     gg.fillStyle = 'rgba(255,236,200,0.35)';
-    gg.fillRect(d.x, d.y + d.h * 0.76, d.w, 3);
+    gg.fillRect(o.x, floorTop, o.w, 2.5);
+    // floorboards running away from the door
+    gg.strokeStyle = 'rgba(120,80,48,0.28)';
+    gg.lineWidth = 1.2;
+    for (let i = 1; i < 5; i++) {
+      const fx = o.x + (o.w * i) / 5;
+      gg.beginPath();
+      gg.moveTo(lerp(o.x + o.w * 0.5, fx, 0.55), floorTop);
+      gg.lineTo(fx, d.y + d.h);
+      gg.stroke();
+    }
     // a lamp glow in the back
     const lg = gg.createRadialGradient(
-      d.x + d.w * (side < 0 ? 0.78 : 0.22),
-      d.y + d.h * 0.2,
+      o.x + o.w * (side < 0 ? 0.78 : 0.22),
+      o.y + o.h * 0.2,
       0,
-      d.x + d.w * (side < 0 ? 0.78 : 0.22),
-      d.y + d.h * 0.2,
-      d.w * 0.8,
+      o.x + o.w * (side < 0 ? 0.78 : 0.22),
+      o.y + o.h * 0.2,
+      o.w * 0.8,
     );
     lg.addColorStop(0, 'rgba(255,246,214,0.85)');
     lg.addColorStop(1, 'rgba(255,240,200,0)');
     gg.fillStyle = lg;
-    gg.fillRect(d.x, d.y, d.w, d.h);
+    gg.fillRect(o.x, o.y, o.w, o.h);
 
+    this.drawSlipper(gg, o, floorTop, side);
     this.drawChairAndPile(gg, d, side);
     if (this.comicLean() <= 0.001) this.drawCharacter(gg, d, side);
 
     // curtain on the far side, breathing with the wind
-    const cw = d.w * 0.3;
-    const cx0 = side < 0 ? d.x + d.w - cw : d.x;
+    const cw = o.w * 0.3;
+    const cx0 = side < 0 ? o.x + o.w - cw : o.x;
     gg.save();
     gg.beginPath();
     const waves = 6;
     const outer = side < 0 ? cx0 + cw : cx0; // the edge pinned to the frame
     const inner = side < 0 ? cx0 : cx0 + cw; // the loose edge
-    gg.moveTo(outer, d.y);
-    gg.lineTo(outer, d.y + d.h);
+    gg.moveTo(outer, o.y);
+    gg.lineTo(outer, o.y + o.h);
     for (let i = waves; i >= 0; i--) {
       const t = i / waves;
-      const yy = d.y + d.h * t;
+      const yy = o.y + o.h * t;
       const sway = Math.sin(this.t * 1.6 + t * 4.2) * (2 + this.wind * 10) * t;
       const ex = lerp(outer, inner, 0.82 + 0.18 * Math.sin(t * 5.1 + this.t * 0.8));
       gg.lineTo(ex + sway * (side < 0 ? -1 : 1), yy);
@@ -1543,19 +1596,77 @@ class Laundry implements Episode {
     cg.addColorStop(side < 0 ? 0 : 1, 'rgba(240,222,196,0.7)');
     gg.fillStyle = cg;
     gg.fill();
-    gg.restore();
+    // curtain rod
+    gg.fillStyle = 'rgba(140,116,92,0.85)';
+    gg.fillRect(o.x, o.y + 1, o.w, Math.max(3, o.h * 0.012));
     gg.restore();
 
-    // frame
-    gg.lineWidth = Math.max(7, d.w * 0.045);
-    gg.strokeStyle = rgb(mix([252, 250, 246], [180, 178, 176], this.dim * 0.6));
-    this.roundRect(gg, d.x + 6, d.y + 6, d.w - 12, d.h - 6, r);
-    gg.stroke();
-    gg.lineWidth = 2;
-    gg.strokeStyle = 'rgba(120,110,100,0.35)';
+    // the dark inside the reveal, top and hinge side
+    const rev = gg.createLinearGradient(o.x, o.y, o.x, o.y + o.h * 0.12);
+    rev.addColorStop(0, 'rgba(70,48,30,0.35)');
+    rev.addColorStop(1, 'rgba(70,48,30,0)');
+    gg.fillStyle = rev;
+    gg.fillRect(o.x, o.y, o.w, o.h * 0.12);
+    gg.restore();
+
+    // ---- threshold: the step you carry the washing over ----
+    const tg = gg.createLinearGradient(0, sillY, 0, sillY + thr);
+    tg.addColorStop(0, 'rgb(226,220,210)');
+    tg.addColorStop(0.45, 'rgb(198,190,178)');
+    tg.addColorStop(1, 'rgb(150,142,132)');
+    gg.fillStyle = tg;
+    gg.fillRect(d.x + jamb * 0.25, sillY, d.w - jamb * 0.5, thr);
+    gg.fillStyle = 'rgba(255,255,255,0.7)';
+    gg.fillRect(d.x + jamb * 0.25, sillY, d.w - jamb * 0.5, 1.6);
+    // the little lip of the step down to the balcony
+    gg.fillStyle = 'rgba(70,62,54,0.28)';
+    gg.fillRect(d.x + jamb * 0.25, sillY + thr, d.w - jamb * 0.5, Math.max(2, thr * 0.35));
+    // the sliding track groove
+    gg.strokeStyle = 'rgba(120,112,102,0.55)';
+    gg.lineWidth = 1.2;
+    gg.beginPath();
+    gg.moveTo(d.x + jamb * 0.5, sillY + thr * 0.55);
+    gg.lineTo(d.x + d.w - jamb * 0.5, sillY + thr * 0.55);
     gg.stroke();
 
-    if (this.comicLean() > 0.001) this.drawCharacter(gg, d, side);
+    // ---- frame: two jambs and a lintel, square like a real door ----
+    const frameC = rgb(mix([252, 250, 246], [180, 178, 176], this.dim * 0.6));
+    const frameD = rgb(mix([214, 208, 198], [146, 144, 142], this.dim * 0.6));
+    gg.fillStyle = frameC;
+    gg.fillRect(d.x, d.y, jamb, d.h - thr * 0.2); // left jamb
+    gg.fillRect(d.x + d.w - jamb, d.y, jamb, d.h - thr * 0.2); // right jamb
+    gg.fillRect(d.x, d.y, d.w, lintel); // lintel
+    gg.fillStyle = frameD;
+    gg.fillRect(d.x + jamb - jamb * 0.3, d.y + lintel, jamb * 0.3, d.h - lintel - thr * 0.2);
+    gg.fillRect(d.x + d.w - jamb, d.y + lintel, jamb * 0.3, d.h - lintel - thr * 0.2);
+    gg.fillRect(d.x + jamb * 0.7, d.y + lintel - lintel * 0.34, d.w - jamb * 1.4, lintel * 0.34);
+    gg.strokeStyle = 'rgba(120,110,100,0.32)';
+    gg.lineWidth = 1.4;
+    gg.strokeRect(d.x + 0.7, d.y + 0.7, d.w - 1.4, d.h - 0.7);
+
+    // ---- the glass leaf, slid open onto the balcony side ----
+    const lw = d.w * 0.2;
+    const lx = side < 0 ? d.x + d.w : d.x - lw;
+    gg.save();
+    gg.globalAlpha = 0.92;
+    gg.fillStyle = 'rgba(214,230,236,0.5)';
+    gg.fillRect(lx, d.y + lintel * 0.5, lw, d.h - lintel * 0.5 - thr * 0.2);
+    const sh = gg.createLinearGradient(lx, 0, lx + lw, 0);
+    sh.addColorStop(0, 'rgba(255,255,255,0.4)');
+    sh.addColorStop(0.55, 'rgba(255,255,255,0.05)');
+    sh.addColorStop(1, 'rgba(255,255,255,0.3)');
+    gg.fillStyle = sh;
+    gg.fillRect(lx, d.y + lintel * 0.5, lw, d.h - lintel * 0.5 - thr * 0.2);
+    gg.globalAlpha = 1;
+    gg.strokeStyle = frameC;
+    gg.lineWidth = Math.max(4, d.w * 0.022);
+    gg.strokeRect(lx + gg.lineWidth * 0.5, d.y + lintel * 0.5 + gg.lineWidth * 0.5, lw - gg.lineWidth, d.h - lintel * 0.5 - thr * 0.2 - gg.lineWidth);
+    // handle
+    gg.fillStyle = 'rgba(140,146,156,0.9)';
+    const hx = side < 0 ? lx + lw * 0.78 : lx + lw * 0.22;
+    this.roundRect(gg, hx - 2.5, d.y + d.h * 0.52, 5, d.h * 0.1, 2.5);
+    gg.fill();
+    gg.restore();
 
     // warm light spilling onto the balcony floor
     const spill = 0.25 + this.dim * 0.45;
@@ -1573,6 +1684,38 @@ class Laundry implements Episode {
     gg.beginPath();
     gg.ellipse(d.x + d.w * 0.5, d.y + d.h * 0.99, d.w * 1.1, d.h * 0.2, 0, 0, Math.PI * 2);
     gg.fill();
+
+    if (this.comicLean() > 0.001) this.drawCharacter(gg, d, side);
+  }
+
+  /** one slipper kicked off by the threshold — small sign that this is a home */
+  private drawSlipper(
+    gg: CanvasRenderingContext2D,
+    o: { x: number; y: number; w: number; h: number },
+    floorTop: number,
+    side: number,
+  ): void {
+    const sx = o.x + o.w * (side < 0 ? 0.76 : 0.24);
+    const sy = lerp(floorTop, o.y + o.h, 0.62);
+    const sw = o.w * 0.15;
+    const sh2 = sw * 0.46;
+    for (const k of [0, 1]) {
+      const x = sx + (k ? sw * 0.62 : -sw * 0.2);
+      const y = sy + (k ? sh2 * 0.5 : 0);
+      gg.fillStyle = 'rgba(80,56,36,0.22)';
+      gg.beginPath();
+      gg.ellipse(x, y + sh2 * 0.32, sw * 0.5, sh2 * 0.3, 0, 0, Math.PI * 2);
+      gg.fill();
+      gg.fillStyle = k ? 'rgb(226,140,132)' : 'rgb(236,158,148)';
+      gg.beginPath();
+      gg.ellipse(x, y, sw * 0.48, sh2 * 0.5, k ? 0.22 : -0.14, 0, Math.PI * 2);
+      gg.fill();
+      gg.strokeStyle = 'rgb(250,226,214)';
+      gg.lineWidth = Math.max(1.4, sh2 * 0.22);
+      gg.beginPath();
+      gg.ellipse(x - sw * 0.14, y - sh2 * 0.04, sw * 0.24, sh2 * 0.34, 0, Math.PI * 0.95, Math.PI * 2.05);
+      gg.stroke();
+    }
   }
 
   private drawChairAndPile(gg: CanvasRenderingContext2D, d: { x: number; y: number; w: number; h: number }, side: number): void {
@@ -1629,7 +1772,13 @@ class Laundry implements Episode {
     const palm = smooth((comic - 0.95) / 0.5);
     const shrugRaw = smooth((comic - 2.05) / 0.45);
     const shrug = shrugRaw * (1 - 0.25 * Math.max(0, Math.sin((comic - 2.05) * 6)));
-    const blink = this.chBlink > 0 || (comic > 1.72 && comic < 1.9) ? 1 : 0;
+    // during the comic beat only the scripted blink fires: the gaze is the joke
+    const blink = (comic > 0 ? comic > 1.72 && comic < 1.9 : this.chBlink > 0) ? 1 : 0;
+    /** after the shrug they bring the head down and look straight at us */
+    const lookAtCam = comic > 0 ? smooth((comic - 2.4) / 0.42) : 0;
+    const gazeUp = lookUp * (1 - lookAtCam);
+    const worry = Math.max(0, -this.chMood);
+    const relief = Math.max(0, this.chMood);
 
     const headR = d.h * 0.08;
     const out = -side; // the way the balcony is
@@ -1696,10 +1845,10 @@ class Laundry implements Episode {
     gg.ellipse(ex, ey, headR * 0.34, headR * 0.26, out * 0.5 * palm, 0, Math.PI * 2);
     gg.fill();
 
-    // head — tips back as the eyes go up
+    // head — tips back as the eyes go up, then comes level to look at us
     gg.save();
     gg.translate(x, headY);
-    gg.rotate(out * lookUp * 0.24);
+    gg.rotate(out * gazeUp * 0.24);
     gg.translate(-x, -headY);
     gg.fillStyle = skin;
     gg.beginPath();
@@ -1711,35 +1860,90 @@ class Laundry implements Episode {
     gg.ellipse(x, headY - headR * (0.34 + lookUp * 0.14), headR * 0.98, headR * 0.72, 0, Math.PI, Math.PI * 2);
     gg.fill();
     gg.beginPath();
-    gg.ellipse(x - out * headR * 0.72, headY - headR * 0.1, headR * 0.3, headR * 0.42, 0, 0, Math.PI * 2);
+    gg.ellipse(x - out * headR * 0.8, headY - headR * 0.16, headR * 0.26, headR * 0.4, 0, 0, Math.PI * 2);
     gg.fill();
 
-    // face: looks straight out, then up at the sky
-    const eyeY = headY + headR * (0.08 - lookUp * 0.28);
-    const eyeDX = headR * 0.34;
+    // face — eyes are a white with a real pupil, so the gaze is readable
+    const eyeY = headY + headR * (0.08 - gazeUp * 0.26);
+    const eyeDX = headR * 0.38;
     const eyeOff = out * headR * 0.1;
-    gg.fillStyle = 'rgb(56,44,40)';
+    const er = headR * (0.2 + worry * 0.05);
     for (const s of [-1, 1]) {
       const ex2 = x + s * eyeDX + eyeOff;
       if (blink) {
-        gg.fillRect(ex2 - headR * 0.16, eyeY, headR * 0.32, headR * 0.075);
-      } else {
+        gg.strokeStyle = 'rgb(56,44,40)';
+        gg.lineWidth = headR * 0.075;
+        gg.lineCap = 'round';
         gg.beginPath();
-        gg.ellipse(ex2, eyeY, headR * 0.115, headR * 0.145, 0, 0, Math.PI * 2);
+        gg.moveTo(ex2 - er * 0.8, eyeY);
+        gg.lineTo(ex2 + er * 0.8, eyeY);
+        gg.stroke();
+      } else {
+        gg.fillStyle = 'rgb(252,250,248)';
+        gg.beginPath();
+        gg.ellipse(ex2, eyeY, er * 0.92, er, 0, 0, Math.PI * 2);
         gg.fill();
+        // pupil: up at the sky during the beat, then straight at the camera
+        const px = ex2 + eyeOff * 0.3 * (1 - lookAtCam) + lookAtCam * out * er * 0.05;
+        const py = eyeY - gazeUp * er * 0.44 + worry * er * 0.08;
+        gg.fillStyle = 'rgb(48,38,36)';
+        gg.beginPath();
+        gg.ellipse(px, py, er * 0.5, er * 0.56, 0, 0, Math.PI * 2);
+        gg.fill();
+        gg.fillStyle = 'rgba(255,255,255,0.9)';
+        gg.beginPath();
+        gg.ellipse(px - er * 0.16, py - er * 0.2, er * 0.15, er * 0.16, 0, 0, Math.PI * 2);
+        gg.fill();
+        gg.strokeStyle = 'rgba(70,56,50,0.5)';
+        gg.lineWidth = Math.max(0.8, headR * 0.03);
+        gg.beginPath();
+        gg.ellipse(ex2, eyeY, er * 0.92, er, 0, 0, Math.PI * 2);
+        gg.stroke();
       }
     }
-    // mouth: small o when looking up, little smile otherwise
+
+    // brows do most of the emotional work: inner ends lift when worried
+    gg.strokeStyle = 'rgb(74,58,52)';
+    gg.lineWidth = headR * 0.085;
+    gg.lineCap = 'round';
+    // never let the brows slide up under the hair: they must stay readable
+    const browY = Math.max(eyeY - headR * (0.27 + worry * 0.05 + relief * 0.04), headY - headR * 0.28);
+    for (const s of [-1, 1]) {
+      const bx = x + s * eyeDX + eyeOff;
+      const inX = bx - s * headR * 0.16;
+      const outX = bx + s * headR * 0.18;
+      gg.beginPath();
+      gg.moveTo(inX, browY - worry * headR * 0.15);
+      gg.quadraticCurveTo(bx, browY - relief * headR * 0.09 - worry * headR * 0.03, outX, browY + worry * headR * 0.08);
+      gg.stroke();
+    }
+
+    // mouth: one curve that bends from a smile to a frown, plus an open gasp
+    const my = headY + headR * (0.5 - gazeUp * 0.16);
+    const mw = headR * (0.27 + relief * 0.05);
     gg.strokeStyle = 'rgb(176,104,92)';
     gg.lineWidth = headR * 0.12;
     gg.beginPath();
-    const my = headY + headR * (0.5 - lookUp * 0.18);
-    if (lookUp > 0.4) {
+    if (gazeUp > 0.4) {
+      // the small "...now?" o while they stare at the sky
       gg.ellipse(x + eyeOff, my, headR * 0.15, headR * 0.13 * (1 - shrug * 0.4), 0, 0, Math.PI * 2);
+      gg.stroke();
     } else {
-      gg.arc(x + eyeOff, my - headR * 0.16, headR * 0.28, 0.35, Math.PI - 0.35);
+      const gasp = smooth((worry - 0.62) / 0.3);
+      const bend = relief * 0.95 - worry * 1.0;
+      gg.globalAlpha = 1 - gasp * 0.85;
+      gg.moveTo(x + eyeOff - mw, my - bend * headR * 0.1);
+      gg.quadraticCurveTo(x + eyeOff, my + bend * headR * 0.44, x + eyeOff + mw, my - bend * headR * 0.1);
+      gg.stroke();
+      gg.globalAlpha = 1;
+      if (gasp > 0.01) {
+        // dismay: the mouth opens into a small worried oval
+        gg.fillStyle = `rgba(158,88,80,${0.9 * gasp})`;
+        gg.beginPath();
+        gg.ellipse(x + eyeOff, my + headR * 0.08 * gasp, headR * 0.115 * gasp, headR * 0.135 * gasp, 0, 0, Math.PI * 2);
+        gg.fill();
+      }
     }
-    gg.stroke();
     gg.restore();
     gg.restore();
   }
@@ -2108,11 +2312,11 @@ class Laundry implements Episode {
     const { w, h } = this.geo;
     if (this.dim > 0.02) {
       // the doorway keeps its warm light: that is what makes it read as shelter
-      const d = this.geo.door;
+      const dop = this.doorOpening();
       gg.save();
       const cut = new Path2D();
       cut.rect(-w, -h, w * 3, h * 3);
-      cut.rect(d.x + 8, d.y + 8, d.w - 16, d.h - 10);
+      cut.rect(dop.x + 2, dop.y + 2, dop.w - 4, dop.h - 4);
       gg.clip(cut, 'evenodd');
       gg.globalCompositeOperation = 'multiply';
       const c = mix([255, 255, 255], [130, 144, 176], this.dim);

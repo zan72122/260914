@@ -57,7 +57,7 @@ function momentsFor(actionNames) {
         phase: fail ? 'trouble' : 'action',
         pre: 0.8,
         actions: [n],
-        settle: fail ? 1.5 : 0.05,
+        settle: fail ? 1.5 : 0.25,
       };
     });
 }

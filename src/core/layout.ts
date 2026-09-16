@@ -44,6 +44,13 @@ export class Layout {
     const onResize = () => this.resize();
     window.addEventListener('resize', onResize);
     window.addEventListener('orientationchange', () => setTimeout(onResize, 60));
+    // iOS: the visual viewport changes on rotation / URL-bar collapse without
+    // always firing a window resize.
+    const vv = window.visualViewport;
+    if (vv) {
+      vv.addEventListener('resize', onResize);
+      vv.addEventListener('scroll', onResize);
+    }
     this.resize();
   }
 
@@ -70,12 +77,11 @@ export class Layout {
     const probe = document.getElementById('safe-probe');
     if (!probe) return;
     const cs = getComputedStyle(probe);
-    this.safe = {
-      top: parseFloat(cs.paddingTop) || 0,
-      right: parseFloat(cs.paddingRight) || 0,
-      bottom: parseFloat(cs.paddingBottom) || 0,
-      left: parseFloat(cs.paddingLeft) || 0,
-    };
+    // mutate in place: episodes and the hub hold on to this object
+    this.safe.top = parseFloat(cs.paddingTop) || 0;
+    this.safe.right = parseFloat(cs.paddingRight) || 0;
+    this.safe.bottom = parseFloat(cs.paddingBottom) || 0;
+    this.safe.left = parseFloat(cs.paddingLeft) || 0;
   }
 
   resize(): void {

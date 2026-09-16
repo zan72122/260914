@@ -5,10 +5,27 @@ import type { Orientation } from './layout';
 /** Only episodes that exist as modules show up. No manual list to forget. */
 const mods = import.meta.glob<EpisodeModule>('../episodes/*.ts', { eager: true });
 
+/**
+ * Reading order for the episodes we know about, so the hub is not alphabetical.
+ * An episode that declares `order` overrides this; anything unknown sorts last,
+ * then by id, so a new episode file still shows up without touching this table.
+ */
+const ORDER: Record<string, number> = {
+  laundry: 1,
+  bedcat: 2,
+  leaves: 3,
+  sandcastle: 4,
+  hatwind: 5,
+  snowman: 6,
+};
+
+const orderOf = (e: Episode): number => e.order ?? ORDER[e.id] ?? 1000;
+
 export const episodes: Episode[] = Object.keys(mods)
   .sort()
   .map((k) => mods[k].episode)
-  .filter(Boolean);
+  .filter(Boolean)
+  .sort((a, b) => orderOf(a) - orderOf(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
 export function findEpisode(id: string): Episode | undefined {
   return episodes.find((e) => e.id === id);
@@ -101,18 +118,23 @@ export class Hub {
     g.fillRect(0, 0, w, h);
 
     for (const tile of this.tiles) {
-      const lift = Math.sin(this.t * 0.8 + tile.t) * 2.2;
-      const k = 1 - tile.press * 0.04 + (this.entering === tile ? this.enterT * 1.4 : 0);
+      // idle life: each tile breathes and tilts on its own slow, prime-ish cycle
+      const lift = Math.sin(this.t * 0.8 + tile.t) * 2.2 + Math.sin(this.t * 0.37 + tile.t * 1.7) * 1.1;
+      const tilt = Math.sin(this.t * 0.53 + tile.t * 0.9) * 0.006;
+      const breathe = 1 + Math.sin(this.t * 0.62 + tile.t * 1.3) * 0.006;
+      const k =
+        breathe - tile.press * 0.055 + (this.entering === tile ? this.enterT * 1.4 : 0);
       g.save();
       g.translate(tile.x + tile.w / 2, tile.y + tile.h / 2 + lift);
+      g.rotate(tilt * (1 - tile.press));
       g.scale(k, k);
       g.translate(-tile.w / 2, -tile.h / 2);
       const r = Math.min(26, tile.w * 0.12);
 
       g.save();
       g.shadowColor = 'rgba(80,66,48,0.3)';
-      g.shadowBlur = 16;
-      g.shadowOffsetY = 6;
+      g.shadowBlur = 16 - tile.press * 8;
+      g.shadowOffsetY = 6 - tile.press * 4 + lift * 0.25;
       g.fillStyle = '#fff';
       roundRect(g, 0, 0, tile.w, tile.h, r);
       g.fill();
@@ -149,7 +171,11 @@ export class Hub {
   pointer(e: PointerEvt): void {
     if (this.entering) return;
     const hit = this.tiles.find((t) => e.x > t.x && e.x < t.x + t.w && e.y > t.y && e.y < t.y + t.h) ?? null;
-    if (e.type === 'down') this.down = hit;
+    if (e.type === 'down') {
+      this.down = hit;
+      // immediate press feedback: don't wait for the spring to catch up
+      if (hit) hit.press = 0.75;
+    }
     else if (e.type === 'up') {
       if (this.down && hit === this.down) {
         this.entering = this.down;
