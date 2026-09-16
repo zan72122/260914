@@ -218,6 +218,77 @@ export class Audio {
     this._tone({ f0: 780, f1: 1040, len: 0.34, gain: 0.07, wave: 'sine', delay: 0.16 });
   }
 
+
+  // ---- the sheet (phase 2) ---------------------------------------------
+  // New calls only; nothing above changed signature.
+
+  /** The big sheet's peg: a heavy, woody "pachin" with a low body to it. */
+  clipHeavy(pitch) {
+    const p = pitch === undefined ? 1 : pitch;
+    this._burst({ freq: 1550 * p, q: 4, len: 0.085, gain: 0.34, sweep: 420 * p });
+    this._tone({ f0: 880 * p, f1: 250 * p, len: 0.15, gain: 0.16, wave: 'triangle' });
+    this._tone({ f0: 205 * p, f1: 108, len: 0.13, gain: 0.11, wave: 'sine' });
+  }
+
+  /**
+   * The freed half of the sheet slapping in the wind: "bata-bata".
+   * A noise bed whose gain is chopped by an LFO, so it is a rhythm and not a
+   * hiss. level 0..1 is how much cloth is loose, rate follows the gust.
+   */
+  setFlutter(level, rate) {
+    if (!this.ok) return;
+    try {
+      const ctx = this.ctx;
+      if (!this._flutter) {
+        const src = ctx.createBufferSource();
+        src.buffer = this._noise();
+        src.loop = true;
+        const band = ctx.createBiquadFilter();
+        band.type = 'bandpass'; band.frequency.value = 620; band.Q.value = 0.8;
+        const chop = ctx.createGain();   // LFO-modulated: the "bata bata"
+        chop.gain.value = 0.45;
+        const lfo = ctx.createOscillator();
+        lfo.type = 'triangle';
+        lfo.frequency.value = 7;
+        const lfoAmp = ctx.createGain();
+        lfoAmp.gain.value = 0.45;
+        lfo.connect(lfoAmp); lfoAmp.connect(chop.gain);
+        const lvl = ctx.createGain();
+        lvl.gain.value = 0;
+        src.connect(band); band.connect(chop); chop.connect(lvl);
+        lvl.connect(this.master);
+        src.start(); lfo.start();
+        this._flutter = { src, band, chop, lfo, level: lvl };
+      }
+      const t = ctx.currentTime;
+      const f = this._flutter;
+      const lv = Math.min(1, Math.max(0, level));
+      f.level.gain.setTargetAtTime(0.20 * lv, t, 0.12);
+      f.lfo.frequency.setTargetAtTime(5 + 7 * Math.min(1, rate === undefined ? 0.4 : rate), t, 0.2);
+      f.band.frequency.setTargetAtTime(480 + 420 * lv, t, 0.25);
+    } catch (e) { /* ignore */ }
+  }
+
+  flutterStop() { this.setFlutter(0, 0); }
+
+  /** The whole sheet letting go at once: a long, low "basa". */
+  basa() {
+    this._burst({
+      type: 'bandpass', freq: 520, q: 0.45,
+      len: 0.78, gain: 0.32, sweep: 115, attack: 0.03,
+    });
+    this._burst({ type: 'lowpass', freq: 850, len: 0.52, gain: 0.20, attack: 0.05 });
+    this._tone({ f0: 124, f1: 52, len: 0.55, gain: 0.13, wave: 'sine' });
+    this._burst({ type: 'bandpass', freq: 1500, q: 0.8, len: 0.30, gain: 0.10, sweep: 380, attack: 0.02 });
+  }
+
+  /** Arms closing around the bundle: a soft, warm "gyu". */
+  gyu() {
+    this._tone({ f0: 300, f1: 520, len: 0.28, gain: 0.14, wave: 'sine' });
+    this._tone({ f0: 600, f1: 880, len: 0.22, gain: 0.06, wave: 'sine', delay: 0.10 });
+    this._burst({ type: 'lowpass', freq: 460, len: 0.22, gain: 0.08, attack: 0.06 });
+  }
+
   /** Small splash on the balcony floor. */
   splash() {
     this._burst({ freq: 1800, q: 1.4, len: 0.09, gain: 0.05, sweep: 700 });
