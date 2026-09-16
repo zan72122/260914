@@ -142,6 +142,11 @@ class Game {
   onDown(p) {
     this.audio.resume();
     if (this.state === 'AFTER' && this.afterT > 3) { this.restart(); return; }
+    // The handle, before its time. The window is scenery until the line is
+    // empty and nothing is going to change that -- but a finger that lands on
+    // it gets a knock in the runners rather than nothing at all. The washing
+    // still wins the gesture: this is an answer, not a control.
+    if (!this.sash.enabled && this.sash.overHandle(p.x, p.y)) this.sash.rattle(1);
     if (this.sash.hitHandle(p.x, p.y)) {
       this.dragSash = this.sash.onPointerDown(p);
       if (this.dragSash) {
@@ -315,6 +320,7 @@ class Game {
       this.weather.setDarkFloor(0.45);
     } else if (s === 'EMPTY_LINE') {
       this.sash.enable();
+      this.glanceT = 0;
       const h = this.sash.handlePoint(this._hp || (this._hp = {}));
       this.character.lookAt(h.x, h.y);
     } else if (s === 'AFTER') {
@@ -336,6 +342,15 @@ class Game {
       if (this.allStowed()) this.setState('EMPTY_LINE');
     } else if (s === 'EMPTY_LINE') {
       this.weather.setTargetIntensity(0.85);
+      // Her eyes do the job an arrow would do and is not allowed to: she
+      // looks at the handle, then along the runners to where the window shuts,
+      // and back. A look is not a sign, and it travels the same path the
+      // pane does.
+      this.glanceT = (this.glanceT || 0) + dt;
+      const tmp = this._hp || (this._hp = {});
+      const h = (this.glanceT % 2.8) < 1.6
+        ? this.sash.handlePoint(tmp) : this.sash.closedHandlePoint(tmp);
+      this.character.lookAt(h.x, h.y);
       if (this.sash.progress > 0.02) this.setState('SASH_CLOSE');
     } else if (s === 'SASH_CLOSE') {
       const h = this.sash.handlePoint(this._hp || (this._hp = {}));
