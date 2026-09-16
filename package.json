@@ -1,0 +1,11 @@
+{
+  "name": "hinoko",
+  "version": "1.0.0",
+  "private": true,
+  "description": "シュッシュッ！ひのこ — 4さいのための、もじのない火おこしあそび",
+  "type": "module",
+  "scripts": {
+    "start": "http-server -p 8080 -s -c-1 .",
+    "test": "node tools/playthrough.mjs"
+  }
+}
