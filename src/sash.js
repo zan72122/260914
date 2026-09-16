@@ -146,12 +146,25 @@ export class Sash {
     ctx.fillRect(p.x, p.y, this.frame * 0.22, p.h);
 
     const h = this.handlePoint(this._hp || (this._hp = {}));
-    const hw = Math.max(10, world.min * 0.030);
-    const hh = Math.max(34, world.min * 0.10);
+    const hw = Math.max(14, world.min * 0.038);
+    const hh = Math.max(44, world.min * 0.125);
+    // Once the line is empty this has to be findable in a *still* frame, not
+    // only in motion, so the wobble is a real nudge (about half the width of
+    // the handle) and it sits inside a soft pulse of light.
     const wob = this.glint > 0.05 && !this.closed
-      ? Math.sin(this.t * 6) * hw * 0.16 * this.glint : 0;
+      ? Math.sin(this.t * 5.2) * hw * 0.55 * this.glint : 0;
     ctx.save();
     ctx.translate(h.x + wob, h.y);
+    if (this.glint > 0.02) {
+      const pulse = 0.5 + 0.5 * Math.sin(this.t * 3.4);
+      ctx.globalAlpha = this.glint * (0.16 + 0.22 * pulse);
+      ctx.fillStyle = '#fff4d2';
+      ctx.beginPath();
+      ctx.ellipse(0, 0, hw * (1.5 + 0.6 * pulse), hh * (0.62 + 0.18 * pulse), 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.rotate(wob / hw * 0.12);
     ctx.fillStyle = '#9aa7b1';
     roundRect(ctx, -hw * 0.5, -hh * 0.5, hw, hh, hw * 0.45);
     ctx.fill();
@@ -160,9 +173,9 @@ export class Sash {
     ctx.fill();
     if (this.glint > 0.02) {
       const g = (Math.sin(this.t * 3.1) * 0.5 + 0.5) * this.glint;
-      ctx.globalAlpha = g * 0.85;
+      ctx.globalAlpha = Math.min(1, 0.35 + g * 0.65);
       ctx.fillStyle = '#ffffff';
-      roundRect(ctx, -hw * 0.5, -hh * 0.5 + hh * (0.12 + 0.5 * g), hw, hh * 0.18, hw * 0.4);
+      roundRect(ctx, -hw * 0.5, -hh * 0.5 + hh * (0.10 + 0.55 * g), hw, hh * 0.22, hw * 0.4);
       ctx.fill();
       ctx.globalAlpha = 1;
     }
@@ -178,8 +191,9 @@ export class Sash {
     // curtain, on the room side of the opening
     const c = this.curtain;
     if (c > 0.02) {
-      const cw = op.w * 0.12;
-      const sway = Math.sin(this.t * 2.3) * cw * 0.35 * c;
+      const cw = op.w * 0.13;
+      // Blowing into the room: the window is obviously still open.
+      const sway = (0.45 + Math.sin(this.t * 2.3) * 0.55) * cw * 0.7 * c;
       ctx.fillStyle = 'rgba(255,250,240,0.85)';
       ctx.beginPath();
       ctx.moveTo(op.x, op.y);
@@ -201,6 +215,40 @@ export class Sash {
     ctx.fillRect(op.right, op.y - f, f, op.h + f * 2);
     ctx.fillStyle = 'rgba(255,255,255,0.22)';
     ctx.fillRect(op.x - f, op.y - f, op.w + f * 2, Math.max(2, f * 0.22));
+    if (this.enabled && !this.closed) this.drawFrameRain(ctx, world);
     ctx.restore();
+  }
+
+  /**
+   * Rain coming in far enough to hit the frame itself: short streaks running
+   * down the bottom rail with a bead at the end of each. Nothing says "shut
+   * it"; the window simply stops looking finished.
+   */
+  drawFrameRain(ctx, world) {
+    const op = this.op;
+    const f = this.frame;
+    const n = 9;
+    const s = Math.max(4, world.min * 0.016);
+    ctx.lineCap = 'round';
+    for (let i = 0; i < n; i++) {
+      // Deterministic, evenly spread, each on its own cycle.
+      const u = (i * 0.1373 + 0.06) % 1;
+      const ph = (this.t * (0.55 + (i % 4) * 0.13) + i * 0.37) % 1;
+      const x = op.x + op.w * u;
+      const y = op.bottom + f * ph;
+      const a = Math.sin(Math.PI * ph);
+      ctx.globalAlpha = a * 0.8;
+      ctx.strokeStyle = 'rgba(232,246,255,0.95)';
+      ctx.lineWidth = Math.max(1.4, s * 0.28);
+      ctx.beginPath();
+      ctx.moveTo(x, y - s * 0.9);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(244,251,255,0.95)';
+      ctx.beginPath();
+      ctx.arc(x, y, s * 0.24, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
 }

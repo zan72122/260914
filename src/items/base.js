@@ -4,24 +4,42 @@
 //   Item
 //     layout(world)
 //     hitTest(x, y) -> boolean          (deliberately larger than the cloth)
+//     hitDistance(x, y) -> number       (0 when the point is on the cloth)
 //     onPointerDown/Move/Up(p)
 //     update(dt, wind, rain)
 //     draw(ctx, world)
 //     state: HANGING | RELEASING | CARRYING | IN_BASKET
 //     wetness: 0..1
+//     overlay: boolean                  (draw order, see below)
+//
+// `overlay` is false for everything that is still a thing on a balcony: those
+// items are drawn behind the window frame, as if seen through the opening. An
+// item sets it true for exactly as long as it is physically between the camera
+// and the window -- blowing in through the opening, or already in the room --
+// and main.js then draws it after the frame. Only the sheet ever does.
+//
+// Geometry (slot / wFrac / hFrac) is NOT the item's business: it comes from
+// items/index.js and nothing here may override it.
 //
 // The base behaviour is the two-peg pull: drag toward `world.inDir`, each
 // stroke past the threshold pops one peg, the last peg frees the cloth. The
 // towel is the fully-tuned reference implementation of it; the other four
 // items currently inherit it and are marked as placeholders.
 
-import { Cloth, makePalette, drawCloth, drawWetSpot } from '../cloth.js';
+import {
+  Cloth, makePalette, drawClothLit, drawWetSpot, setClothScale, relaxShear,
+} from '../cloth.js';
 import { clamp } from '../layout.js';
 
 const TMP = { x: 0, y: 0 };
 const BOX = { x0: 0, y0: 0, x1: 0, y1: 0 };
 
 export const MIN_HIT = 64; // css px, per spec
+
+// Flat, dry cloth in full light. drawClothLit is built around a mid-grey base
+// so folds have room to go both ways; the small items want to sit brighter
+// than that, because dry laundry in the sun is the whole first impression.
+export const LIGHT_BIAS = 0.16;
 
 export class Item {
   /**
@@ -36,6 +54,8 @@ export class Item {
     this.audio = this.hooks.audio || null;
     this.state = 'HANGING';
     this.wetness = 0;
+    // Draw order. See the note at the top of this file.
+    this.overlay = false;
     this.slot = spec.slot;
     this.rgb = spec.rgb;
     this.palette = makePalette(spec.rgb[0], spec.rgb[1], spec.rgb[2]);
@@ -65,6 +85,22 @@ export class Item {
     this.carryX = 0;
     this.carryY = 0;
     this.anchor = { x: 0, y: 0, w: 0, h: 0 };
+    // How far the drawn item spills past its cloth, as a fraction of the
+    // cloth's width. The shirt's sleeves are the only thing that does.
+    this.visualOverhang = 0;
+
+    // --- the wind you can see (phase 3) ---------------------------------
+    // `billow` is how much this cloth is currently ballooning toward the
+    // camera, 0..1. It grows the mesh's rest lengths (the same 2.5D trick the
+    // sheet uses), lifts the hem, and feeds the height field `z` that lights
+    // the strips, so a gust reads as depth and not only as sideways drift.
+    this.billow = 0;
+    this.billowTo = 0;
+    this.zPhase = Math.random() * 6.283;
+    this.z = new Float32Array(this.cloth.n);
+    // Items that run their own billow (the sheet) or have none (the rigid
+    // pinch frame) set this and the shared code leaves them alone.
+    this.selfBillow = false;
 
     this.layout(world);
   }
@@ -75,14 +111,20 @@ export class Item {
     const pole = world.pole;
     const op = world.opening;
     const w = pole.width * this.spec.wFrac;
-    const h = op.h * this.spec.hFrac;
+    const h = op.h * this.spec.hFrac * (world.clothV === undefined ? 1 : world.clothV);
     const cx = pole.x0 + pole.width * this.slot;
     const x = cx - w / 2;
     const y = pole.y;
     const prev = this.anchor;
     const hadAnchor = prev.w > 0;
     this.anchor = { x, y, w, h };
-    this.hitPad = Math.max(MIN_HIT * 0.5, world.min * 0.085);
+    this.baseRestH = w / (this.cloth.cols - 1);
+    this.baseRestV = h / (this.cloth.rows - 1);
+    // Spec 1: never smaller than a fingertip. The pad is the *whole* 64 css px
+    // on every side, which means neighbouring pads overlap heavily -- that is
+    // why main.js scores a hit by distance to the cloth first and only uses
+    // the centroid to break an exact tie.
+    this.hitPad = Math.max(MIN_HIT, world.min * 0.085);
 
     if (this.state === 'HANGING' && !this.grabbing) {
       this.cloth.reset(x, y, w, h);
@@ -139,6 +181,22 @@ export class Item {
     const dx = Math.max(b.x0 - x, 0, x - b.x1);
     const dy = Math.max(b.y0 - y, 0, y - b.y1);
     return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  /**
+   * The rectangle this item actually *occupies* when it is hanging at rest --
+   * the cloth plus anything drawn outside it. Two of these may never overlap;
+   * see the packing table in items/index.js.
+   */
+  visualBox(out) {
+    const a = this.anchor;
+    const o = out || {};
+    const over = a.w * this.visualOverhang;
+    o.x0 = a.x - over;
+    o.x1 = a.x + a.w + over;
+    o.y0 = a.y;
+    o.y1 = a.y + a.h;
+    return o;
   }
 
   get cx() { this.cloth.centroid(TMP); return TMP.x; }
@@ -199,8 +257,17 @@ export class Item {
     this.grabIdx = -1;
   }
 
+  /**
+   * How far toward the room this has to be dragged.
+   *
+   * Scaled by the *square root* of the viewport: an iPad is 2.1x an iPhone
+   * across, but a four year old's arm is the same length on both, so a linear
+   * scale turned every gesture on the big screen into a haul. sqrt keeps the
+   * threshold comfortably bigger on a tablet without making it child-sized on
+   * one device and adult-sized on the other.
+   */
   pullThreshold() {
-    return (this.spec.pullPx || 44) * Math.max(0.85, this.world.min / 390);
+    return (this.spec.pullPx || 44) * Math.max(0.85, Math.sqrt(this.world.min / 390));
   }
 
   // ---- release ----------------------------------------------------------
@@ -268,6 +335,7 @@ export class Item {
   update(dt, wind, rain) {
     const sp = this.spec;
     if (this.grabbing) this.occl = Math.min(1, this.occl + dt * 6);
+    if (!this.selfBillow) this._billow(dt);
 
     if (this.state === 'HANGING' || this.state === 'RELEASING') {
       if (rain > 0) {
@@ -302,6 +370,80 @@ export class Item {
       cl.pin(top, this.carryX, this.carryY);
       cl.step(dt, wind.x * 0.06, 0, (sp.gravityK || 1) * 0.5);
     }
+    if (!this.selfBillow) {
+      this._gustLift(dt);
+      // Cloth keeps its shape under shear; without this a long, narrow towel
+      // in a gust folds up on itself and reads as a twisted rag. Same helper
+      // the sheet uses, at a fraction of the stiffness.
+      if (this.state !== 'IN_BASKET') relaxShear(this.cloth, 0.30);
+      this._updateZ();
+    }
+  }
+
+  /**
+   * Ride the gust.
+   *
+   * In portrait `inDir` points *down*, which in a 2.5D picture reads as
+   * "toward the room, toward the camera" -- and a cloth that only moves along
+   * it looks like a cloth doing nothing at all. So a gust does three visible
+   * things at once: the weather pushes it sideways (weather.js puts a lateral
+   * kick on every gust in portrait), the mesh grows toward the lens, and the
+   * hem lifts. Together they are the "look, the wind" beat.
+   */
+  _billow(dt) {
+    const g = this.gust;
+    const hanging = this.state === 'HANGING' || this.state === 'RELEASING';
+    this.billowTo = hanging ? (this.rainStarted ? 0.10 + 0.95 * g : 0.06) : 0;
+    // Fast to fill, slow to empty: cloth snaps out and then subsides.
+    const k = this.billowTo > this.billow ? 7.5 : 2.2;
+    this.billow += (this.billowTo - this.billow) * Math.min(1, dt * k);
+    this.zPhase += dt * (2.2 + 6.5 * g);
+    if (this.baseRestH) {
+      setClothScale(this.cloth, this.baseRestH, this.baseRestV,
+        1 + this.billow * 0.07);
+    }
+  }
+
+  /** The hem comes up on a gust; the rows nearest it come up most. */
+  _gustLift(dt) {
+    const b = this.billow;
+    if (b <= 0.03) return;
+    const cl = this.cloth;
+    const rows = cl.rows, cols = cl.cols;
+    if (rows < 2) return;
+    const lift = this.world.min * (1.1 + 2.3 * this.gust) * b *
+      (this.spec.windScale === undefined ? 1 : this.spec.windScale);
+    const dt2 = dt * dt;
+    for (let r = 1; r < rows; r++) {
+      const rv = r / (rows - 1);
+      const a = lift * rv * rv * dt2;
+      for (let c = 0; c < cols; c++) {
+        const i = r * cols + c;
+        if (cl.pinned[i]) continue;
+        cl.y[i] -= a;
+      }
+    }
+  }
+
+  /**
+   * Height field for the lit renderer: how far each point of the cloth stands
+   * out of the plane, in rest cells. Zero when the air is still, so a calm
+   * cloth is flat and evenly lit and only a gust puts folds in it.
+   */
+  _updateZ() {
+    const cl = this.cloth;
+    const cols = cl.cols, rows = cl.rows;
+    const z = this.z;
+    const amp = this.billow;
+    const ph = this.zPhase;
+    for (let r = 0; r < rows; r++) {
+      const rv = rows > 1 ? r / (rows - 1) : 0;
+      const rw = 0.30 + 0.70 * rv;
+      for (let c = 0; c < cols; c++) {
+        z[r * cols + c] = amp * rw *
+          (Math.sin(ph + c * 1.1 + rv * 1.9) + 0.45 * Math.sin(ph * 0.7 - c * 2.1));
+      }
+    }
   }
 
   setWeather(gust, gustPulse, started) {
@@ -313,7 +455,10 @@ export class Item {
   // ---- drawing ----------------------------------------------------------
   draw(ctx, world) {
     if (this.state === 'IN_BASKET') return;
-    drawCloth(ctx, this.cloth, this.palette, this.wetness, this.stretch * 0.05);
+    // Lit strips, not flat ones: the same renderer the sheet uses, so a gust
+    // puts real light and shade into every piece of washing on the line.
+    drawClothLit(ctx, this.cloth, this.palette, this.wetness, this.z,
+      0, 0, LIGHT_BIAS + this.stretch * 0.05);
     this.drawSpots(ctx);
     this.drawClips(ctx, world);
   }
@@ -401,9 +546,17 @@ export class Item {
     out.x = Math.round(TMP.x * 10) / 10;
     out.y = Math.round(TMP.y * 10) / 10;
     out.clips = this.popped.filter((v) => !v).length;
+    const b = this.visualBox(this._vb || (this._vb = {}));
+    out.box = { x0: r1(b.x0), y0: r1(b.y0), x1: r1(b.x1), y1: r1(b.y1) };
+    this.cloth.bounds(BOX);
+    out.bounds = { x0: r1(BOX.x0), y0: r1(BOX.y0), x1: r1(BOX.x1), y1: r1(BOX.y1) };
+    out.pad = Math.round(this.hitPad * 10) / 10;
+    out.billow = Math.round(this.billow * 1000) / 1000;
     return out;
   }
 }
+
+function r1(v) { return Math.round(v * 10) / 10; }
 
 export function defaultClipCols(cols, count) {
   const n = Math.max(1, count || 2);

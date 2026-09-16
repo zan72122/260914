@@ -12,13 +12,16 @@
 //   portrait  -> (0, 1)  : indoors is *below*  the balcony, pull down.
 //   landscape -> (1, 0)  : indoors is *right*  of the balcony, pull right.
 
-export const PORTRAIT_OUTDOOR = 0.55; // top 55% is the balcony
+// Phase 3: the washing has to dominate a phone screen, so the balcony takes
+// nearly sixty percent of the height in portrait. The room below it only needs
+// to hold a basket, a child and the bottom rail of the window.
+export const PORTRAIT_OUTDOOR = 0.59; // top 59% is the balcony
 export const LANDSCAPE_OUTDOOR = 0.58; // left 58% is the balcony
 
 // Fraction of the window opening still covered by the parked (open) sash pane.
 // A real 引き違い窓 always keeps one pane in view; we need that glass anyway so
 // the first raindrop has somewhere beautiful to land.
-export const PARKED_GLASS = 0.2;
+export const PARKED_GLASS = 0.18;
 
 function rect(x, y, w, h) {
   return { x, y, w, h, cx: x + w / 2, cy: y + h / 2, right: x + w, bottom: y + h };
@@ -85,14 +88,22 @@ export function computeWorld(w, h, safe) {
   };
 
   // --- washing line -----------------------------------------------------
-  const lineRight = op.x + op.w * (1 - PARKED_GLASS) - op.w * 0.02;
+  const lineRight = op.x + op.w * (1 - PARKED_GLASS) - op.w * 0.015;
   world.pole = {
-    y: op.y + op.h * (portrait ? 0.17 : 0.15),
-    x0: op.x + op.w * 0.035,
+    // Higher in the window than before: the cloth below it is what wants the
+    // room, and the hems have to reach about two thirds of the way down.
+    y: op.y + op.h * (portrait ? 0.125 : 0.145),
+    x0: op.x + op.w * 0.025,
     x1: lineRight,
     thickness: Math.max(5, min * 0.016),
   };
   world.pole.width = world.pole.x1 - world.pole.x0;
+
+  // Cloth length, as a multiplier on every item's hFrac. The window opening
+  // is far taller in landscape than in portrait, and a towel scaled straight
+  // off it comes out as a ribbon; portrait is the shape the numbers in
+  // items/index.js are written for, so landscape is pulled back toward it.
+  world.clothV = portrait ? 1 : 0.70;
 
   // --- balcony floor ----------------------------------------------------
   world.floorY = op.y + op.h * (portrait ? 0.86 : 0.84);
@@ -100,20 +111,25 @@ export function computeWorld(w, h, safe) {
   // --- indoor furniture -------------------------------------------------
   const ind = world.indoor;
   if (portrait) {
-    world.basket = rect(ind.x + ind.w * 0.60, ind.y + ind.h * 0.36, ind.w * 0.30, ind.h * 0.40);
-    world.character = rect(ind.x + ind.w * 0.08, ind.y + ind.h * 0.16, ind.w * 0.26, ind.h * 0.62);
-    world.catchLine = ind.y + ind.h * 0.72; // feet line
-    world.trackMin = ind.x + ind.w * 0.10;
-    world.trackMax = ind.x + ind.w * 0.74;
+    // The child stands on the sash side of the room (the handle is parked on
+    // the right) and the basket keeps out of her way on the left. Both sit
+    // high in the room, close to the window, so the floor is not dead space.
+    world.basket = rect(ind.x + ind.w * 0.06, ind.y + ind.h * 0.30, ind.w * 0.30, ind.h * 0.42);
+    world.character = rect(ind.x + ind.w * 0.62, ind.y + ind.h * 0.10, ind.w * 0.28, ind.h * 0.62);
+    world.catchLine = ind.y + ind.h * 0.60; // feet line
+    world.trackMin = ind.x + ind.w * 0.12;
+    world.trackMax = ind.x + ind.w * 0.82;
+    world.charHome = 0.86;                  // home position along the track
   } else {
     world.basket = rect(ind.x + ind.w * 0.50, ind.y + ind.h * 0.52, ind.w * 0.42, ind.h * 0.34);
-    world.character = rect(ind.x + ind.w * 0.06, ind.y + ind.h * 0.30, ind.w * 0.34, ind.h * 0.44);
-    world.catchLine = ind.x + ind.w * 0.22; // standing column
+    world.character = rect(ind.x + ind.w * 0.04, ind.y + ind.h * 0.30, ind.w * 0.34, ind.h * 0.44);
+    world.catchLine = ind.x + ind.w * 0.14; // standing column, close to the sash
     // Keep the child on the floor: the indoor floor line is at 0.62h.
     world.trackMin = ind.y + ind.h * 0.66;
     world.trackMax = ind.y + ind.h * 0.90;
+    world.charHome = 0.30;
   }
-  world.charH = Math.max(76, min * 0.24);
+  world.charH = Math.max(80, min * (portrait ? 0.27 : 0.24));
 
   return world;
 }

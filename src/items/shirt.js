@@ -14,11 +14,19 @@
 // whole gesture, and it is the gesture a real hanger teaches you.
 
 import { Item } from './base.js';
+import { SLEEVE_OVERHANG } from './index.js';
 import { clamp, alongIn } from '../layout.js';
 
 const G = { hx: 0, hy: 0, bx: 0, by: 0, lx: 0, ly: 0, rx: 0, ry: 0, ang: 0 };
 
 export class Shirt extends Item {
+  constructor(world, spec, hooks) {
+    super(world, spec, hooks);
+    // The sleeves hang outside the cloth, so they are part of the body the
+    // line is packed around (items/index.js counts them).
+    this.visualOverhang = SLEEVE_OVERHANG;
+  }
+
   // ---- hanger state -----------------------------------------------------
   // Kept in one lazily-created object because base's constructor calls
   // layout() -> applyPins() before any subclass field would exist.
@@ -260,7 +268,8 @@ export class Shirt extends Item {
   drawSleeves(ctx, g) {
     const cl = this.cloth;
     const rowI = cl.idx(0, 1), rowJ = cl.idx(cl.cols - 1, 1);
-    const w = this.anchor.w * 0.30;
+    // Kept inside SLEEVE_OVERHANG at full flutter, so the packing holds.
+    const w = this.anchor.w * SLEEVE_OVERHANG * 1.08;
     const t = this.world.t;
     const live = 0.25 + this.hanger().flutter * 0.9;
     const k = 1 - 0.42 * this.wetness;
@@ -272,7 +281,7 @@ export class Shirt extends Item {
       const ix = s < 0 ? cl.x[rowI] : cl.x[rowJ];
       const iy = s < 0 ? cl.y[rowI] : cl.y[rowJ];
       const wob = Math.sin(t * 5.5 + s * 1.7) * live;
-      const ex = sx + s * w * (0.85 + wob * 0.25);
+      const ex = sx + s * w * (0.80 + wob * 0.20);
       const ey = sy + w * (0.75 + wob * 0.45);
       ctx.beginPath();
       ctx.moveTo(sx, sy);

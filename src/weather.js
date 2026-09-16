@@ -34,6 +34,11 @@ export class Weather {
     this.gust = 0;          // 0..1 current gust envelope
     this.gustTimer = 2.2;
     this.gustPulse = 0;     // spikes to 1 at the start of each gust
+    this.gustDir = 1;       // which way the gust leans, across inDir
+    this.gustBoost = 1;     // how big this particular gust is
+    this.gustHold = 0;      // seconds the gust stays at full before decaying
+    this.hero = false;      // the first gust after the first drop is the big one
+    this.still = false;     // the world holds its breath for the first drop
     this.wind = { x: 0, y: 0 };
     this.windEnabled = false;
     this.puddle = 0;
@@ -55,11 +60,24 @@ export class Weather {
 
   /** Begin the single drop running down the pane. */
   startFirstDrop() {
-    this.glassDrop = { u: 0.088, v: 0.13, v0: 0.13, r: 0, speed: 0, age: 0, trail: [] };
+    this.glassDrop = { u: 0.088, v: 0.20, v0: 0.20, r: 0, speed: 0, age: 0, trail: [] };
     if (this.audio) this.audio.drop();
   }
 
-  startWind() { this.windEnabled = true; this.gustTimer = 0.15; }
+  /**
+   * The wind arrives. The first gust is the "look, the wind" beat, so it is
+   * deliberately the biggest one of the game: it leans hard across the room
+   * direction, it holds at full strength instead of decaying immediately, and
+   * everything that is still pegged down wobbles and glints with it.
+   */
+  startWind() {
+    this.windEnabled = true;
+    this.gustTimer = 0.15;
+    this.hero = true;
+  }
+
+  /** The world holds still while the single drop is on the glass. */
+  setStill(on) { this.still = !!on; }
 
   setTargetIntensity(v) { this.targetIntensity = clamp(v, 0, 1); }
 
@@ -77,14 +95,29 @@ export class Weather {
         this.gustTimer = 2.4 + Math.random() * 2.2;
         this.gust = 1;
         this.gustPulse = 1;
+        // Gusts alternate, so the washing swings one way and then back
+        // instead of being walked off the edge of the screen.
+        this.gustDir = this.hero ? 1 : -this.gustDir;
+        this.gustBoost = this.hero ? 1.9 : 1;
+        this.gustHold = this.hero ? 0.75 : 0.10;
+        this.hero = false;
       }
-      this.gust *= Math.pow(0.22, dt); // exponential decay
+      if (this.gustHold > 0) this.gustHold -= dt;
+      else this.gust *= Math.pow(0.22, dt); // exponential decay
     }
-    const breeze = Math.sin(this.windPhase) * 0.22 + Math.sin(this.windPhase * 0.37) * 0.12;
+    const calm = this.still ? 0.22 : 1;
+    const breeze = (Math.sin(this.windPhase) * 0.22 +
+      Math.sin(this.windPhase * 0.37) * 0.12) * calm;
     // Wind always pushes toward the room: the wind itself is the hint.
-    const strength = (this.windEnabled ? 260 : 0) * (0.35 + 0.65 * this.gust) +
+    const gk = this.gust * this.gustBoost;
+    const strength = (this.windEnabled ? 260 : 0) * (0.35 + 0.65 * gk) +
       (this.windEnabled ? 0 : 60) * breeze;
-    const cross = breeze * 70;
+    // Across the room direction. In landscape `inDir` is horizontal, so the
+    // wind above is already a visible sideways swing and this stays a breeze.
+    // In portrait `inDir` points at the camera and a gust would be invisible
+    // without it, so a real lateral kick rides on every gust.
+    const lat = world.portrait ? this.gustDir * gk * 260 : 0;
+    const cross = breeze * 70 + lat;
     this.wind.x = world.inDir.x * strength + (world.inDir.x ? 0 : cross);
     this.wind.y = world.inDir.y * strength * 0.55 + (world.inDir.y ? 0 : cross * 0.4);
 
@@ -312,12 +345,17 @@ export class Weather {
     ctx.globalAlpha = 1;
 
     // The drop itself: a fat lens with a bright highlight and a soft shadow.
-    const r = S * 0.062 * gd.r;
+    // Deliberately the most contrasting thing on the screen at this moment:
+    // a fat lens with a shadow under it, on glass that has nothing else on it
+    // yet, in a world that has stopped moving. It gives up a little of itself
+    // to the trail as it runs, so it is biggest right at the start.
+    const shed = clamp((gd.v - gd.v0) / 0.6, 0, 1);
+    const r = S * (0.062 - 0.020 * shed) * gd.r;
     const x = X(gd.u), y = Y(gd.v);
     ctx.save();
-    ctx.fillStyle = 'rgba(52,84,112,0.42)';
+    ctx.fillStyle = 'rgba(44,74,102,0.42)';
     ctx.beginPath();
-    ctx.ellipse(x + r * 0.16, y + r * 0.28, r * 0.92, r * 1.12, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + r * 0.22, y + r * 0.40, r * 0.86, r * 1.04, 0, 0, Math.PI * 2);
     ctx.fill();
 
     const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.45, r * 0.1, x, y, r * 1.15);

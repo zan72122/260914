@@ -26,15 +26,15 @@ const SMALLS = [
 
 export class Pinch extends Item {
   constructor(world, spec, hooks) {
-    // A pinch-hanger is a row of many little clips, not a two-peg line.
-    // A pinch-hanger is a row of many little clips, not a two-peg line. The
-    // clips are inset from the ends of the frame so that the row a finger has
-    // to trace never reaches into the neighbouring washing.
-    super(world, Object.assign({}, spec, {
-      slot: 0.475, wFrac: 0.19,
-      cols: 13, rows: 4, clipCount: 6,
-      clipCols: [1, 3, 5, 7, 9, 11],
-    }), hooks);
+    // Thirteen columns, six clips on the odd ones, inset from the ends so the
+    // row a finger traces never reaches into the neighbouring washing -- all
+    // of that comes from the registry, including where it hangs and how big
+    // it is. Nothing is overridden here.
+    super(world, spec, hooks);
+    // A rigid frame pinned along its whole top edge: it cannot balloon, and
+    // growing its rest lengths would only fight every pin. It keeps the
+    // gentle sway the wind gives it and nothing else.
+    this.selfBillow = true;
 
     this.minis = [];
     for (let k = 0; k < this.clipCols.length; k++) {

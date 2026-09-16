@@ -37,6 +37,8 @@ class Game {
     this.paused = false;
     this.warm = 0;
     this.afterT = 0;
+    this.touched = false;   // has a finger taken hold of anything yet?
+    this.cueT = 0;
 
     this.audio = new Audio();
     this.world = this.measure();
@@ -123,14 +125,29 @@ class Game {
         return;
       }
     }
-    let best = null, bestD = Infinity;
+    // Which item is the finger on?
+    //
+    // Every hit pad is the full 64 css px the spec asks for, which on a phone
+    // is wider than the washing itself: two or three pads always contain the
+    // same point. Distance to the *cloth* decides first, so a finger that is
+    // actually on one item can never be stolen by a neighbour whose pad
+    // happens to reach further. Only when the point is genuinely on two
+    // pieces of cloth at once -- distance zero for both -- does the centroid
+    // break the tie, and then the finger takes the one it is most on.
+    let best = null, bestScore = Infinity;
     for (let i = 0; i < this.items.length; i++) {
       const it = this.items[i];
       if (!it.hitTest(p.x, p.y)) continue;
-      const d = it.hitDistance(p.x, p.y);
-      if (d < bestD) { bestD = d; best = it; }
+      const dx = it.cx - p.x, dy = it.cy - p.y;
+      const score = it.hitDistance(p.x, p.y) * 1000 + Math.sqrt(dx * dx + dy * dy);
+      if (score < bestScore) { bestScore = score; best = it; }
     }
-    if (best && best.onPointerDown(p)) this.dragItem = best;
+    if (best && best.onPointerDown(p)) {
+      this.dragItem = best;
+      // She has seen it and taken hold of it: the pointing cue is done.
+      this.touched = true;
+      this.character.stopPointing();
+    }
   }
 
   onMove(p) {
@@ -154,6 +171,8 @@ class Game {
     this.stateT = 0;
     this.warm = 0;
     this.afterT = 0;
+    this.touched = false;
+    this.cueT = 0;
     this.weather = new Weather(this.audio);
     this.basket = new Basket(this.world);
     this.character = new Character(this.world, {
@@ -177,16 +196,22 @@ class Game {
     const w = this.world;
     if (s === 'FIRST_DROP') {
       this.weather.startFirstDrop();
-      // The cue: look up at the drop, then glance at the washing.
+      // One drop, on still glass, in a world that stops moving: for the next
+      // second there is nothing else on the screen to look at, and she is
+      // looking straight at it.
+      this.weather.setStill(true);
       this.sash.paneRect(this._pr || (this._pr = {}));
-      this.character.lookAt(this._pr.x + w.min * 0.04, w.opening.y + w.opening.h * 0.1);
+      this.character.startle(this._pr.x + w.min * 0.10,
+        w.opening.y + w.opening.h * 0.16);
     } else if (s === 'SPOT') {
-      const target = this.items.find((it) => it.state === 'HANGING');
+      this.weather.setStill(false);
+      const target = this.wettestItem();
       if (target) {
         target.addSpot(0.35, 0.28, 0.13);
         target.addSpot(0.62, 0.48, 0.10);
         this.character.lookAt(target.cx, target.cy);
         this.character.pointAt(target.cx, target.cy, 2.6);
+        this.cueT = 4.0;
       }
       this.weather.setTargetIntensity(0.05);
     } else if (s === 'WIND') {
@@ -231,6 +256,36 @@ class Game {
       s !== 'CALM' && this.allStowed() && s === 'RAIN_RAMP') this.setState('EMPTY_LINE');
   }
 
+  /**
+   * Nothing has been touched yet, so she keeps glancing at the wettest piece
+   * of washing and pointing at it -- a look and a gesture, on and off, never
+   * an arrow and never a word. The moment a finger takes hold of anything,
+   * onDown switches it off for good.
+   */
+  cue(dt) {
+    if (this.touched) return;
+    const s = this.state;
+    if (s !== 'SPOT' && s !== 'WIND' && s !== 'RAIN_RAMP') return;
+    this.cueT = (this.cueT === undefined ? 0 : this.cueT) - dt;
+    if (this.cueT > 0) return;
+    const target = this.wettestItem();
+    if (!target) return;
+    this.cueT = 4.2;
+    this.character.lookAt(target.cx, target.cy);
+    this.character.pointAt(target.cx, target.cy, 2.2);
+  }
+
+  /** The one that most needs rescuing: the wettest thing still on the line. */
+  wettestItem() {
+    let best = null;
+    for (let i = 0; i < this.items.length; i++) {
+      const it = this.items[i];
+      if (it.state !== 'HANGING') continue;
+      if (!best || it.wetness > best.wetness + 1e-6) best = it;
+    }
+    return best;
+  }
+
   allStowed() {
     for (let i = 0; i < this.items.length; i++) {
       if (this.items[i].state !== 'IN_BASKET') return false;
@@ -258,6 +313,7 @@ class Game {
     this.t += dt;
     this.world.t = this.t;
     this.advance(dt);
+    this.cue(dt);
 
     const w = this.weather;
     w.update(dt, this.world);
@@ -397,6 +453,18 @@ class Game {
     g.inDir = this.world.inDir;
     g.basket = this.basket.count;
     g.time = Math.round(this.t * 100) / 100;
+    g.gust = Math.round(this.weather.gust * 1000) / 1000;
+    g.pointing = this.character.pointT > 0;
+    const op = this.world.opening;
+    if (!g.opening) g.opening = {};
+    g.opening.x = Math.round(op.x * 10) / 10;
+    g.opening.y = Math.round(op.y * 10) / 10;
+    g.opening.w = Math.round(op.w * 10) / 10;
+    g.opening.h = Math.round(op.h * 10) / 10;
+    if (!g.pole) g.pole = {};
+    g.pole.x0 = Math.round(this.world.pole.x0 * 10) / 10;
+    g.pole.width = Math.round(this.world.pole.width * 10) / 10;
+    g.pole.y = Math.round(this.world.pole.y * 10) / 10;
     for (let i = 0; i < this.items.length; i++) this.items[i].snapshot(this._snaps[i]);
     const h = this.sash.handlePoint(this._hp || (this._hp = {}));
     g.handle.x = Math.round(h.x * 10) / 10;

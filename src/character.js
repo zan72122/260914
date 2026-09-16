@@ -27,6 +27,8 @@ export class Character {
     this.hugging = false;
     this.hugPulse = 0;
     this.hugHold = 0;       // stand still and squeeze before walking off
+    // The startled little hop when the first drop hits the glass.
+    this.startleT = 0;
     this._chest = { x: 0, y: 0, r: 0 };
     this.layout(world);
   }
@@ -34,7 +36,10 @@ export class Character {
   layout(world) {
     this.world = world;
     const span = world.trackMax - world.trackMin;
-    const rel = this.pos === undefined ? 0.16 : this._rel;
+    // Home is next to the sash: she is standing at the open window, which is
+    // where a child who has just noticed the rain would be.
+    const home = world.charHome === undefined ? 0.16 : world.charHome;
+    const rel = this.pos === undefined ? home : this._rel;
     this.pos = world.trackMin + span * rel;
     this._rel = rel;
     this.h = world.charH;
@@ -95,6 +100,7 @@ export class Character {
     this.moodT = Math.max(0, this.moodT - dt);
     if (this.moodT === 0 && this.mood !== 'relief') this.mood = 'calm';
     this.pointT = Math.max(0, this.pointT - dt);
+    this.startleT = Math.max(0, this.startleT - dt);
 
     const w = world;
     if (this.mode === 'toCatch' && this.target) {
@@ -150,7 +156,8 @@ export class Character {
         this._next();
       }
     } else if (this.mode === 'back') {
-      const goal = w.trackMin + (w.trackMax - w.trackMin) * 0.16;
+      const home = w.charHome === undefined ? 0.16 : w.charHome;
+      const goal = w.trackMin + (w.trackMax - w.trackMin) * home;
       this._moveTo(goal, dt);
       if (Math.abs(this.pos - goal) < 2) this.mode = 'idle';
     }
@@ -167,6 +174,13 @@ export class Character {
 
   lookAt(x, y) { this.gaze = { x, y }; }
   pointAt(x, y, seconds) { this.point = { x, y }; this.pointT = seconds || 2.2; }
+  stopPointing() { this.point = null; this.pointT = 0; }
+
+  /** Something just happened up there: look, and jump a little. */
+  startle(x, y) {
+    this.lookAt(x, y);
+    this.startleT = 0.85;
+  }
   celebrate() {
     this.mode = 'happy';
     this.mood = 'relief';
@@ -181,7 +195,12 @@ export class Character {
     let fx = HAND.x, fy = HAND.y;
     const bob = this.walk ? Math.sin(this.t * 11) * h * 0.035 : Math.sin(this.t * 2.2) * h * 0.012;
     const shiver = this.mood === 'shiver' ? Math.sin(this.t * 34) * h * 0.02 : 0;
-    const hop = this.mode === 'happy' ? Math.abs(Math.sin(this.t * 4.4)) * h * 0.10 : 0;
+    let hop = this.mode === 'happy' ? Math.abs(Math.sin(this.t * 4.4)) * h * 0.10 : 0;
+    // One small startled hop, and then she stays looking up at the glass.
+    if (this.startleT > 0) {
+      const u = 1 - this.startleT / 0.85;
+      hop += Math.max(0, Math.sin(Math.PI * Math.min(1, u * 2.2))) * h * 0.13;
+    }
     fy -= bob + hop;
     fx += shiver;
 
@@ -290,8 +309,8 @@ export class Character {
     ctx.fill();
 
     // eyes follow the gaze: this is the entire tutorial
-    const ldx = clamp((gx - fx) / (headR * 6), -1, 1) * headR * 0.22;
-    const ldy = clamp((gy - headY) / (headR * 6), -1, 1) * headR * 0.22;
+    const ldx = clamp((gx - fx) / (headR * 4), -1, 1) * headR * 0.28;
+    const ldy = clamp((gy - headY) / (headR * 4), -1, 1) * headR * 0.28;
     ctx.fillStyle = '#3a2b22';
     for (let s = -1; s <= 1; s += 2) {
       ctx.beginPath();

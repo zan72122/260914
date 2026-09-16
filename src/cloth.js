@@ -4,7 +4,10 @@
 // iterations. A towel is a 6x7 grid (30 quads); the sheet is the only mesh
 // large enough to matter and it is still under 100 quads.
 
-const SHADES = 10;
+// Enough steps that neighbouring quads never step by a visible amount. The
+// palette is baked once per item, so this costs 6 x 32 strings and nothing
+// per frame.
+const SHADES = 32;
 const WETS = 6;
 
 export function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
@@ -298,43 +301,86 @@ export function drawClothLit(ctx, cl, palette, wetness, z, sheen, sheenPos, ligh
   const sh = sheen === undefined ? 0 : sheen;
   const sp = sheenPos === undefined ? 0 : sheenPos;
   const invC = cols > 1 ? 1 / (cols - 1) : 1;
-  for (let r = 0; r < rows - 1; r++) {
-    for (let c = 0; c < cols - 1; c++) {
+  const qc = cols - 1, qr = rows - 1;
+  if (qc < 1 || qr < 1) return;
+  const raw = scratchA(qc * qr);
+  const lit = scratchB(qc * qr);
+
+  // --- pass 1: how bright each quad wants to be -------------------------
+  for (let r = 0; r < qr; r++) {
+    for (let c = 0; c < qc; c++) {
       const i = r * cols + c;
       const j = i + 1;
       const k = i + cols;
       const l = k + 1;
       const ax = cl.x[i], ay = cl.y[i];
       const bx = cl.x[j], by = cl.y[j];
-      const cx2 = cl.x[l], cy2 = cl.y[l];
       const dx2 = cl.x[k], dy2 = cl.y[k];
       const area = Math.abs((bx - ax) * (dy2 - ay) - (dx2 - ax) * (by - ay));
-      let t = (rest > 0 ? area / rest : 1) * 0.62;
-      // Surface normal from the height field.
+      // Foreshortening, and the surface normal from the height field. Both
+      // are kept well clear of the ends of the ramp so that flat cloth sits
+      // in the middle of the palette and a fold has room to go either way.
+      let t = (rest > 0 ? area / rest : 1) * 0.30;
       const gx = ((z[j] + z[l]) - (z[i] + z[k])) * 0.5;
       const gy = ((z[k] + z[l]) - (z[i] + z[j])) * 0.5;
       const inv = 1 / Math.sqrt(gx * gx + gy * gy + 1);
-      const lam = (-gx * LX - gy * LY + LZ) * inv;
-      t += lam * 0.52 + lb;
+      t += (-gx * LX - gy * LY + LZ) * inv * 0.42 + lb;
       if (sh > 0) {
         const d = c * invC - sp;
-        t += sh * Math.exp(-d * d * 26) * 0.45;
+        t += sh * Math.exp(-d * d * 26) * 0.40;
       }
-      const si = clamp((t * SHADES) | 0, 0, SHADES - 1);
+      raw[r * qc + c] = t;
+    }
+  }
+
+  // --- pass 2: smooth it across the seams --------------------------------
+  // One quad per cell is a coarse way to light a cloth: on a mesh as big as
+  // the sheet the steps between cells read as a patchwork of rectangles
+  // rather than as folds. Averaging each cell with its four neighbours
+  // (itself weighted double) costs one pass over ~54 values and turns the
+  // patchwork into a continuous gradient, which is what cloth looks like.
+  for (let r = 0; r < qr; r++) {
+    for (let c = 0; c < qc; c++) {
+      const q = r * qc + c;
+      let sum = raw[q] * 2, n = 2;
+      if (c > 0) { sum += raw[q - 1]; n++; }
+      if (c < qc - 1) { sum += raw[q + 1]; n++; }
+      if (r > 0) { sum += raw[q - qc]; n++; }
+      if (r < qr - 1) { sum += raw[q + qc]; n++; }
+      lit[q] = sum / n;
+    }
+  }
+
+  // --- pass 3: draw ------------------------------------------------------
+  for (let r = 0; r < qr; r++) {
+    for (let c = 0; c < qc; c++) {
+      const i = r * cols + c;
+      const j = i + 1;
+      const k = i + cols;
+      const l = k + 1;
+      const si = clamp((lit[r * qc + c] * SHADES) | 0, 0, SHADES - 1);
       ctx.fillStyle = pal[si];
       ctx.beginPath();
-      ctx.moveTo(ax, ay);
-      ctx.lineTo(bx, by);
-      ctx.lineTo(cx2, cy2);
-      ctx.lineTo(dx2, dy2);
+      ctx.moveTo(cl.x[i], cl.y[i]);
+      ctx.lineTo(cl.x[j], cl.y[j]);
+      ctx.lineTo(cl.x[l], cl.y[l]);
+      ctx.lineTo(cl.x[k], cl.y[k]);
       ctx.closePath();
       ctx.fill();
+      // Same-colour hairline stroke hides the seam between quads.
       ctx.strokeStyle = pal[si];
       ctx.lineWidth = 1;
       ctx.stroke();
     }
   }
 }
+
+// Two scratch buffers for the shading passes. Grown on demand and then reused
+// for the life of the page: the draw loop must never allocate.
+let SA = new Float32Array(0);
+let SB = new Float32Array(0);
+function scratchA(n) { if (SA.length < n) SA = new Float32Array(n); return SA; }
+function scratchB(n) { if (SB.length < n) SB = new Float32Array(n); return SB; }
 
 /**
  * Diagonal (shear) relaxation, for meshes that have to keep their shape when

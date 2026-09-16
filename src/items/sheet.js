@@ -22,7 +22,7 @@
 //   * a per-point height field `z`, fed to drawClothLit, so folds get lit and
 //     read as volume, and can be flipped over to show the back of the cloth.
 
-import { Item, MIN_HIT, roundRect } from './base.js';
+import { Item, MIN_HIT, LIGHT_BIAS, roundRect } from './base.js';
 import { clamp } from '../layout.js';
 import { drawClothLit, clampClothVelocity, setClothScale, relaxShear } from '../cloth.js';
 
@@ -38,10 +38,13 @@ export class Sheet extends Item {
   constructor(world, spec, hooks) {
     super(world, spec, hooks);
 
-    const n = this.cloth.n;
-    this.z = new Float32Array(n);            // height field, for lighting
+    // `z` (the height field the lit renderer shades with) and `zPhase` come
+    // from the base class; the sheet only drives them differently.
     this.freeW = new Float32Array(this.cloth.cols); // per-column "how loose"
     this.zPhase = 0;
+    // Everything below -- the zoom, the per-column wind, the flip -- is this
+    // item's own billow, so the shared one must keep its hands off.
+    this.selfBillow = true;
     this.flipSign = 1;
     this.sheen = 0;
     this.sheenPos = -0.3;
@@ -63,9 +66,6 @@ export class Sheet extends Item {
     this.basketScale = 1.85;
     this.catchDelay = BURST + 0.28;          // let the billow play out first
     this.hugger = null;
-    // Read by main.js: once the sheet is far enough off the pole to be coming
-    // into the room it draws in front of the window frame, not behind it.
-    this.overlay = false;
 
     this._recomputeFree();
     this._applyZoom();
@@ -76,7 +76,7 @@ export class Sheet extends Item {
   layout(world) {
     super.layout(world);
     // The largest, friendliest target in the game.
-    this.hitPad = Math.max(MIN_HIT * 0.62, world.min * 0.115);
+    this.hitPad = Math.max(MIN_HIT, world.min * 0.115);
     this.baseRestH = this.anchor.w / (this.cloth.cols - 1);
     this.baseRestV = this.anchor.h / (this.cloth.rows - 1);
     // How far it may grow on the big release: as much as fits the viewport.
@@ -276,8 +276,10 @@ export class Sheet extends Item {
       // One peg off it is still a thing on a balcony, and stays behind it.
       this.overlay = rel >= 2;
       // Free area -> wind force, and the sheet reads a little nearer with it.
-      this.billowTo = 0.10 + 0.30 * released;
-      this.zoomTo = 1 + 0.085 * released;
+      this.billowTo = 0.10 + 0.34 * released;
+      // Toward the camera, hard: by the time three pegs are off, the loose
+      // part of the sheet is through the opening and into the room.
+      this.zoomTo = 1 + 0.135 * released;
       cl.damping = 0.988;
     } else if (this.state === 'RELEASING') {
       this.overlay = true;
@@ -314,6 +316,7 @@ export class Sheet extends Item {
     // Nothing here is allowed to explode, whatever the wind does.
     clampClothVelocity(cl, Math.max(6, w.min * 0.06));
     if (this.state === 'RELEASING') this._contain();
+    this._keepInView();
 
     this.zPhase += dt * (2.6 + 7 * this.gust + (this.phase === 'BURST' ? 10 : 0));
     this.flipSign = (this.state === 'RELEASING' && this.releaseT < BURST)
@@ -344,7 +347,10 @@ export class Sheet extends Item {
     let base;
     if (this.state === 'HANGING') {
       if (released === 0) return;
-      base = w.min * (0.55 + 1.35 * released) * (0.60 + 0.70 * this.gust);
+      // Portrait pushes the loose cloth at the camera, which needs more force
+      // than a sideways sweep before it reads as anything at all.
+      base = w.min * (0.55 + 1.35 * released) * (0.60 + 0.70 * this.gust) *
+        (w.portrait ? 1.45 : 1);
     } else if (this.phase === 'BURST') {
       base = w.min * 1.5;
     } else if (this.phase === 'FLOAT') {
@@ -410,6 +416,27 @@ export class Sheet extends Item {
   }
 
   /**
+   * A soft wall at the edge of the screen. The sheet is the one thing here
+   * big enough and light enough to be blown clean out of the picture, and a
+   * set piece nobody can see is not a set piece. Only the loose points are
+   * pushed back, so the pegs that are still holding stay exactly where the
+   * child put them.
+   */
+  _keepInView() {
+    const w = this.world;
+    const cl = this.cloth;
+    const m = w.min * 0.012;
+    const x0 = m, x1 = w.w - m, y1 = w.h - m;
+    for (let i = 0; i < cl.n; i++) {
+      if (cl.pinned[i]) continue;
+      const x = cl.x[i], y = cl.y[i];
+      if (x > x1) cl.x[i] = x + (x1 - x) * 0.35;
+      else if (x < x0) cl.x[i] = x + (x0 - x) * 0.35;
+      if (y > y1) cl.y[i] = y + (y1 - y) * 0.35;
+    }
+  }
+
+  /**
    * Height field. Two sine trains at different rates give folds that do not
    * look stamped, weighted so the pinned columns stay flat against the pole.
    * flipSign carries the cloth over onto its back during the big release.
@@ -447,7 +474,9 @@ export class Sheet extends Item {
   draw(ctx, world) {
     if (this.state === 'IN_BASKET') return;
     drawClothLit(ctx, this.cloth, this.palette, this.wetness,
-      this.z, this.sheen, this.sheenPos, this.stretch * 0.04);
+      // Negative: the sheet is nearly white to start with, so it has to sit
+      // low on the ramp or every fold in it clips to the same flat white.
+      this.z, this.sheen, this.sheenPos, -LIGHT_BIAS * 0.35 + this.stretch * 0.04);
     this.drawSpots(ctx);
     this.drawClips(ctx, world);
     // The arms go *round* the bundle: the child draws before the item does,
