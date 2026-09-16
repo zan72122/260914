@@ -27,7 +27,13 @@ export type Phase = 'idle' | 'dragging' | 'delivering' | 'job_running';
  */
 export type JobStatus = 'waiting' | 'called' | 'job_running' | 'done' | 'cooldown';
 
-export type MaterialPlace = 'bench' | 'held' | `site:${JobId}`;
+/**
+ * 材料の居場所。
+ * 'ring' は炎の中に張り出した金属の輪の上。置いたままにでき、置いてある間は
+ * 炎がその元素の色を保つ。一本指では材料とプリズムを同時に持てないので、
+ * 縞を見るにはここへ置く（PLAN §3.1 / §3.5）。
+ */
+export type MaterialPlace = 'bench' | 'held' | 'ring' | `site:${JobId}`;
 
 export interface JobDef {
   id: JobId;
@@ -191,6 +197,9 @@ export class World {
         m.y = slot.y;
       } else if (m.at === 'held') {
         // 指の位置に追従しているのでそのまま
+      } else if (m.at === 'ring') {
+        m.x = layout.ring.x;
+        m.y = layout.ring.y;
       } else {
         const site = this.sitePoint(m.at);
         const oldSite = this.sitePointOf(old, m.at);
@@ -320,12 +329,21 @@ export class World {
     }
     const dPrism = dist(x, y, this.prismPos);
     if (best && bestD <= dPrism) {
+      const fromRing = best.at === 'ring';
       this.heldId = best.id;
       best.at = 'held';
       best.x = x;
       best.y = y;
+      best.inFlame = this.inFlameArea(x, y);
+      if (best.inFlame) best.afterglowMs = AFTERGLOW_MS;
       this.phase = 'dragging';
-      this.log.push({ t: this.timeMs, kind: 'input', msg: 'down', data: { grabbed: best.id, x: Math.round(x), y: Math.round(y) } });
+      this.recomputeFlame();
+      this.log.push({
+        t: this.timeMs,
+        kind: 'input',
+        msg: 'down',
+        data: { grabbed: best.id, from: fromRing ? 'ring' : best.at, x: Math.round(x), y: Math.round(y) },
+      });
       return;
     }
     if (!this.heldPrism && this.heldId === null && dPrism <= r * 1.2) {
@@ -392,16 +410,36 @@ export class World {
     if (this.phase === 'dragging' || this.phase === 'delivering') this.phase = 'idle';
   }
 
-  private evaluateFlameContact(m: MaterialState): void {
+  /** 炎に触れている範囲か。 */
+  private inFlameArea(x: number, y: number): boolean {
     const f = this.layout.flame;
-    const inside =
-      Math.abs(m.x - f.x) <= f.w * 0.55 && m.y <= f.y + f.h * 0.12 && m.y >= f.y - f.h;
+    return Math.abs(x - f.x) <= f.w * 0.55 && y <= f.y + f.h * 0.12 && y >= f.y - f.h;
+  }
+
+  /**
+   * 炎の色を、いま炎に触れているものから決め直す。
+   * 手に持って入れている材料が先で、無ければ輪に置いてある材料。
+   * どちらも無ければ素の青いガス炎。余熱の色は炎には出さない。
+   */
+  private recomputeFlame(): void {
+    let element: ElementId | null = null;
+    const held = this.held;
+    if (held && held.inFlame) element = held.element;
+    else {
+      const ringed = this.materials.find((m) => m.at === 'ring');
+      if (ringed) element = ringed.element;
+    }
+    this.flameElement = element;
+    this.flameIntensityPct = element === null ? 100 : 132;
+  }
+
+  private evaluateFlameContact(m: MaterialState): void {
+    const inside = this.inFlameArea(m.x, m.y);
     if (inside && !m.inFlame) {
       m.inFlame = true;
       m.afterglowMs = AFTERGLOW_MS;
-      this.flameElement = m.element;
-      this.flameIntensityPct = 132;
       this.phase = 'dragging';
+      this.recomputeFlame();
       this.log.push({ t: this.timeMs, kind: 'flame', msg: 'enter', data: { material: m.id, element: m.element } });
     } else if (!inside && m.inFlame) {
       this.leaveFlame(m);
@@ -411,10 +449,38 @@ export class World {
   private leaveFlame(m: MaterialState): void {
     m.inFlame = false;
     m.afterglowMs = AFTERGLOW_MS;
-    this.flameElement = null;
-    this.flameIntensityPct = 100;
     this.phase = 'delivering';
+    this.recomputeFlame();
     this.log.push({ t: this.timeMs, kind: 'flame', msg: 'exit', data: { material: m.id, element: m.element } });
+  }
+
+  /** 輪に置いてある材料（無ければ null）。 */
+  ringMaterial(): MaterialState | null {
+    return this.materials.find((m) => m.at === 'ring') ?? null;
+  }
+
+  /** 指を離した場所が金属の輪か。 */
+  private overRing(x: number, y: number): boolean {
+    return dist(x, y, this.layout.ring) <= this.layout.touchRadius * 1.1;
+  }
+
+  /**
+   * プリズムが炎の前にあるか。前にあれば、炎の後ろの壁に縞が映る（PLAN §3.5）。
+   * 映るのは「いまの炎の色」であって、余熱の色ではない。
+   */
+  prismInFrontOfFlame(): boolean {
+    if (!this.heldPrism) return false;
+    const f = this.layout.flame;
+    return (
+      Math.abs(this.prismPos.x - f.x) <= f.w * 0.95 &&
+      this.prismPos.y <= f.y + f.h * 0.25 &&
+      this.prismPos.y >= f.y - f.h * 1.05
+    );
+  }
+
+  /** 壁に映っている縞の元素（null なら素のガス炎の帯）。映っていなければ undefined 相当の null。 */
+  prismProjecting(): ElementId | null {
+    return this.prismInFrontOfFlame() ? this.flameElement : null;
   }
 
   /** 指を離した場所に受け口があるか。 */
@@ -437,6 +503,30 @@ export class World {
    * どの材料もどの受け口に置けるが、違えば何も動かず、材料はその場に残り拾い直せる。
    */
   private dropAt(m: MaterialState, x: number, y: number): void {
+    // 金属の輪の上で離したら、そこに置いたままにできる。
+    // 既に別の材料が載っていれば、新しい材料はその場に落ちて拾い直せる。
+    if (this.overRing(x, y)) {
+      const occupied = this.ringMaterial();
+      if (occupied === null) {
+        m.at = 'ring';
+        m.x = this.layout.ring.x;
+        m.y = this.layout.ring.y;
+        m.inFlame = true;
+        m.afterglowMs = AFTERGLOW_MS;
+        this.phase = 'idle';
+        this.recomputeFlame();
+        this.log.push({ t: this.timeMs, kind: 'flame', msg: 'ring_placed', data: { material: m.id, element: m.element } });
+        return;
+      }
+      // 輪は塞がっているので載らない。台の上（バーナーの手前）へ転がり落ちる。
+      // 重なって拾えなくならないように、置いてある材料とは別の場所に置く。
+      const fallen = { x: this.layout.burner.x, y: this.layout.burner.y + this.layout.touchRadius * 0.7 };
+      m.x = fallen.x;
+      m.y = fallen.y;
+      x = fallen.x;
+      y = fallen.y;
+      this.log.push({ t: this.timeMs, kind: 'flame', msg: 'ring_occupied', data: { material: m.id, by: occupied.id } });
+    }
     const siteId = this.siteUnder(x, y);
     if (siteId !== null) {
       const j = this.job(siteId);
@@ -503,6 +593,7 @@ export class World {
   update(dtMs: number, timeMs: number): void {
     this.timeMs = timeMs;
     for (const m of this.materials) {
+      if (m.at === 'ring') m.inFlame = true;
       if (m.inFlame) {
         m.afterglowMs = AFTERGLOW_MS;
       } else if (m.afterglowMs > 0) {
@@ -576,7 +667,7 @@ export class World {
       flame: { element: this.flameElement, intensityPct: Math.round(this.flameIntensityPct) },
       jobs: this.jobs.map((j) => ({ id: j.id, element: j.element, status: j.status, calledAt: j.calledAt })),
       materials: this.materials.map((m) => ({ id: m.id, element: m.element, at: m.at })),
-      prism: { at: this.prismAt, projecting: null },
+      prism: { at: this.prismAt, projecting: this.prismProjecting() },
       input: this.acceptingInput
         ? { accepting: true }
         : { accepting: false, rejectReason: this.rejectReason ?? 'job_animation' },

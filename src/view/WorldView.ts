@@ -6,6 +6,7 @@ import { BENCH_SURFACE, type Layout, type MaterialId } from '../game/layout';
 import type { World } from '../game/world';
 import { AFTERGLOW_MS } from '../game/world';
 import { afterglowIntensity } from '../flame/afterglow';
+import { spectrumBands } from '../flame/prism';
 import type { Rng } from '../core/Rng';
 
 const SKY_TOP = 0x1a1f3a;
@@ -51,6 +52,7 @@ export class WorldView {
 
   private readonly bg = new Graphics();
   private readonly wallG = new Graphics();
+  private readonly spectrumG = new Graphics();
   private readonly harborG = new Graphics();
   private readonly seaGlowG = new Graphics();
   private readonly shipHull = new Graphics();
@@ -95,11 +97,13 @@ export class WorldView {
     this.pierWorkerG.addChild(this.pierBody, this.pierArm);
     this.deskWorkerG.addChild(this.deskBody, this.deskArm);
     const mk = (): Graphics => new Graphics();
+    this.spectrumG.blendMode = 'add';
     this.glow = { copper_scrap: mk(), strontium_grains: mk(), lithium_powder: mk() };
     this.materialG = { copper_scrap: mk(), strontium_grains: mk(), lithium_powder: mk() };
     this.root.addChild(
       this.bg,
       this.wallG,
+      this.spectrumG,
       this.harborG,
       this.seaGlowG,
       this.shipG,
@@ -267,9 +271,19 @@ export class WorldView {
     this.burnerG.clear();
     this.burnerG.rect(l.burner.x - u * 0.45, l.burner.y - u * 1.6, u * 0.9, u * 1.6).fill({ color: METAL });
     this.burnerG.ellipse(l.burner.x, l.burner.y, u * 1.5, u * 0.5).fill({ color: 0x5a5f66 });
+    // 材料をすくう金属の輪。支柱から炎の中へ張り出していて、置いたままにできる。
+    const ring = l.ring;
+    const postX = l.burner.x + u * 2.2;
     this.burnerG
-      .ellipse(l.burner.x + u * 2.4, l.burner.y - u * 0.4, u * 0.9, u * 0.34)
-      .stroke({ width: Math.max(2, u * 0.18), color: METAL });
+      .rect(postX - u * 0.13, ring.y - u * 0.25, u * 0.26, l.burner.y - ring.y + u * 0.25)
+      .fill({ color: 0x5a5f66 });
+    this.burnerG
+      .moveTo(postX, ring.y)
+      .lineTo(ring.x + u * 0.7, ring.y)
+      .stroke({ width: Math.max(2, u * 0.17), color: METAL });
+    this.burnerG
+      .ellipse(ring.x, ring.y, u * 0.8, u * 0.3)
+      .stroke({ width: Math.max(2, u * 0.16), color: METAL });
 
     this.flameRenderer.layout(l.flame.x, l.flame.y, l.flame.w, l.flame.h);
 
@@ -319,11 +333,28 @@ export class WorldView {
       timeMs,
     });
 
+    this.updatePrism(world, l);
     this.updateWiring(world, timeMs, u, l);
     this.updateFlare(world, timeMs, u, l);
     this.updateBattery(world, timeMs, u, l);
     this.updateMaterials(world, timeMs, l);
     this.prismG.position.set(world.prismPos.x, world.prismPos.y);
+  }
+
+  /**
+   * プリズムが炎の前にあるときだけ、炎の後ろの壁に縞が映る（PLAN §3.5）。
+   * 帯の位置・幅・明るさ・色は src/flame/prism.ts が発光線から出したものをそのまま置く。
+   * 光なので加算で重ねる（重なった帯は足し合わさる）。
+   */
+  private updatePrism(world: World, l: Layout): void {
+    this.spectrumG.clear();
+    if (!world.prismInFrontOfFlame()) return;
+    const w = l.spectrumWall;
+    for (const b of spectrumBands(world.flameElement)) {
+      const cx = w.x + b.u * w.w;
+      const bw = Math.max(1, b.uWidth * w.w);
+      this.spectrumG.rect(cx - bw / 2, w.y, bw, w.h).fill({ color: b.hex });
+    }
   }
 
   /** 銅: 火花が止まり、線がつながり、電流が走って作業灯が灯る。 */

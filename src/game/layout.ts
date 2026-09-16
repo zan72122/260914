@@ -46,6 +46,13 @@ export interface Layout {
   /** 炎: (x, y) が根本、w/h が大きさ。上に伸びる */
   flame: Rect;
   burner: Point;
+  /**
+   * 材料をすくう金属の輪。炎の中に張り出していて、ここに材料を置いたままにできる。
+   * 一本指では材料とプリズムを同時に持てないので、縞を見るには輪に置く（PLAN §3.1 / §3.5）。
+   */
+  ring: Point;
+  /** 炎の後ろの壁。プリズムを炎の前に置くと、ここに縞が映る（PLAN §3.5）。 */
+  spectrumWall: Rect;
   crate: Rect;
   materialSlots: Record<MaterialId, Point>;
   prism: Point;
@@ -131,6 +138,23 @@ export function computeLayout(width: number, height: number): Layout {
   const crateW = benchShort * 0.46;
   const crateH = benchShort * 0.3;
 
+  const flame: Rect = { x: burner.x, y: burner.y - flameH * 0.1, w: flameW, h: flameH };
+
+  // 縞が映る壁。炎の後ろ（＝工房側）の、物が置かれていない帯を使う。
+  const spectrumW = workshop.w * (orientation === 'portrait' ? 0.84 : 0.52);
+  const spectrumH = unit * 2.4;
+  const spectrumX = Math.min(
+    Math.max(flame.x - spectrumW / 2, workshop.x + workshop.w * 0.02),
+    workshop.x + workshop.w * 0.98 - spectrumW,
+  );
+  // 縦横どちらでも、切れた配線の下・作業机の上にある空いた壁面に置く。
+  const spectrumWall: Rect = {
+    x: spectrumX,
+    y: workshop.y + workshop.h * 0.585,
+    w: spectrumW,
+    h: spectrumH,
+  };
+
   const harbor = sub(workshop, 0.55, 0.04, 0.44, 0.4);
   const waterlineY = harbor.y + harbor.h * 0.55;
   const desk = sub(workshop, 0.56, 0.72, 0.43, 0.24);
@@ -144,7 +168,9 @@ export function computeLayout(width: number, height: number): Layout {
     bench,
     workshop,
     burner,
-    flame: { x: burner.x, y: burner.y - flameH * 0.1, w: flameW, h: flameH },
+    flame,
+    ring: { x: flame.x, y: flame.y - flame.h * 0.5 },
+    spectrumWall,
     crate: { x: crateCenter.x - crateW / 2, y: crateCenter.y - crateH / 2, w: crateW, h: crateH },
     materialSlots: {
       copper_scrap: benchPoint(bench, 0.15, BENCH_SURFACE + 0.04),

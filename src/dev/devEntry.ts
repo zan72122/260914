@@ -28,7 +28,7 @@ export function installDevEntry(game: Game): void {
     speech: {
       captured: () => game.speech.captured(),
     },
-    dump: (section: 'materials' | 'jobs' | 'flame' | 'layout' | 'audio') => game.dump(section),
+    dump: (section: 'materials' | 'jobs' | 'flame' | 'prism' | 'layout' | 'audio') => game.dump(section),
     // 検証が実ポインタを当てるための世界座標（状態の代入はできない）
     points: () => game.points(),
     flameRect: () => game.flameRect(),

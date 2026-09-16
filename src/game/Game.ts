@@ -229,7 +229,7 @@ export class Game {
     this.seedOverride = n >>> 0;
   }
 
-  dump(section: 'materials' | 'jobs' | 'flame' | 'layout' | 'audio'): unknown {
+  dump(section: 'materials' | 'jobs' | 'flame' | 'prism' | 'layout' | 'audio'): unknown {
     switch (section) {
       case 'materials':
         return this.world.materials.map((m) => ({ ...m, x: Math.round(m.x), y: Math.round(m.y) }));
@@ -246,6 +246,16 @@ export class Game {
           // 常設の表示は作らない。ここからだけ読める。
           render: this.view.flameStats(),
         };
+      case 'prism':
+        return {
+          at: this.world.prismAt,
+          pos: { x: Math.round(this.world.prismPos.x), y: Math.round(this.world.prismPos.y) },
+          inFront: this.world.prismInFrontOfFlame(),
+          projecting: this.world.prismProjecting(),
+          wall: this.layout.spectrumWall,
+          ring: this.layout.ring,
+          ringMaterial: this.world.ringMaterial()?.id ?? null,
+        };
       case 'audio':
         return this.audio.captured();
       case 'layout':
@@ -257,6 +267,8 @@ export class Game {
           height: this.layout.height,
           bench: this.layout.bench,
           workshop: this.layout.workshop,
+          ring: this.layout.ring,
+          spectrumWall: this.layout.spectrumWall,
         };
       default:
         return null;
@@ -286,6 +298,8 @@ export class Game {
       rescueLight: { x: l.rescueTo.x, y: l.rescueTo.y },
       ship: { x: l.ship.x, y: l.ship.y },
       prism: { x: this.world.prismPos.x, y: this.world.prismPos.y },
+      // 材料を置いたままにできる金属の輪（炎の中に張り出している）
+      ring: { x: l.ring.x, y: l.ring.y },
       benchFree: { x: l.bench.x + l.bench.w * 0.7, y: l.bench.y + l.bench.h * 0.75 },
     };
   }
