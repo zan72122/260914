@@ -37,8 +37,8 @@ export class Floor {
    * deliberately NOT grown: it is the expensive one (alpha), and it only has to
    * cover the part of the floor that can actually be wiped.
    *
-   * Returns the base context, translated into WORLD coordinates so the caller
-   * can paint straight into it.
+   * Returns the base context, save()d and translated into WORLD coordinates so
+   * the caller can paint straight into it; restore() it when you are done.
    */
   growBase(rect) {
     const r = {

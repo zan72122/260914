@@ -530,7 +530,7 @@ export class SofaScene extends Scene {
    * Dust in the beam. The motes themselves are drawn in world space and so are
    * under the darkness with everything else; what makes them read as dust
    * hanging in a torch beam is a warm speck ADDED for each one the beam is
-   * actually on — brightest where the air is moving it fastest.
+   * actually on — brightest near the mouth and on the axis of the cone.
    */
   _litMotes(L, cam, vac, u) {
     const mx = vac.mouthX, my = vac.mouthY;
@@ -556,7 +556,7 @@ export class SofaScene extends Scene {
    * room — is off screen, and a dust bunny is ~30 fibre strokes each.
    */
   drawDebris(ctx, cam) {
-    cam.viewRect(VR, 80);
+    cam.viewRect(VR, 150);       // generous: a piece is culled by its CENTRE
     ctx.save();
     cam.apply(ctx);
     const list = this.debris;
