@@ -87,9 +87,17 @@ export class ThreadScene extends Scene {
     if (portrait) this._layoutPortrait(w, h, rng);
     else this._layoutLandscape(w, h, rng);
 
+    // The corridor, the mat and the chair never move, so they are painted ONCE
+    // into the floor's own base canvas: what was a screenful of gradient fills
+    // every frame is now part of the opaque blit that has to happen anyway.
+    this._bakeSet();
+
     // a dusty film over the working area; every strand taken wipes a clean line
     // through it, so the floor itself remembers where you have been
     this.floor.enableGrime();
+    // the haze is soft dust and nothing else: smoothing that full-screen alpha
+    // blit costs more than the blit
+    this.floor.smoothGrime = false;
     this._paintHaze();
 
     for (let i = 0; i < 14; i++) {
@@ -237,6 +245,22 @@ export class ThreadScene extends Scene {
   }
 
 
+  /** Paint the static set into the floor's base canvas (see Floor.growBase). */
+  _bakeSet() {
+    const w = this.vw, h = this.vh;
+    const portrait = this.pose === 'portrait';
+    const r = portrait
+      ? { x0: -w * 0.98, y0: this.yFar - h * 0.60, x1: w * 0.98, y1: h * 0.64 }
+      : { x0: -w * 0.95, y0: this.wallY - h * 1.04, x1: w * 0.98, y1: h * 0.58 };
+    const g = this.floor.growBase(r);
+    if (portrait) this._drawCorridor(g); else this._drawBaseboard(g);
+    this._drawMat(g);
+    this._drawChair(g, true);
+    g.restore();
+    this._wallG = null; this._shadG = null; this._doorG = null;
+    this._baseG = null; this._skirtG = null; this._doorLG = null;
+  }
+
   _paintHaze() {
     const g = this.floor.gctx;
     if (!g) return;
@@ -373,12 +397,11 @@ export class ThreadScene extends Scene {
   }
 
   draw(ctx, cam) {
+    // the corridor, the mat and the chair are baked into the floor's base
     this.drawFloor(ctx, cam);
     ctx.save();
     cam.apply(ctx);
-    if (this.pose === 'portrait') this._drawCorridor(ctx); else this._drawBaseboard(ctx);
-    this._drawMat(ctx);
-    this._drawChair(ctx);
+    this._drawBow(ctx, this.legB);        // the one part of the set that moves
     ctx.restore();
     this.drawDebris(ctx, cam);
     ctx.save();
@@ -545,7 +568,8 @@ export class ThreadScene extends Scene {
     ctx.restore();
   }
 
-  _drawChair(ctx) {
+  /** `staticOnly` leaves out the bow, which is the one part that animates. */
+  _drawChair(ctx, staticOnly) {
     const c = this.chair;
     ctx.save();
     ctx.fillStyle = 'rgba(42,28,14,0.18)';
@@ -599,7 +623,7 @@ export class ThreadScene extends Scene {
     ctx.fillStyle = '#17b1a0';
     ctx.beginPath(); ctx.arc(7, 3, 5.5, 0, TAU); ctx.fill();
     ctx.restore();
-    this._drawBow(ctx, this.legB);
+    if (!staticOnly) this._drawBow(ctx, this.legB);
   }
 
   _drawLeg(ctx, l, k) {
