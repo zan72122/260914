@@ -162,6 +162,22 @@ export function resolveProps(vac, props, dt, opts) {
     }
   }
 
+  // The BODY is solid too. This is not decoration: the head points away from
+  // the body, so a body that has been driven through a wall while the head was
+  // held against it flips the head round to face backwards — and with it the
+  // whole airflow cone. Under the sofa that turned the deepest nook, which is
+  // meant to be won by holding still, into somewhere the air never reaches.
+  for (let i = 0; i < props.length; i++) {
+    const p = props[i];
+    if (p.pushable) continue;
+    const n = penetration(p, vac.body.x, vac.body.y, vac.bodyRadius, N);
+    if (!n) continue;
+    vac.body.x += n.x * n.depth;
+    vac.body.y += n.y * n.depth;
+    const vn = vac.body.vx * n.x + vac.body.vy * n.y;
+    if (vn < 0) { vac.body.vx -= n.x * vn; vac.body.vy -= n.y * vn; }
+  }
+
   if (opts && opts.separate) separateProps(props);
   if (opts && opts.bounds) { for (let i = 0; i < props.length; i++) keepInside(props[i], opts.bounds); }
 }

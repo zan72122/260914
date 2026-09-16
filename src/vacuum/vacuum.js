@@ -76,6 +76,8 @@ export class Vacuum {
   get MAXP() { return 2.2; }
   /** Radius of the physical head, for prop collision. */
   get headRadius() { return 34; }
+  /** Radius of the body, which is also solid: you cannot drive it into a wall. */
+  get bodyRadius() { return 30; }
 
   setPose(pose) { this.pose = pose; }
   /** How far ahead of the finger the head is drawn, in screen px. */

@@ -53,6 +53,7 @@ const SEED = A.seed || '1337';
 const BUDGET = parseInt(A.budget || '150', 10);        // seconds per scene before giving up
 const MAX_SHOTS = parseInt(A.shots || '30', 10);
 const FROM = A.from || 'intro';          // start mid-chain while debugging
+const TRACE = !!A.trace;                 // log every target change into result.json
 
 // --------------------------------------------------------------- autopilot
 
@@ -63,7 +64,7 @@ const FROM = A.from || 'intro';          // start mid-chain while debugging
 function AUTOPILOT(cfg) {
   const R = {
     started: 0, done: false, failed: null, scenes: [], errors: [],
-    scene: null, shot: 0, note: '',
+    scene: null, shot: 0, note: '', trace: [],
   };
   window.__pt = R;
   window.addEventListener('error', (e) => R.errors.push('error: ' + (e.message || e)));
@@ -80,6 +81,8 @@ function AUTOPILOT(cfg) {
   let holdUntil = 0;
   let avoid = {};                        // id -> time it may be tried again
   let visited = {};                      // id -> when it was last worked on
+  let held = null;                       // the piece currently being worked on
+  let grindT = 0;                        // how long we have been holding on it
   let forgiveAt = 0;                     // when the avoid list is wiped
   let rasterI = 0;
   let inFlow = false;
@@ -103,7 +106,7 @@ function AUTOPILOT(cfg) {
     R.scenes.push(cur);
     R.scene = cur.id;
     targetId = null; sinceTarget = 0; bestErr = 1e9; stall = 0; rasterI = 0;
-    avoid = {}; visited = {}; forgiveAt = now() + 30000;
+    avoid = {}; visited = {}; held = null; grindT = 0; forgiveAt = now() + 30000;
     F = { x: g.scene.startPointer.x, y: g.scene.startPointer.y };
   }
 
@@ -128,6 +131,19 @@ function AUTOPILOT(cfg) {
     const sc = g.scene;
     const t = now();
     if (t > forgiveAt) { avoid = {}; forgiveAt = t + 30000; }
+    // STICK to the thing being worked on. Re-choosing the nearest piece every
+    // frame makes the driver turn round half way: crossing the room, something
+    // behind it becomes the nearest again and it goes back, forever. A target
+    // is kept until it is collected, given up on, or has had long enough.
+    if (held && held.state !== 'in-cup' && !(avoid[held.id] > t)) {
+      held.aim(AIMP);
+      g.camera.toScreen(AIMP.x, AIMP.y, P);
+      return {
+        d: held, nx: P.x / g.w, ny: P.y / g.h,
+        wd: Math.hypot(AIMP.x - g.vacuum.mouthX, AIMP.y - g.vacuum.mouthY),
+      };
+    }
+    held = null;
     let best = null, bd = 1e9, fresh = null, fd = 1e9;
     for (let i = 0; i < sc.debris.length; i++) {
       const d = sc.debris[i];
@@ -146,7 +162,7 @@ function AUTOPILOT(cfg) {
       }
     }
     const pick = fresh || best;
-    if (pick) visited[pick.d.id] = t;
+    if (pick) { visited[pick.d.id] = t; held = pick.d; }
     return pick;
   }
 
@@ -195,7 +211,11 @@ function AUTOPILOT(cfg) {
 
     const pick = pickTarget(g, mx, my);
     if (pick) {
-      if (pick.d.id !== targetId) { targetId = pick.d.id; sinceTarget = 0; bestErr = 1e9; stall = 0; }
+      if (pick.d.id !== targetId) {
+        targetId = pick.d.id; sinceTarget = 0; bestErr = 1e9; stall = 0;
+        if (cfg.trace) R.trace.push(Math.round(t - cur.t0) + ' -> ' + targetId + ' wd=' + Math.round(pick.wd)
+          + ' u=' + (sc.u === undefined ? '' : sc.u.toFixed(2)));
+      }
       tx = pick.nx; ty = pick.ny;
       wdist = pick.wd;
       // is the flow actually reaching it? That decides whether standing still is
@@ -243,18 +263,36 @@ function AUTOPILOT(cfg) {
     // Nothing is getting closer: stop dead and let the airflow work. That is
     // the press-and-hold the whole game is built on, and it is also the only
     // way to win the deep nook under the sofa, where the head cannot reach.
-    // Nothing is getting closer: stop dead and let the airflow work. Hold
-    // longer when the air IS reaching the thing (the mother bunny under the
-    // sofa is won by patience alone), but always move on eventually — a piece
-    // merely trembling at 0.1 will not let go on this visit, and the room has
-    // other things in it. Coming back to it later, thinner, is what wins.
-    if (stall > 0.8 && t > holdUntil) holdUntil = t + (inFlow ? 4500 : 2200);
-    if (t < holdUntil) {
+    // Nothing is getting closer. Either the head cannot get any nearer — the
+    // deepest nook under the sofa is deliberately out of its reach, blocked by
+    // the skirting board — or there is nothing there. Those need opposite
+    // answers, and the piece's own sampled field strength tells them apart.
+    //
+    // If the air IS on it, stand perfectly still. That is the press-and-hold
+    // the whole game is built on: the motor winds to full power, the thing
+    // strains, sheds, thins, and its own break-loose threshold comes down to
+    // meet the flow. It can take half a minute, and any fidgeting resets it.
+    if (inFlow && stall > 0.8) {
+      grindT += dt;
+      if (grindT > 45 && targetId) {
+        if (cfg.trace) R.trace.push(Math.round(t - cur.t0) + ' ~~ ' + targetId + ' ground out wd=' + Math.round(wdist));
+        avoid[targetId] = t + 8000; grindT = 0; stall = 0; bestErr = 1e9; held = null;
+      }
       window.game.input.pointer(F.x, F.y, true);
-      if (stall > 5.5 && targetId) { avoid[targetId] = t + (inFlow ? 5000 : 9000); stall = 0; bestErr = 1e9; }
       return;
     }
-    if (sinceTarget > 22 && targetId) { avoid[targetId] = t + (inFlow ? 6000 : 12000); sinceTarget = 0; }
+    grindT = 0;
+    // Nothing there: a short pause in case it is just slow, then move on.
+    if (stall > 0.8 && t > holdUntil) holdUntil = t + 2200;
+    if (t < holdUntil) {
+      window.game.input.pointer(F.x, F.y, true);
+      if (stall > 5.5 && targetId) {
+        if (cfg.trace) R.trace.push(Math.round(t - cur.t0) + ' xx ' + targetId + ' stalled wd=' + Math.round(wdist));
+        avoid[targetId] = t + 9000; stall = 0; bestErr = 1e9; held = null;
+      }
+      return;
+    }
+    if (sinceTarget > 40 && targetId) { avoid[targetId] = t + 9000; sinceTarget = 0; held = null; }
 
     if (err > 0.012) {
       const step = Math.min(1, (dt * 2.6) / Math.max(0.08, err)) * 0.55;
@@ -295,7 +333,7 @@ async function runDevice(url, browser, name) {
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
 
   await page.addInitScript({
-    content: '(' + AUTOPILOT.toString() + ')(' + JSON.stringify({ chain: CHAIN, budget: BUDGET }) + ');',
+    content: '(' + AUTOPILOT.toString() + ')(' + JSON.stringify({ chain: CHAIN, budget: BUDGET, trace: TRACE }) + ');',
   });
   await page.goto(`${url}/index.html?scene=${FROM}&seed=${SEED}&mute=1`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__pt && window.__pt.started > 0, null, { timeout: 30000 });
@@ -348,7 +386,7 @@ async function runDevice(url, browser, name) {
       return { min: +s[0].toFixed(1), median: +s[(s.length / 2) | 0].toFixed(1), n: s.length };
     };
     return {
-      done: R.done, failed: R.failed, loopedTo: R.loopedTo,
+      done: R.done, failed: R.failed, loopedTo: R.loopedTo, trace: R.trace,
       total: +((performance.now() - R.started) / 1000).toFixed(1),
       scenes: R.scenes.map((s) => ({
         id: s.id,
