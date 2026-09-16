@@ -5,16 +5,38 @@
 
 ## 1. 一度だけの設定（リポジトリの持ち主が手で行う）
 
-GitHub の画面での操作なので、ここだけは人がやる。
+GitHub の画面とローカルでの操作なので、ここだけは人がやる。
+
+**1-1. 配信の定義を置く**
+
+配信の定義は `docs/deploy/pages.yml` に置いてある。これを手元で所定の場所へ写して
+コミットする。
+
+```
+mkdir -p .github/workflows
+cp docs/deploy/pages.yml .github/workflows/pages.yml
+git add .github/workflows/pages.yml
+git commit -m "ci: GitHub Pages への配信"
+git push
+```
+
+`.github/workflows/` に置くのを人の手でやるのは、この開発で使っている GitHub App が
+`workflows` の権限を持たず、そこへのファイルを含む push が拒否されるため。
+中身は写すだけでよく、書き換えるところは無い。
+
+**1-2. Pages の配信元を切り替える**
 
 1. リポジトリの **Settings** → 左の **Pages** を開く。
 2. **Build and deployment** の **Source** を **GitHub Actions** にする
    （"Deploy from a branch" ではない）。
 3. 保存する。以後、`.github/workflows/pages.yml` が配信する。
 
-最初の配信は、`claude/fervent-lamport-anoj0d` へ push した時に走る。
+最初の配信は、1-1 の push が `claude/fervent-lamport-anoj0d` に載った時に走る。
 **Actions** タブで `Pages` の走りを見られる。`build`（`npm ci` → `npm run test` → `npm run build`）が
 通らなければ配信しない。手で走らせたいときは Actions から `Run workflow`。
+
+配信の定義を直すときも `docs/deploy/pages.yml` を直し、同じように写し直す
+（両方を揃えておく）。
 
 ## 2. 公開 URL
 
