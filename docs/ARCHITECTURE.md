@@ -22,7 +22,8 @@ src/floors/floor.js     offscreen base layer + erasable grime layer
 src/floors/wood.js      warm planks
 src/floors/tile.js      glossy tile, hidden motif, pale spill dusting
 src/props/prop.js       pushable / blocking rigid props + resolveProps()
-src/core/light.js       darkness overlay with cut-out lights (half-res offscreen)
+src/props/room.js       furniture no one scene owns: lamp, cushion, rug edge, lamp pool
+src/core/light.js       darkness overlay: cut-out lights + warm glow, one composite
 src/core/heightfield.js grid of heights with angle-of-repose relaxation (sand, pile)
 src/scenes/scene.js     Scene base (the contract below)
 src/scenes/index.js     ordered registry — the ONLY core file a new scene touches
@@ -264,6 +265,20 @@ and sets `grimeCleared`, after which `draw()` **skips** the grime composite
 entirely — a fully-erased full-screen layer is otherwise blended every frame for
 nothing.
 
+```js
+const g = floor.growBase(rect);   // save()d, and in WORLD coordinates
+drawTheWholeSet(g); g.restore();  // walls, skirting, a mat, a chair, a rug
+floor.smoothGrime = false;        // soft dust does not need the bilinear filter
+```
+
+`growBase(rect)` enlarges the BASE canvas, keeping what is on it, so a scene can
+bake its static set into the opaque blit that has to happen anyway instead of
+rasterising a screenful of gradients every frame (`thread` does exactly this
+with its corridor). The grime layer is deliberately not grown: it is the
+expensive one, because it is the one with alpha. `smoothBase` / `smoothGrime`
+turn off the upscale filter on either composite — see **Performance** below for
+why that is worth several frames a second.
+
 ## Harness
 
 `window.game`: `state()`, `input.pointer(nx, ny, down)` (normalized 0..1),
@@ -277,6 +292,79 @@ URL params: `?scene=`, `?seed=`, `?dev=1`, `?speed=`, `?pose=` (informational),
 the entire chain on all four devices with synthetic one-finger input and reports
 per-scene time, real-time fps and page errors. Both are documented in
 `dev/README.md`, including a "reproduce one moment" recipe.
+
+## Performance: the frame is pixels, not JavaScript
+
+Measure before cutting anything. `node dev/fps.mjs --scene=X --device=Y
+--profile` runs the page free-running with a synthetic finger and reports
+min/p10/median off the real rAF clock, plus a breakdown of the frame.
+
+The breakdown is the point. On the sofa — the heaviest scene in the game —
+`sim` plus every `draw` callback measured **under 1.5ms** on an iPhone-sized
+canvas while the frame itself took **34ms**. None of the missing 32ms is ours
+to speed up by writing better loops: it is Canvas2D compositing in the
+rasteriser, and the only lever is asking for fewer, cheaper pixels.
+
+Costed one layer at a time, with `dev/fps.mjs --init` switching each off
+(iPhone portrait, 390x844 at DPR 2 = **1.32 Mpx a frame**):
+
+| what | ms/frame |
+|------|---------:|
+| a full-screen opaque `fillRect` (the background clear) | ~0 |
+| the wood floor: one opaque `drawImage`, camera-scaled | 5.0 |
+| the dust film: half-res, alpha, camera-scaled | 2.4 |
+| the ghost sofa at **alpha 0.06**: one big `drawImage` | 5.5 |
+| the thread scene's grime layer: full-screen, alpha | 6.4 |
+| the thread scene's corridor: gradient fills | 7.1 |
+| a second full-screen light layer blended with `lighter` | 8.0 |
+| the **bilinear filter** on one full-screen composite | 5.8 |
+
+Four rules follow, and every optimisation in these scenes is one of them:
+
+1. **Count the full-screen passes.** Roughly 2.5 of them fit in a 60fps frame
+   at iPhone size. An opaque flat fill is free; an image with alpha is not, and
+   it costs the same at alpha 0.06 as at alpha 1.
+2. **The filter is often dearer than the thing being filtered.** Soft dust, a
+   darkness overlay, a blurred beam: none of them need bilinear.
+   `imageSmoothingEnabled = false` on those blits, and keep the filter for
+   surfaces with edges in them — floorboards you are actually looking at.
+3. **Static scenery is a texture, not a draw list.** Anything that does not
+   move belongs in an offscreen canvas painted once: `Floor.growBase()` folds a
+   scene's whole set into the opaque blit that has to happen anyway.
+4. **Never build a gradient in a draw loop.** `createRadialGradient` /
+   `createLinearGradient` per frame is a new object and a fresh raster. Build
+   one at the origin at full alpha, cache it by radius, and carry the strength
+   in `globalAlpha`.
+
+### Why iPad is slower here, and what that does and does not mean
+
+| device | canvas at DPR 2 | pixels a frame |
+|--------|-----------------|---------------:|
+| iPhone portrait / landscape | 780x1688 | 1.32 Mpx |
+| iPad portrait / landscape | 1640x2360 | 3.87 Mpx |
+
+The iPad viewport is **2.93x the pixels**, and in this container the frame time
+scales with almost exactly that factor for the same scene — carpet is 60fps on
+the phone and 26 on the pad, 16.7ms against 38ms. That is the whole
+explanation: there is no iPad-specific code path and no per-device content.
+
+It is worth being blunt about what the container measures. Chromium here has no
+GPU: everything is rasterised on the CPU by SwiftShader, at something like
+100-130 Mpx/s of blended fill. A real iPad composites on a GPU orders of
+magnitude faster at exactly this work, and so does a real iPhone — the phone
+numbers are only "fast" here because the phone viewport is small enough that a
+CPU rasteriser can keep up with it.
+
+So: **the iPad column is a fill-rate stress test, not a prediction.** It is
+still worth optimising against, because it ranks changes correctly — anything
+that removes a full-screen pass shows up there first and largest. What it
+cannot do is be pushed to 50fps by better drawing: at 3.87 Mpx, 20ms a frame
+buys about one and a half blended full-screen passes, and a floor, a grime
+layer, the debris and a darkness overlay are already more than that. The lever
+that WOULD fix it is rendering fewer pixels — dropping the device pixel ratio
+toward 1.5 when a sustained frame rate says the machine cannot afford 2. That
+is deliberately not wired up: it is a real-device mitigation, and turning it on
+here would improve the measurement rather than the game.
 
 ## iOS Safari
 
@@ -395,10 +483,27 @@ lights(L, cam, vac) {               // optional Scene hook, SCREEN coords
 vac.headlight.on = true;            // cone thrown forward from the mouth
 vac.headlight.r / .intensity / .cone / .softness;
 ```
-`softness` (0..1) turns a cone from a hard pie slice into a torch beam: the
-wedge is drawn as three nested cones, each wider and weaker, plus a pool at the
-origin, so it has no cut edge. `softness: 0` keeps the cheap single cone (and is
-the default, so nothing pays for what it does not ask for).
+`softness` (0..1) turns a cone from a hard pie slice into a torch beam: blobs
+threaded along the axis, each wider and weaker, so it has no cut edge anywhere
+(three nested CLIPPED wedges gave the beam three visible straight edges, and a
+clip is one of the dearest things you can ask a software rasteriser for).
+`softness: 0` keeps the cheap single cone, and is the default.
+
+A cut-out can only reveal the scene as it was already painted, so on its own a
+beam is not light — it is merely less dark, which reads as grey. Warm light is
+ADDED back inside the cone:
+
+```js
+vac.headlight.warm = 0.3;        // addHeadlight() then lights the beam as well
+L.addGlow(sx, sy, r, i, dx, dy, cone, softness);   // same geometry as addLight
+L.addSpark(sx, sy, r, i);        // one lit speck: a dust mote in the beam
+```
+
+Those calls are QUEUED and replayed onto the SAME layer at `composite()` time
+(a `destination-out` cut issued after them would erase them), so the darkness
+and the light it leaves behind still reach the screen as one composite. A scene
+that never asks for warm light pays nothing, and a frame with no darkness and
+nothing warm skips the composite altogether.
 
 `main.js` runs `begin()` → `addHeadlight()` → `scene.lights()` → `composite()`
 every frame when `scene.light` is set. One half-resolution offscreen canvas,
