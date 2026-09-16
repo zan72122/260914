@@ -369,7 +369,10 @@ Pushable props are shoved by the nozzle head (not by the airflow), slide, and
 grind to a halt; `prop.nudge` (0..1, decaying) is set on contact so you can rock
 or squash them. Non-pushable props push the head back out and cancel its inward
 velocity, so the head slides along the edge — that is how the intro table leg
-and the kitchen bowl work.
+and the kitchen bowl work. **They block the BODY too**, and that is not
+cosmetic: the head points away from the body, so a body driven through a wall
+while the head is held against it flips the head round to face backwards, taking
+the whole airflow cone with it.
 
 The overlap with the head is **always fully resolved**, split by mass: a light
 prop gets out of the way, a heavy one pushes the head back instead of letting it
