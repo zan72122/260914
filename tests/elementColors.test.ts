@@ -10,6 +10,7 @@ import {
   valueOf,
 } from '../src/flame/elementColors';
 import { ELEMENT_IDS, type ElementId } from '../src/flame/elements';
+import { baseFlameColor, elementFlameColor, toHex } from '../src/flame/color';
 
 const ALL = [...ELEMENT_IDS.map((id) => [id, ELEMENT_FLAME_COLORS[id]] as const), ['base', BASE_FLAME_COLOR] as const];
 
@@ -49,6 +50,37 @@ describe('元素 → 表示色', () => {
     expect(sr.v).toBeGreaterThan(li.v);
     expect(flameColorMatches(sr.h, sr.v, ELEMENT_FLAME_COLORS.lithium)).toBe(false);
     expect(flameColorMatches(li.h, li.v, ELEMENT_FLAME_COLORS.strontium)).toBe(false);
+  });
+
+  // 仕様書（docs/DEV.md §4）が載せている hex。ここだけは書き写した定数で、
+  // 「color.ts の算出が仕様から動いていない」ことを見張る錨にする。
+  const SPEC_HEX: Record<string, string> = {
+    base: '#0053b3',
+    copper: '#00d0d3',
+    strontium: '#ac0026',
+    lithium: '#720020',
+  };
+
+  it('elementColors の hex は color.ts の算出結果と一致する', () => {
+    const computed: Record<string, string> = {
+      base: toHex(baseFlameColor().srgb),
+      ...Object.fromEntries(ELEMENT_IDS.map((id) => [id, toHex(elementFlameColor(id).srgb)])),
+    };
+    for (const [name, c] of ALL) {
+      const hex = `#${c.hex.toString(16).padStart(6, '0')}`;
+      expect(hex, `${name} の hex が color.ts の算出と違う`).toBe(computed[name]);
+      expect(hex, `${name} の hex が仕様書の値と違う`).toBe(SPEC_HEX[name]);
+    }
+  });
+
+  it('算出した線形 sRGB は sRGB 伝達関数で表示値に戻る（シェーダへ渡す値の整合）', () => {
+    const enc = (c: number) =>
+      c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+    for (const [name, c] of ALL) {
+      for (let i = 0; i < 3; i++) {
+        expect(Math.round(enc(c.linear[i]) * 255), `${name}[${i}]`).toBe(c.rgb[i]);
+      }
+    }
   });
 
   it('主波長はストロンチウムの方が短い（緋 624.1 nm / 深紅 657.3 nm）', () => {
