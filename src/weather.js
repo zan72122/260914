@@ -43,8 +43,12 @@ export class Weather {
     this.windEnabled = false;
     this.puddle = 0;
 
-    // The hero moment: one drop on the glass.
+    // The hero moment: one drop on the glass, and the one or two that follow
+    // it before any mark appears on the washing.
     this.glassDrop = null;
+    this.extraDrops = [];
+    this._extraT = 0;
+    this._extraLeft = 0;
 
     this.drops = new Array(MAX_DROPS);
     for (let i = 0; i < MAX_DROPS; i++) {
@@ -57,20 +61,67 @@ export class Weather {
     this._tmpA = [0, 0, 0];
     this._tmpB = [0, 0, 0];
     this.darkFloor = 0;     // the sky goes grey before the rain arrives
+    this.rainScale = 1;     // drop length / thickness, by viewport width
+    this.countScale = 1;    // how many of them, by viewport width
     // Rings from a finger poked into the wet balcony. Not weather: a reply.
     this.rings = [];
-    // Cached gradients. Building a CanvasGradient is not free, and both of
-    // these were being rebuilt every single frame.
+    // Cached sky gradient. Building a CanvasGradient is not free, and this
+    // one was being rebuilt every single frame. (Each bead on the glass keeps
+    // its own, on the drop object.)
     this._skyG = null;
     this._skyKey = '';
-    this._dropG = null;
-    this._dropKey = '';
   }
 
-  /** Begin the single drop running down the pane. */
+  /**
+   * Begin the first drop running down the pane.
+   *
+   * It is one bead of water, not a balloon: small, asymmetric, dark-rimmed,
+   * with a white pinprick where the light is and a splat ring where it landed.
+   * Then, before the marks appear on the washing, one or two smaller ones
+   * follow it down -- one bead is an event, three is rain.
+   */
   startFirstDrop() {
-    this.glassDrop = { u: 0.088, v: 0.20, v0: 0.20, r: 0, speed: 0, age: 0, trail: [] };
+    this.glassDrop = this._makeDrop(0.088, 0.20, 1);
+    this.extraDrops.length = 0;
+    this._extraT = 0.8 + Math.random() * 0.35;
+    this._extraLeft = 1 + (Math.random() < 0.6 ? 1 : 0);
     if (this.audio) this.audio.drop();
+  }
+
+  _makeDrop(u, v, scale) {
+    return {
+      u, v, v0: v, r: 0, speed: 0, age: 0, scale, life: 1,
+      splat: 0, wob: Math.random() * 6.283, trail: [],
+    };
+  }
+
+  /**
+   * One drop's worth of physics: swell, cling, run, and finally go.
+   *
+   * It goes when it has run out of glass to run down, or when the rain proper
+   * has arrived and the streaks have taken the pane over -- a hero bead parked
+   * at the bottom of the window for the rest of the game is scenery nobody
+   * asked for.
+   */
+  _stepDrop(gd, dt, fade) {
+    if (fade || gd.v >= 0.9399) gd.life = Math.max(0, gd.life - dt);
+    gd.age += dt;
+    gd.r = Math.min(1, gd.age / 0.18);
+    gd.splat = gd.age < 0.4 ? gd.age / 0.4 : 1;
+    if (gd.age <= 0.6) return;   // it hangs there first
+    gd.speed = Math.min(0.30, gd.speed + dt * 0.10);
+    const prevV = gd.v;
+    gd.v += gd.speed * dt;
+    // Leave a thin, slightly wavering trail of tiny beads that thins as it
+    // goes: the bead is spending itself on the glass.
+    const last = gd.trail.length ? gd.trail[gd.trail.length - 1].v : gd.v0;
+    if (gd.v - last > 0.035) {
+      gd.trail.push({ u: gd.u + (Math.random() - 0.5) * 0.008, v: prevV, r: 0.25 + Math.random() * 0.4 });
+      if (gd.trail.length > 18) gd.trail.shift();
+    }
+    // The run wavers instead of ruling a straight line.
+    gd.u += Math.sin(gd.v * 22 + gd.wob) * 0.0009;
+    if (gd.v > 0.94) { gd.v = 0.94; gd.speed = 0; }
   }
 
   /**
@@ -109,7 +160,14 @@ export class Weather {
   update(dt, world) {
     this.t += dt;
     this.intensity += (this.targetIntensity - this.intensity) * Math.min(1, dt * 0.45);
-    this.dark = clamp(Math.max(this.intensity * 1.05, this.darkFloor), 0, 1);
+    // A wide screen swallows rain: the same drops spread over an iPad in
+    // landscape read as drizzle. Longer, fatter, more of them, and a sky that
+    // goes a shade further down -- all of it derived from the viewport, all of
+    // it plain arithmetic on numbers that already exist.
+    this.rainScale = 1 + 0.5 * clamp((world.w - 820) / 180, 0, 1);
+    this.countScale = 1 + 0.35 * clamp((world.w - 820) / 360, 0, 1);
+    const land = world.portrait ? 1 : 1.12;
+    this.dark = clamp(Math.max(this.intensity * 1.05 * land, this.darkFloor * land), 0, 1);
 
     // --- wind -----------------------------------------------------------
     this.windPhase += dt * 1.6;
@@ -146,28 +204,31 @@ export class Weather {
     this.wind.x = world.inDir.x * strength + (world.inDir.x ? 0 : cross);
     this.wind.y = world.inDir.y * strength * 0.55 + (world.inDir.y ? 0 : cross * 0.4);
 
-    // --- glass drop ------------------------------------------------------
+    // --- glass drops -----------------------------------------------------
+    const fade = this.intensity > 0.3;
     const gd = this.glassDrop;
     if (gd) {
-      gd.age += dt;
-      gd.r = Math.min(1, gd.age / 0.5);
-      if (gd.age > 0.55) {
-        gd.speed = Math.min(0.30, gd.speed + dt * 0.10);
-        const prevV = gd.v;
-        gd.v += gd.speed * dt;
-        // Leave a thin, slightly wavering trail of tiny beads.
-        if (gd.v - (gd.trail.length ? gd.trail[gd.trail.length - 1].v : gd.v0) > 0.035) {
-          gd.trail.push({ u: gd.u + (Math.random() - 0.5) * 0.008, v: prevV, r: 0.25 + Math.random() * 0.4 });
-          if (gd.trail.length > 18) gd.trail.shift();
-        }
-        gd.u += Math.sin(gd.v * 22) * 0.00035;
-        if (gd.v > 0.94) { gd.v = 0.94; gd.speed = 0; }
+      this._stepDrop(gd, dt, fade);
+      if (gd.life <= 0) this.glassDrop = null;
+    }
+    if (this._extraLeft > 0) {
+      this._extraT -= dt;
+      if (this._extraT <= 0) {
+        this._extraLeft--;
+        this._extraT = 0.55 + Math.random() * 0.4;
+        const u = 0.088 + (this.extraDrops.length ? -0.16 : 0.19) + (Math.random() - 0.5) * 0.06;
+        this.extraDrops.push(this._makeDrop(clamp(u, 0.05, 0.9), 0.12 + Math.random() * 0.22, 0.62));
+        if (this.audio) this.audio.drop();
       }
+    }
+    for (let i = this.extraDrops.length - 1; i >= 0; i--) {
+      this._stepDrop(this.extraDrops[i], dt, fade);
+      if (this.extraDrops[i].life <= 0) this.extraDrops.splice(i, 1);
     }
 
     // --- rain particles ---------------------------------------------------
     const op = world.opening;
-    const active = Math.round(this.intensity * MAX_DROPS);
+    const active = this.activeDrops();
     const fall = 900 + 700 * this.intensity;
     for (let i = 0; i < MAX_DROPS; i++) {
       const d = this.drops[i];
@@ -339,9 +400,15 @@ export class Weather {
     ctx.globalAlpha = 1;
   }
 
+  /** How many of the pooled drops are in play. Never more than the pool. */
+  activeDrops() {
+    return Math.min(MAX_DROPS, Math.round(this.intensity * MAX_DROPS * this.countScale));
+  }
+
   drawRain(ctx, world) {
     if (this.intensity <= 0.002) return;
-    const active = Math.round(this.intensity * MAX_DROPS);
+    const active = this.activeDrops();
+    const sc = this.rainScale;
     ctx.strokeStyle = 'rgba(232,244,252,0.72)';
     ctx.lineCap = 'round';
     const tiltX = this.wind.x * 0.012;
@@ -351,9 +418,9 @@ export class Weather {
       const d = this.drops[i];
       if (!d.seeded) continue;
       ctx.moveTo(d.x, d.y);
-      ctx.lineTo(d.x - tiltX * 0.35, d.y - d.len - tiltY * 0.2);
+      ctx.lineTo(d.x - tiltX * 0.35, d.y - d.len * sc - tiltY * 0.2);
     }
-    ctx.lineWidth = 1.6;
+    ctx.lineWidth = 1.6 * sc;
     ctx.stroke();
   }
 
@@ -382,59 +449,101 @@ export class Weather {
       ctx.globalAlpha = 1;
     }
 
-    const gd = this.glassDrop;
-    if (!gd) return;
+    for (let i = 0; i < this.extraDrops.length; i++) {
+      this._drawBead(ctx, this.extraDrops[i], X, Y, S);
+    }
+    if (this.glassDrop) this._drawBead(ctx, this.glassDrop, X, Y, S);
+  }
 
-    // Trail beads
+  /**
+   * One bead of water on the glass.
+   *
+   * The playtest read the old one as a balloon: big, round, pale, floating.
+   * This one is water. It is small, it is a teardrop -- fat at the bottom,
+   * drawn out at the top and more so the faster it runs -- and it earns its
+   * place by contrast rather than by size: a dark rim, a soft shadow under it
+   * where it presses on the glass, and one hard white pinprick of a highlight.
+   * It lands with a splat ring, clings for six tenths of a second, and then
+   * runs, leaving a wavering trail that thins behind it.
+   */
+  _drawBead(ctx, gd, X, Y, S) {
+    const x = X(gd.u), y = Y(gd.v);
+    const sc = gd.scale === undefined ? 1 : gd.scale;
+    const shed = clamp((gd.v - gd.v0) / 0.6, 0, 1);
+    const r = S * (0.060 - 0.017 * shed) * gd.r * sc;
+    if (r <= 0.2 || gd.life <= 0) return;
+
+    ctx.save();
+    // A, below, is the fade: the bead thins away at the end of its run, and
+    // when the real rain takes the pane over.
+    const A = gd.life;
+    // The splat: a ring thrown out where it hit, gone in four tenths.
+    if (gd.splat < 1) {
+      const sp = gd.splat;
+      ctx.globalAlpha = (1 - sp) * 0.75 * A;
+      ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+      ctx.lineWidth = Math.max(1, r * 0.3 * (1 - sp));
+      ctx.beginPath();
+      ctx.ellipse(x, y, r * (0.7 + 2.3 * sp), r * (0.5 + 1.7 * sp), 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Trail: beads left behind, thinning the further back they are.
     for (let i = 0; i < gd.trail.length; i++) {
       const b = gd.trail[i];
       const a = (i + 1) / gd.trail.length;
-      ctx.globalAlpha = 0.45 * a;
-      ctx.fillStyle = '#ffffff';
+      ctx.globalAlpha = 0.5 * a * A;
+      ctx.fillStyle = '#eaf7ff';
       ctx.beginPath();
-      ctx.arc(X(b.u), Y(b.v), S * 0.012 * b.r, 0, Math.PI * 2);
+      ctx.ellipse(X(b.u), Y(b.v), r * 0.30 * b.r * a, r * 0.42 * b.r * a, 0, 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.globalAlpha = 1;
+    ctx.globalAlpha = A;
 
-    // The drop itself: a fat lens with a bright highlight and a soft shadow.
-    // Deliberately the most contrasting thing on the screen at this moment:
-    // a fat lens with a shadow under it, on glass that has nothing else on it
-    // yet, in a world that has stopped moving. It gives up a little of itself
-    // to the trail as it runs, so it is biggest right at the start.
-    const shed = clamp((gd.v - gd.v0) / 0.6, 0, 1);
-    // Half again as big as it was: the playtest walked straight past the old
-    // one, and this drop is the game's first word.
-    const r = S * (0.092 - 0.026 * shed) * gd.r;
-    const x = X(gd.u), y = Y(gd.v);
-    ctx.save();
-    // A real shadow under it, so it reads as a bead sitting on the glass.
-    ctx.fillStyle = 'rgba(38,66,96,0.52)';
+    // The shadow it casts on the pane: this is what makes it sit *on* glass.
+    ctx.fillStyle = 'rgba(32,58,86,0.42)';
     ctx.beginPath();
-    ctx.ellipse(x + r * 0.24, y + r * 0.44, r * 0.92, r * 1.10, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + r * 0.26, y + r * 0.42, r * 0.84, r * 0.94, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // The gradient is rebuilt only when the drop actually moves or grows,
-    // rounded to the pixel: one object every few frames instead of one a frame.
+    const stretch = gd.speed * 5.5;
     const key = (x | 0) + ':' + (y | 0) + ':' + ((r * 4) | 0);
-    if (key !== this._dropKey) {
-      this._dropKey = key;
-      const g2 = ctx.createRadialGradient(x - r * 0.35, y - r * 0.45, r * 0.1, x, y, r * 1.15);
-      g2.addColorStop(0, 'rgba(255,255,255,0.98)');
-      g2.addColorStop(0.45, 'rgba(230,246,255,0.76)');
-      g2.addColorStop(1, 'rgba(150,196,226,0.44)');
-      this._dropG = g2;
+    if (key !== gd.gkey) {
+      gd.gkey = key;
+      const g2 = ctx.createRadialGradient(x - r * 0.34, y - r * 0.46, r * 0.08, x, y, r * 1.25);
+      g2.addColorStop(0, 'rgba(255,255,255,0.99)');
+      g2.addColorStop(0.45, 'rgba(214,240,255,0.88)');
+      g2.addColorStop(1, 'rgba(118,172,208,0.72)');
+      gd.grad = g2;
     }
-    ctx.fillStyle = this._dropG;
-    ctx.beginPath();
-    // Teardrop: rounder at the bottom, drawn out at the top as it runs.
-    ctx.ellipse(x, y, r * 0.86, r * (1 + gd.speed * 1.6), 0, 0, Math.PI * 2);
+    beadPath(ctx, x, y, r, stretch);
+    ctx.fillStyle = gd.grad;
     ctx.fill();
+    // Dark rim: the meniscus, and the only reason a pale bead reads at all
+    // against a pale sky.
+    ctx.strokeStyle = 'rgba(28,58,88,0.55)';
+    ctx.lineWidth = Math.max(1, r * 0.20);
+    ctx.stroke();
 
-    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    // The specular: one small, hard, absolutely white dot.
+    ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(x - r * 0.3, y - r * 0.38, r * 0.26, 0, Math.PI * 2);
+    ctx.arc(x - r * 0.32, y - r * 0.40, Math.max(0.8, r * 0.20), 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
+}
+
+/**
+ * A teardrop: rounder at the bottom than the top, and drawn further out at
+ * the top the faster it is running.
+ */
+function beadPath(ctx, x, y, r, stretch) {
+  const top = y - r * (1.25 + stretch);
+  const bot = y + r * 1.05;
+  ctx.beginPath();
+  ctx.moveTo(x, top);
+  ctx.bezierCurveTo(x + r * 0.40, y - r * 0.55, x + r * 0.98, y + r * 0.24, x, bot);
+  ctx.bezierCurveTo(x - r * 0.98, y + r * 0.24, x - r * 0.40, y - r * 0.55, x, top);
+  ctx.closePath();
 }

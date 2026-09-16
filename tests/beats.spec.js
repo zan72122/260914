@@ -5,10 +5,11 @@
 // last sash. The first, the third and the fifth are the ones with no gesture
 // in them at all -- they are beats the game plays *at* the child, and if they
 // do not land there is nothing to explain them. So they get measured here,
-// at timeScale 1, with no speed-ups: how long the calm lasts, that exactly
-// one drop arrives and that nothing else moves while it runs, that the gust
-// after it is unmistakable, and that the handle is visibly alive in a single
-// still frame at the end.
+// at timeScale 1, with no speed-ups: how long the calm lasts, that the first
+// drop arrives alone and that nothing else moves while it runs, that one or
+// two smaller ones follow it before any mark appears on the washing -- one
+// bead is an event, three is rain -- that the gust after it is unmistakable,
+// and that the handle is visibly alive in a single still frame at the end.
 
 import { test, expect } from '@playwright/test';
 import {
@@ -16,7 +17,7 @@ import {
   waitFor, playAllItems, setTimeScale,
 } from './helpers.js';
 
-test('the first drop: three calm seconds, then one drop, and nothing else', async ({ page }) => {
+test('the first drop: three calm seconds, then a drop, and nothing else', async ({ page }) => {
   const errors = collectErrors(page);
   const t0 = Date.now();
   await openGame(page, IPHONE_PORTRAIT);        // real time throughout
@@ -30,9 +31,11 @@ test('the first drop: three calm seconds, then one drop, and nothing else', asyn
   const dropped = await snapshot(page);
   const w = await page.evaluate(() => ({
     gust: window.__game.gust, drop: window.__game.glassDrop,
+    drops: window.__game.glassDropCount,
   }));
-  // One drop on the glass...
+  // One drop on the glass, and at this instant only the one...
   expect(w.drop).toBeGreaterThanOrEqual(0);
+  expect(w.drops).toBe(1);
   // ...and that is the only thing that has happened. No rain, no wind, and
   // not a mark on any of the washing.
   expect(dropped.rain).toBe(0);
@@ -44,6 +47,7 @@ test('the first drop: three calm seconds, then one drop, and nothing else', asyn
   const later = await snapshot(page);
   const w2 = await page.evaluate(() => ({
     gust: window.__game.gust, drop: window.__game.glassDrop,
+    drops: window.__game.glassDropCount,
   }));
   expect(later.state).toBe('FIRST_DROP');
   expect(later.rain).toBe(0);
@@ -53,8 +57,16 @@ test('the first drop: three calm seconds, then one drop, and nothing else', asyn
   expect(w2.drop).toBeGreaterThan(w.drop);
   expect(w2.drop - w.drop).toBeLessThan(0.35);
 
-  // --- then the spot, on exactly one piece of washing -------------------
-  await waitFor(page, (s) => s.state === 'SPOT', 6000, 'SPOT');
+  // --- and one or two smaller ones follow it before the spot ------------
+  // A single bead can be anything. Three beads running down the glass, one
+  // after another, can only be rain, and it is on the screen before a mark
+  // appears on the washing.
+  const before = await waitFor(page, (s) => s.state === 'SPOT', 6000, 'SPOT');
+  expect(before.state).toBe('SPOT');
+  const n = await page.evaluate(() => window.__game.glassDropCount);
+  expect(n, 'the first drop never got any company').toBeGreaterThanOrEqual(2);
+  expect(n, 'it is raining on the glass before it rains anywhere else')
+    .toBeLessThanOrEqual(3);
   await page.waitForTimeout(300);
   const spotted = await snapshot(page);
   expect(spotted.items.filter((i) => i.spots > 0).length).toBe(1);

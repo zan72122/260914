@@ -451,8 +451,8 @@ class Game {
       it.update(dt, w.wind, w.intensity);
     }
     this.character.update(dt, this.world);
-    this.basket.update(dt);
-    this.sash.update(dt, this.world);
+    this.basket.update(dt, w.gustPulse, started);
+    this.sash.update(dt, this.world, this.weather);
 
     this._audioCd = (this._audioCd || 0) - dt;
     if (this._audioCd <= 0) { this._audioCd = 0.35; this.audio.setRain(w.intensity); }
@@ -601,7 +601,10 @@ class Game {
     g.gustBoost = this.weather.gustBoost;
     g.glassDrop = this.weather.glassDrop
       ? Math.round(this.weather.glassDrop.v * 1000) / 1000 : -1;
+    g.glassDropCount = this.weather.glassDrop
+      ? 1 + this.weather.extraDrops.length : 0;
     g.glint = Math.round(this.sash.glint * 1000) / 1000;
+    g.sashDrift = Math.round(this.sash.drift * 10000) / 10000;
     g.pointing = this.character.pointT > 0;
     const op = this.world.opening;
     if (!g.opening) g.opening = {};
