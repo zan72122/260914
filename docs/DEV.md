@@ -1,4 +1,4 @@
-# 開発・検証の手引き（M0 / M2）
+# 開発・検証の手引き（M0 / M1 / M2 / M4）
 
 『ほんとうの火』の局所再現・観測・再検証の使い方。設計の根拠は [PLAN.md](PLAN.md) §5。
 
@@ -41,9 +41,9 @@ __fire.clock.step(16)                 // 本番と同じ update を 16ms 刻み�
 __fire.clock.timeMs()
 __fire.rng.seed(n)                    // 次の loadScenario から効く。既定はシナリオの seed
 __fire.speech.captured()              // dev では実発話せず、発話予定テキストを記録する
-__fire.dump('materials'|'jobs'|'flame'|'layout')
+__fire.dump('materials'|'jobs'|'flame'|'layout'|'audio')
 __fire.points()                       // 実ポインタを当てるための世界座標（状態の代入はできない）
-__fire.flameRect()                    // 炎の芯の領域（CSS px）。スクリーンショットの色判定に使う
+__fire.flameRect()                    // 根元の外炎の領域（CSS px）。スクリーンショットの色判定に使う
 ```
 
 `state()` の項目（PLAN §5.2）:
@@ -113,17 +113,39 @@ waitingFor  'job_animation' | 'next_trouble_timer' | null
 
 | 元素 | hex | 色相の許容範囲 | 明度の許容範囲 | 実測（色相 / 明度） |
 |---|---|---|---|---|
-| 素の炎（ガス炎の青） | `#0053b3` | 198–240° | 0.50–0.95 | 212.2° / 0.702 |
-| 銅（青緑） | `#00d0d3` | 160–196° | 0.60–1.00 | 180.9° / 0.825（横画面 180.7° / 0.805） |
-| ストロンチウム（緋） | `#ac0026` | 330–360° | 0.56–0.82 | 346.7° / 0.673 |
-| リチウム（深紅） | `#720020` | 330–360° | 0.30–0.55 | 343.1° / 0.448 |
+| 素の炎（ガス炎の青） | `#0053b3` | 198–240° | 0.50–0.95 | 211.8° / 0.683 |
+| 銅（青緑） | `#00d0d3` | 160–196° | 0.60–1.00 | 181.7° / 0.824（横画面 181.1° / 0.824） |
+| ストロンチウム（緋） | `#ac0026` | 330–360° | 0.56–0.82 | 343.8° / 0.663 |
+| リチウム（深紅） | `#720020` | 330–360° | 0.30–0.55 | 338.2° / 0.439 |
 
-許容範囲は `src/flame/elementColors.ts` の `hue` と `value` に一箇所だけ置く。
-単体テストが「どの二つの領域も重ならない」ことを保証し、e2e もそこを読むので、
-M1 が本物の算出値を入れるときもこの一箇所を直せばよい。
+実測は GLSL 炎（M1）を実際の WebGL2 で描いた値で、e2e が測る時点
+（材料が炎に触れてから 224ms、uMix ≒ 0.99）のもの。残っているガス炎の青のぶんだけ
+青側へ寄っている。入りきった後（uMix = 1）まで進めると算出値そのものになる。
 
-炎の色は `__fire.flameRect()` が返す**炎の芯**（層が重なって不透明になる根元）で測る。
-材料を持つ手より下なので、材料の地の色が混ざらない。
+| 元素 | 算出値（色相 / 明度） | uMix = 1 での実測 |
+|---|---|---|
+| 素の炎 | 212.2° / 0.700 | 212.0° / 0.670 |
+| 銅 | 180.9° / 0.827 | 180.8° / 0.826 |
+| ストロンチウム | 346.7° / 0.676 | 346.8° / 0.674 |
+| リチウム | 343.1° / 0.446 | 343.2° / 0.447 |
+
+hex は書き写しではない。`src/flame/color.ts` が発光線を CIE 1931 の等色関数で
+積分し、色域マッピングと輝度正規化を通して算出した値を
+`src/flame/elementColors.ts` がそのまま引き写す（`tests/elementColors.test.ts` が
+算出結果・仕様書の hex・線形 sRGB の三者一致を見張る）。
+
+許容範囲（`hue` と `value`）だけは算出物ではなく検査の仕様なので、
+`src/flame/elementColors.ts` に一箇所だけ直接置く。
+単体テストが「どの二つの領域も重ならない」ことを保証し、e2e もそこを読む。
+
+炎の色は `__fire.flameRect()` が返す**根元の外炎**（層が重なって不透明になる所）で測る。
+
+- 軸の真上は外す。そこには内炎（還元炎）の円錐があり、外炎とは別の発光をしている
+  （C2 Swan 帯が強く、素のガス炎では外炎より緑寄りの青緑。実測で軸上 193°、外炎 212°）。
+  仕様が「炎の色」と呼んでいるのは外炎の色。
+- 揺らぎは上へ行くほど大きく、根元は口に固定されてほとんど動かない。
+  だから根元は「重なって不透明」かつ「静か」な場所になる。
+- 材料を持つ手は炎の半分の高さに来るので、材料の地の色も混ざらない。
 
 | 仕事の結果の判定 | 仕様上の範囲 | 実測 |
 |---|---|---|
@@ -160,19 +182,58 @@ M1 が本物の算出値を入れるときもこの一箇所を直せばよい�
 引き渡しのたびに、使用したコマンド・対象コミットのハッシュ・再現条件（シナリオ・seed・入力列）・
 結果（合否と数値）・所要時間・未検証範囲を残す。
 
-## 7. M1 以降のための境界
+## 7. 境界
 
-- 炎の描画: `src/flame/FlameRenderer.ts` の `FlameRenderer`（`view` / `layout` / `update` / `destroy`）。
-  実装を選ぶのは `createFlameRenderer()` の一箇所。世界側は `FlameState`（element / intensityPct /
-  timeMs）しか渡さない。時間は必ず GameClock 由来。
-- 元素 → 色: `src/flame/elementColors.ts`。M1 が発光線から CIE 1931 → sRGB で算出した hex を
-  既に入れてある。参照側（描画・余熱発光・検査）はこのモジュールしか見ない。
-  M1 統合時は `createFlameRenderer()` の戻り値を GLSL 実装に替えるだけでよい
-  （`FlameRenderer` / `FlameState` / `createFlameRenderer` は M2 で変更していない）。
+- 炎の描画: `src/flame/FlameRenderer.ts` の `FlameRenderer`（`view` / `layout` / `update` /
+  `stats?` / `destroy`）。実装を選ぶのは `createFlameRenderer()` の一箇所で、いまは
+  `GlslFlameRenderer`（M1 の物理ベース GLSL 炎）を返す。M0 の `PlaceholderFlameRenderer` も
+  控えとして残っている。世界側は `FlameState`（element / intensityPct / timeMs）しか渡さない。
+  時間は必ず GameClock 由来（`timeMs`）で、描画側は壁時計にも Ticker にも触らない。
+- 元素 → 色: `src/flame/elementColors.ts`。参照側（描画・余熱発光・検査）はこれしか見ない。
+  値の出どころは `src/flame/color.ts`（発光線 → CIE 1931 → 色域マッピング → 表示 sRGB）で、
+  発光線は `src/flame/spectra.ts`。算出の手法と限界は `src/flame/README.md`。
+- 余熱発光: `src/flame/afterglow.ts`。約 3 秒でちょうど 0 になる指数減衰（純関数）。
+  `AFTERGLOW_MS` もここから導く。
 - 仕事と困り: `src/game/world.ts` の `JOB_DEFS` / `dropAt` / `updateTroubles`。
   受け口の場所は `World.siteOf`、絵は `WorldView.updateWiring` / `updateFlare` / `updateBattery`。
 - 画面の配置: `src/game/layout.ts` の `computeLayout` だけが座標を決める。
   奥の物の大きさは `layout.unit`（工房の短辺から決まるので縦横で同じ見え方）。
+
+## 7.1 炎の描画（M1）
+
+`src/flame/GlslFlameRenderer.ts` が `flame.frag.glsl` を PixiJS v8 の Filter として貼る。
+シェーダは色を一切作らない。青いガス炎も内炎も元素色も煤の輝点も、すべて `color.ts` が
+算出して uniform で渡す（`tests/flame/shader.test.ts` が、GLSL の中に色リテラルが
+無いこと・時間源が `uTime` だけであることを見張る）。
+
+- 層（外炎 / 内炎 / 煤の輝点 / 根元の散乱光）は、覆っている割合を重みにした**加重平均**で
+  混ぜる。足し込むと重なった所で成分が 1 を超えて切り落とされ、色相が曲がる。
+  明るさは alpha が持ち、芯で 1、縁でなめらかに消える。
+- 最後に sRGB 伝達関数を掛け、alpha を先に掛けた形（premultiplied）で出す。
+- 何も入っていなければ外炎は青、内炎は青緑。材料が入れば炎全体がその色になる（PLAN §3.3）。
+  追従は指数（約 0.15 秒）で、飛び込む一瞬のにじみだけを残す。
+
+性能（PLAN §7）: 炎は一箇所だけなので、横 48px を上限とする FBO に描いて拡大する。
+iPhone 13（390×844, dpr 3）では炎の矩形が 60.9×110.7 CSS px で、FBO は **48×87**
+（そのままなら 183×332、画素数で約 14 分の 1）。
+
+```js
+__fire.dump('flame')
+// { element, intensityPct, rect, core, timeMs,
+//   render: { mix, element, fboScale, fboWidth, fboHeight,
+//             frameMs, frameMsSource: 'gpu'|'sync'|'cpu', cpuMs, gpuMs, syncMs } }
+```
+
+`frameMs` が 1 フレームの炎描画時間。`EXT_disjoint_timer_query_webgl2` があれば GPU の
+実測（`gpu`）、無ければ 6 フレームに 1 度 `gl.finish()` まで待った実測（`sync`）、
+それも無ければ描画命令を積む CPU 時間（`cpu`）を返す。`performance.now()` は 0.1ms 刻みに
+丸められるので、いずれも窓で均してある。計測は絵にも状態にも影響しない。
+**常設の表示は作らない。ここからしか読めない。**
+
+実測（iPhone 13 viewport、Playwright の Chromium）: `frameMs` は **0.05〜0.10 ms**
+（`sync`＝`gl.finish()` まで待った値）、描画命令を積む CPU 時間は 0.02〜0.03 ms。
+ただしこの環境の WebGL は ANGLE 越しの SwiftShader（ソフトウェア）で、
+`EXT_disjoint_timer_query_webgl2` を持たない。実機の GPU での時間は未計測。
 
 ## 8. 音（M4）
 
