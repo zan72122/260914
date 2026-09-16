@@ -2,7 +2,9 @@ import { defineConfig } from '@playwright/test';
 
 // The Chromium build is already on disk; never try to download one.
 const EXECUTABLE = '/opt/pw-browsers/chromium';
-const PORT = 8123;
+// Overridable so two checkouts can run the suite at the same time without
+// fighting over one static server.
+const PORT = Number(process.env.GAME_PORT) || 8123;
 
 export default defineConfig({
   testDir: './tests',
