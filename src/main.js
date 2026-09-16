@@ -302,9 +302,11 @@ class Game {
     this.drawPole(ctx, world);
     ctx.restore();
 
-    // laundry still outside / falling
+    // laundry still outside / falling. An item that has set `overlay` is
+    // skipped here and drawn after the window frame instead (see below).
     for (let i = 0; i < this.items.length; i++) {
       const it = this.items[i];
+      if (it.overlay) continue;
       if (it.state === 'HANGING' || it.state === 'RELEASING') it.draw(ctx, world);
     }
 
@@ -318,6 +320,17 @@ class Game {
     ctx.restore();
 
     this.sash.drawFrame(ctx, world);
+
+    // The sheet is the one thing that gets *between the camera and the
+    // window*: once enough pegs are off, the loose half is blowing through
+    // the opening into the room, so it passes in front of the frame instead
+    // of staying behind the glass like everything else. Any item may ask for
+    // this by setting `overlay`; only the sheet does, and only once it is
+    // half free or already released.
+    for (let i = 0; i < this.items.length; i++) {
+      const it = this.items[i];
+      if (it.overlay && (it.state === 'HANGING' || it.state === 'RELEASING')) it.draw(ctx, world);
+    }
 
     this.basket.draw(ctx, world);
     this.character.draw(ctx, world);
