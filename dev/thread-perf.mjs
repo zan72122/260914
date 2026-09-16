@@ -1,4 +1,11 @@
-/** Free-running fps + page-error check for the thread scene (dev only). */
+/**
+ * Free-running fps + page-error check for one scene on all four devices.
+ * `SC=sand node dev/thread-perf.mjs` points it somewhere else.
+ *
+ * dev/fps.mjs supersedes this (it drives a closed loop on the mouth, reports
+ * min/p10/median and can break the frame down with --profile); this is kept
+ * because it is two screenfuls and it also watches the console.
+ */
 import { startServer } from './serve.mjs';
 import { launch } from './shot.mjs';
 
@@ -12,7 +19,7 @@ for (const [name, [w, h]] of Object.entries(DEV)) {
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error' && !/favicon/.test(m.text())) errs.push(m.text()); });
-  await page.goto(`${url}/index.html?scene=SCENEID&seed=1337&dev=1&mute=1`, { waitUntil: 'load' });
+  await page.goto(`${url}/index.html?scene=${SC}&seed=1337&dev=1&mute=1`, { waitUntil: 'load' });
   await page.waitForFunction(() => !!window.game);
   // drive the pointer across the room while it runs at real time
   await page.evaluate(() => {

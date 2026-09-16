@@ -172,6 +172,43 @@ on a give-up the report lists the ids, positions and states of what is left.
 
 ---
 
+## `dev/fps.mjs` — how fast is it, and where does the frame go
+
+```sh
+node dev/fps.mjs --scene=sofa --device=iphone-portrait --seconds=6
+node dev/fps.mjs --scene=sofa --hold=@mother#1 --profile
+node dev/fps.mjs --all --seconds=5          # every scene x every device
+```
+
+`dev/shot.mjs` steps the clock by hand, so the `fps` in its state dumps means
+nothing. This runs the page FREE-RUNNING with a synthetic finger and samples the
+real rAF clock — the same number `playthrough.mjs` reports per scene, but for
+one scene at a time and in twenty seconds instead of ten minutes.
+
+The finger is the playthrough autopilot cut down to what a probe needs: hunt the
+nearest live piece, and stop dead when it stops getting closer, which is what
+winds the motor to full power — the most expensive state the renderer ever sees.
+`--hold=@<id|type>` pins it on one piece so the same moment can be measured
+before and after a change.
+
+| flag | default | meaning |
+|------|---------|---------|
+| `--scene` | `sofa` | scene id |
+| `--device` / `--devices` / `--all` | `iphone-portrait` | |
+| `--seconds` | 6 | sampling window; the first second is thrown away |
+| `--hold` | — | `@bunny#3`, `@sock`, `@auto`: park the mouth on it and hold |
+| `--profile` | off | ms/frame in sim, scene.draw, vacuum.draw, drawOver and the light layer |
+| `--init` | — | JavaScript run in the page before the module loads (flags) |
+| `--seed` `--json` | | |
+
+It exits after printing which runs came in under 50 fps median.
+
+**Reading the numbers.** The JS is not usually the problem: on the sofa, the
+whole of `sim` + every `draw` measured under 1.5ms while the frame itself took
+34. What costs is full-screen compositing in the rasteriser, and `--init` is how
+you prove it — flag out one layer at a time and watch the frame time, which is
+how the sofa's beam, dust film, ghost sofa and floor filter were each costed.
+
 ## Reproduce one moment
 
 The recipe, in order. Say a tester reports "on iPad landscape the yarn round the
