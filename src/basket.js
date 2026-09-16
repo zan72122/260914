@@ -13,6 +13,8 @@ export class Basket {
     this.layers = [];
     this.pop = 0;
     this.wob = 0;
+    this.glint = 0;
+    this._gWas = 0;
     this.t = 0;
     this.layout(world);
   }
@@ -36,7 +38,21 @@ export class Basket {
   /** Poked: the whole basket rocks on its base. */
   knock() { this.wob = 1; this.pop = Math.max(this.pop, 0.6); }
 
-  update(dt) {
+  /**
+   * @param {number} dt
+   * @param {number} gustPulse  weather.gustPulse, spikes to 1 on every gust
+   * @param {boolean} active    only once the rain has been noticed (SPOT on)
+   *
+   * The rim catches the light on a gust. It is not a sign and it is not an
+   * arrow: it is the one empty, open, waiting thing in the room, and once the
+   * weather turns it winks each time the wind does. A child who is poking at
+   * the character instead of the washing has something to look at.
+   */
+  update(dt, gustPulse, active) {
+    const g = gustPulse || 0;
+    if (active && g > 0.6 && (this._gWas || 0) <= 0.6) this.glint = 1;
+    this._gWas = g;
+    this.glint = Math.max(0, (this.glint || 0) - dt * 0.7);
     this.pop = Math.max(0, this.pop - dt * 2.2);
     this.wob = Math.max(0, (this.wob || 0) - dt * 1.6);
     this.t = (this.t || 0) + dt;
@@ -145,6 +161,22 @@ export class Basket {
     ctx.fillStyle = '#e0b478';
     roundRect(ctx, r.x - r.w * 0.03, rimY, r.w * 1.06, rimH * squash, rimH * 0.5);
     ctx.fill();
+    // ...and the light running along it when the wind gets up.
+    const gl = this.glint || 0;
+    if (gl > 0.01) {
+      const u = 1 - gl;                       // the highlight travels the rim
+      const bw = r.w * 0.34;
+      ctx.save();
+      ctx.beginPath();
+      roundRect(ctx, r.x - r.w * 0.03, rimY, r.w * 1.06, rimH * squash, rimH * 0.5);
+      ctx.clip();
+      ctx.globalAlpha = Math.min(0.75, gl * 0.85);
+      ctx.fillStyle = 'rgba(255,248,224,0.95)';
+      roundRect(ctx, r.x - r.w * 0.03 + u * (r.w * 1.06 + bw) - bw, rimY,
+        bw, rimH * squash, rimH * 0.5);
+      ctx.fill();
+      ctx.restore();
+    }
 
     ctx.restore();
   }
