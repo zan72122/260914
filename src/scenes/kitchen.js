@@ -4,6 +4,16 @@ import { Prop, resolveProps } from '../props/prop.js';
 import { makeTileFloor, paintMotif, paintDust } from '../floors/tile.js';
 import { TAU, clamp } from '../core/math.js';
 
+function rr(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
 /**
  * Scene 2 — glossy kitchen tile.
  * Different motion law: crumbs are held by stiction, shiver, then break loose
@@ -40,13 +50,37 @@ export class KitchenScene extends Scene {
       dir = { x: 0.34, y: 0.94 };
       this.exitCam = { x: w * 0.26, y: -h * 0.40, zoom: this.scale * 1.06, tilt: 0.3 };
     } else {
+      // WIDE kitchen: the counter runs along the back, a fridge stands at the
+      // right-hand end of it, a stool is pulled out onto the floor and a mat
+      // lies in front of the sink. Without them the right half of a landscape
+      // screen is bare tile and there is nothing to walk towards.
       this.startPointer = { x: 0.13, y: 0.86 };
       this.floor = makeTileFloor({ x0: -w * 0.9, y0: -h * 1.2, x1: w * 1.3, y1: h * 1.1 }, rng, { tile: 104 });
-      this.counter = { x0: -w * 0.9, y0: -h * 1.2, x1: w * 1.3, y1: -h * 0.34 };
+      this.counter = { x0: -w * 0.9, y0: -h * 1.2, x1: w * 0.14, y1: -h * 0.34 };
+      this.fridge = { x: w * 0.30, y: -h * 0.315, w: w * 0.26, h: h * 0.40 };
+      this.stool = { x: w * 0.150, y: h * 0.06, r: 46 };
+      this.mat = { x: -w * 0.05, y: h * 0.335, w: w * 0.34, h: h * 0.155 };
       this.exitGap = this._p(1.02, 0.30);
       bowl = this._p(0.34, 0.235);
       dir = { x: 0.30, y: 0.95 };
       this.exitCam = { x: w * 0.52, y: -h * 0.08, zoom: this.scale * 1.06, tilt: 0.2 };
+    }
+    if (portrait) { this.fridge = null; this.stool = null; this.mat = null; }
+
+    if (this.fridge) {
+      const f = this.fridge;
+      // only the BASE of the fridge is solid: that is what stands on the floor
+      this.props.push(new Prop({
+        x: f.x, y: f.y + f.h * 0.5 - 26, shape: 'rect', w: f.w, h: 52,
+        pushable: false, shadow: false, draw: () => {},
+      }));
+    }
+    if (this.stool) {
+      const st = this.stool;
+      this.props.push(new Prop({
+        x: st.x, y: st.y, shape: 'circle', r: st.r * 0.62,
+        pushable: false, shadow: false, draw: () => {},
+      }));
     }
 
     const R = portrait ? 118 : 104;
@@ -95,6 +129,24 @@ export class KitchenScene extends Scene {
       }
       this.debris.push(new Crumb(p.x, p.y, rng, 'rice'));
     }
+    // a second, smaller spill on the far side of the room: a handful of crumbs
+    // that fell off the stool. It is the reason to cross a wide floor at all.
+    if (this.stool) {
+      const st = this.stool;
+      this.spill2 = { x: st.x + 30, y: st.y + 86, r: 66 };
+      paintDust(this.floor, this.spill2.x, this.spill2.y, this.spill2.r * 1.05, rng, 0.2, 0.98);
+      for (let i = 0; i < 11; i++) {
+        const a = rng.range(0, TAU);
+        const d = Math.pow(rng.next(), 0.6) * this.spill2.r * 0.92;
+        const cx = this.spill2.x + Math.cos(a) * d;
+        let cy = this.spill2.y + Math.sin(a) * d * 0.8;
+        if (cy > reach.y1) cy = reach.y1;
+        this.debris.push(new Crumb(cx, cy, rng));
+      }
+    } else {
+      this.spill2 = null;
+    }
+
     // decor trail leading off-screen toward the next room (does not gate completion)
     const g = this.exitGap;
     for (let i = 0; i < 9; i++) {
@@ -158,6 +210,13 @@ export class KitchenScene extends Scene {
           this.floor.reveal(this.spill.x + Math.cos(a) * rr, this.spill.y + Math.sin(a) * rr * 0.86, 38);
         }
       }
+      if (this.spill2) {
+        const rr = this.revealT * this.spill2.r * 1.25;
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * TAU - this.revealT * 1.8;
+          this.floor.reveal(this.spill2.x + Math.cos(a) * rr, this.spill2.y + Math.sin(a) * rr * 0.86, 26);
+        }
+      }
       if (this.revealT >= 1) { this.floor.clearGrime(); this.persist.revealed = true; }
     }
   }
@@ -168,7 +227,10 @@ export class KitchenScene extends Scene {
     this.drawFloor(ctx, cam);
     ctx.save();
     cam.apply(ctx);
+    this._drawMat(ctx);
     this._drawCounter(ctx);
+    this._drawFridge(ctx);
+    this._drawStool(ctx);
     for (let i = 0; i < this.props.length; i++) this.props[i].draw(ctx);
     ctx.restore();
     this.drawDebris(ctx, cam);
@@ -206,6 +268,89 @@ export class KitchenScene extends Scene {
     ctx.beginPath(); ctx.moveTo(-14, -30); ctx.lineTo(-14, 30); ctx.stroke();
     ctx.strokeStyle = 'rgba(120,140,160,0.5)'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.ellipse(-16, 0, 30, 32, 0, 0, TAU); ctx.stroke();
+    ctx.restore();
+  }
+
+  /** A rubber mat in front of the sink: it gives the empty floor a centre. */
+  _drawMat(ctx) {
+    const m = this.mat;
+    if (!m) return;
+    ctx.save();
+    ctx.fillStyle = 'rgba(40,44,52,0.16)';
+    rr(ctx, m.x - m.w / 2 + 4, m.y - m.h / 2 + 7, m.w, m.h, 14); ctx.fill();
+    ctx.fillStyle = '#93b1ab';
+    rr(ctx, m.x - m.w / 2, m.y - m.h / 2, m.w, m.h, 14); ctx.fill();
+    ctx.fillStyle = '#849f9a';
+    rr(ctx, m.x - m.w / 2 + 10, m.y - m.h / 2 + 9, m.w - 20, m.h - 18, 9); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.30)'; ctx.lineWidth = 2.5;
+    for (let i = 1; i < 6; i++) {
+      const x = m.x - m.w / 2 + (m.w * i) / 6;
+      ctx.beginPath(); ctx.moveTo(x, m.y - m.h / 2 + 14); ctx.lineTo(x, m.y + m.h / 2 - 14); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /** The fridge: a tall pale block that fills the far end of a wide room. */
+  _drawFridge(ctx) {
+    const f = this.fridge;
+    if (!f) return;
+    const x0 = f.x - f.w / 2, y0 = f.y - f.h / 2, W = f.w, H = f.h;
+    ctx.save();
+    ctx.fillStyle = 'rgba(40,44,52,0.26)';
+    ctx.beginPath(); ctx.ellipse(f.x + 8, y0 + H, W * 0.52, 18, 0, 0, TAU); ctx.fill();
+    const g = ctx.createLinearGradient(x0, 0, x0 + W, 0);
+    g.addColorStop(0, '#dfe5ea');
+    g.addColorStop(0.42, '#f4f7fa');
+    g.addColorStop(1, '#c9d2da');
+    ctx.fillStyle = g;
+    rr(ctx, x0, y0, W, H, 12); ctx.fill();
+    // freezer / fridge split and the two long handles
+    ctx.strokeStyle = 'rgba(120,132,144,0.75)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x0 + 6, y0 + H * 0.34); ctx.lineTo(x0 + W - 6, y0 + H * 0.34); ctx.stroke();
+    ctx.fillStyle = '#93a2af';
+    rr(ctx, x0 + W - 34, y0 + H * 0.10, 11, H * 0.18, 5); ctx.fill();
+    rr(ctx, x0 + W - 34, y0 + H * 0.42, 11, H * 0.32, 5); ctx.fill();
+    // a child's drawing and two magnets, so it reads as a family kitchen
+    ctx.fillStyle = '#fdf6e0';
+    ctx.save(); ctx.translate(x0 + W * 0.33, y0 + H * 0.60); ctx.rotate(-0.06);
+    ctx.fillRect(-26, -20, 52, 40);
+    ctx.strokeStyle = '#9ec48f'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-16, 12); ctx.lineTo(-2, -8); ctx.lineTo(12, 12); ctx.stroke();
+    ctx.fillStyle = '#f3c04a'; ctx.beginPath(); ctx.arc(13, -10, 6, 0, TAU); ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = '#e4573f'; ctx.beginPath(); ctx.arc(x0 + W * 0.20, y0 + H * 0.46, 7, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#4d8fd0'; ctx.beginPath(); ctx.arc(x0 + W * 0.52, y0 + H * 0.44, 6, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 2;
+    rr(ctx, x0 + 3, y0 + 3, W - 6, H - 6, 10); ctx.stroke();
+    ctx.strokeStyle = 'rgba(96,110,124,0.85)'; ctx.lineWidth = 3.5;
+    rr(ctx, x0, y0, W, H, 12); ctx.stroke();
+    // a dark plinth so it is standing on the floor, not floating on the tile
+    ctx.fillStyle = '#7d8893';
+    rr(ctx, x0 + 4, y0 + H - 16, W - 8, 16, 5); ctx.fill();
+    ctx.restore();
+  }
+
+  /** A little stool pulled out onto the floor, with crumbs under it. */
+  _drawStool(ctx) {
+    const s = this.stool;
+    if (!s) return;
+    ctx.save();
+    ctx.fillStyle = 'rgba(40,44,52,0.22)';
+    ctx.beginPath(); ctx.ellipse(s.x + 5, s.y + 12, s.r * 1.05, s.r * 0.44, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#a8763f'; ctx.lineWidth = 7; ctx.lineCap = 'round';
+    for (let i = 0; i < 3; i++) {
+      const a = -Math.PI / 2 + (i / 3) * TAU;
+      ctx.beginPath();
+      ctx.moveTo(s.x + Math.cos(a) * s.r * 0.42, s.y + Math.sin(a) * s.r * 0.34);
+      ctx.lineTo(s.x + Math.cos(a) * s.r * 1.02, s.y + Math.sin(a) * s.r * 0.86 + 14);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#c98f4d';
+    ctx.beginPath(); ctx.ellipse(s.x, s.y, s.r, s.r * 0.80, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#e0a961';
+    ctx.beginPath(); ctx.ellipse(s.x, s.y - 4, s.r * 0.90, s.r * 0.70, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(120,80,35,0.45)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(s.x, s.y - 4, s.r * 0.60, s.r * 0.46, 0, 0, TAU); ctx.stroke();
     ctx.restore();
   }
 

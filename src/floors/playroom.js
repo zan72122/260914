@@ -146,20 +146,36 @@ export function paintDustPatch(f, wx, wy, rx, ry, rng) {
   const x = wx - f.rect.x0, y = wy - f.rect.y0;
   g.save();
   g.translate(x, y);
+  // a year of grime: dark in the middle, with a definite soft EDGE, so the
+  // patch reads as a shape on the floor and not as the toy's own shadow
   const grad = g.createRadialGradient(0, 0, 0, 0, 0, Math.max(rx, ry));
-  grad.addColorStop(0, 'rgba(146,139,126,1)');
-  grad.addColorStop(0.55, 'rgba(152,145,132,0.99)');
-  grad.addColorStop(0.82, 'rgba(158,151,138,0.86)');
-  grad.addColorStop(1, 'rgba(165,158,145,0)');
+  grad.addColorStop(0, 'rgba(104,97,84,1)');
+  grad.addColorStop(0.62, 'rgba(112,105,92,0.99)');
+  grad.addColorStop(0.86, 'rgba(122,114,100,0.95)');
+  grad.addColorStop(0.95, 'rgba(136,128,113,0.55)');
+  grad.addColorStop(1, 'rgba(150,142,128,0)');
   g.fillStyle = grad;
   g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, TAU); g.fill();
+  // a ragged darker rim: the outline of the patch
+  g.save();
+  g.strokeStyle = 'rgba(88,80,68,0.55)';
+  g.lineWidth = 3.4;
+  g.beginPath();
+  for (let i = 0; i <= 40; i++) {
+    const a = (i / 40) * TAU;
+    const w = 0.90 + 0.10 * Math.sin(a * 3.2 + 1.1) + 0.06 * Math.sin(a * 5.7);
+    const px = Math.cos(a) * rx * w, py = Math.sin(a) * ry * w;
+    if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+  }
+  g.closePath(); g.stroke();
+  g.restore();
   // lint hairs and specks so it is dust, not a shadow
   g.lineCap = 'round';
   for (let i = 0; i < 26; i++) {
     const a = rng.range(0, TAU), d = rng.range(0, 0.85);
     const px = Math.cos(a) * rx * d, py = Math.sin(a) * ry * d;
     const al = rng.range(0, TAU), L = rng.range(5, 15);
-    g.strokeStyle = 'rgba(120,113,102,' + rng.range(0.22, 0.5).toFixed(2) + ')';
+    g.strokeStyle = 'rgba(78,71,60,' + rng.range(0.34, 0.66).toFixed(2) + ')';
     g.lineWidth = rng.range(0.9, 1.9);
     g.beginPath();
     g.moveTo(px, py);
@@ -169,7 +185,7 @@ export function paintDustPatch(f, wx, wy, rx, ry, rng) {
   }
   for (let i = 0; i < 22; i++) {
     const a = rng.range(0, TAU), d = rng.range(0, 0.95);
-    g.fillStyle = 'rgba(108,101,90,' + rng.range(0.15, 0.4).toFixed(2) + ')';
+    g.fillStyle = 'rgba(66,60,50,' + rng.range(0.24, 0.55).toFixed(2) + ')';
     g.beginPath();
     g.arc(Math.cos(a) * rx * d, Math.sin(a) * ry * d, rng.range(1, 2.6), 0, TAU);
     g.fill();

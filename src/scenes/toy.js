@@ -198,12 +198,17 @@ export class ToyScene extends Scene {
     const spots = [[-0.58, -0.10], [0.52, 0.28]];
     for (let i = 0; i < spots.length; i++) {
       const p = at(spots[i][0] + rng.range(-0.08, 0.08), spots[i][1] + rng.range(-0.1, 0.1));
-      nest.items.push(this._bunny(p.x, p.y, rng.range(15, 19)));
+      nest.items.push(this._bunny(p.x, p.y, rng.range(23, 28)));
     }
     // crumbs scattered between them
     for (let i = 0; i < 5; i++) {
       const p = at(rng.range(-0.92, 0.92), rng.range(-0.85, 0.85));
-      nest.items.push(new Crumb(p.x, p.y, rng));
+      const c = new Crumb(p.x, p.y, rng, 'crumb');
+      // year-old floor crumbs, not breakfast cereal: bigger and much darker,
+      // so a four-year-old sees them on the pale mat from across the room
+      c.r *= 1.5;
+      c.color = rng.pick(['#6d4a22', '#8a5c2a', '#5a3d1c', '#7b5327']);
+      nest.items.push(c);
     }
     // and the hard little things that make the noise
     for (let i = 0; i < 3; i++) {
@@ -223,7 +228,7 @@ export class ToyScene extends Scene {
       ex = this._halfExtentAlong(prop, px, py);
       sx = prop.x + px * (ex + 11); sy = prop.y + py * (ex + 11);
     }
-    nest.items.push(this._bunny(sx, sy, 17));
+    nest.items.push(this._bunny(sx, sy, 24));
 
     for (let i = 0; i < nest.items.length; i++) {
       const d = nest.items[i];
@@ -234,8 +239,8 @@ export class ToyScene extends Scene {
 
     // the grime patch, and (under the first toy only) the sticker beneath it
     const gx = prop.x, gy = prop.y;
-    const grx = (circle ? prop.r : prop.w * 0.5) * (circle ? 1.32 : 1.16);
-    const gry = (circle ? prop.r : prop.h * 0.5) * (circle ? 1.32 : 1.42);
+    const grx = (circle ? prop.r : prop.w * 0.5) * (circle ? 1.52 : 1.34);
+    const gry = (circle ? prop.r : prop.h * 0.5) * (circle ? 1.52 : 1.62);
     nest.patch = { x: gx, y: gy, rx: grx, ry: gry };
     if (sticker) paintSticker(this.floor, gx, gy, Math.min(grx, gry) * 0.70, rng);
     paintDustPatch(this.floor, gx, gy, grx, gry, rng);

@@ -123,7 +123,7 @@ export class CarpetFloor {
         if (d > 0) { this.grid[i] = v; this._sum += d; gained += d; }
       }
     }
-    if (gained > 0 && stamp) this._stampReveal(wx, wy, r * 1.12, clamp(amount * 1.5, 0.08, 0.6));
+    if (gained > 0 && stamp) this._stampReveal(wx, wy, r * 1.12, clamp(amount * 2.8, 0.18, 0.88));
     return gained / (255 * 9);
   }
 
@@ -211,8 +211,8 @@ export class CarpetFloor {
   _palette() {
     return this.opts.palette || {
       backing: '#c9b48e',
-      bright: ['#3aa392', '#dd5f42', '#e8ad4c', '#396c95', '#f6ead2'],
-      field: '#e9dcbe',
+      bright: ['#12b49b', '#f4502c', '#ffc22e', '#1f6fbe', '#fff6e2'],
+      field: '#f3e3bc',
     };
   }
 
@@ -228,10 +228,17 @@ export class CarpetFloor {
     this._paintPile(g, W, H, {
       step: 7, len: 5.6, spread: 0.26, dark: 'rgba(70,52,32,0.14)', light: 'rgba(255,250,235,0.34)', bias: -1.28,
     });
+    // a touch of extra saturation and light, so "combed" reads at arm's length
+    g.globalCompositeOperation = 'overlay';
+    g.fillStyle = 'rgba(255,214,140,0.30)';
+    g.fillRect(0, 0, W, H);
+    g.globalCompositeOperation = 'source-over';
+    g.fillStyle = 'rgba(255,250,232,0.10)';
+    g.fillRect(0, 0, W, H);
     const sh = g.createLinearGradient(0, 0, W, H);
-    sh.addColorStop(0, 'rgba(255,255,255,0.10)');
+    sh.addColorStop(0, 'rgba(255,255,255,0.14)');
     sh.addColorStop(0.5, 'rgba(255,255,255,0.0)');
-    sh.addColorStop(1, 'rgba(255,255,255,0.08)');
+    sh.addColorStop(1, 'rgba(255,255,255,0.12)');
     g.fillStyle = sh;
     g.fillRect(0, 0, W, H);
   }
@@ -294,9 +301,9 @@ export class CarpetFloor {
     g.fillRect(0, 0, W2, H2);
     this._paintPattern(g, W2, H2, p, 1);
     // the wash that hides the colours until they are combed out
-    g.fillStyle = 'rgba(152,145,130,0.78)';
+    g.fillStyle = 'rgba(136,132,124,0.88)';
     g.fillRect(0, 0, W2, H2);
-    g.fillStyle = 'rgba(96,86,70,0.16)';
+    g.fillStyle = 'rgba(58,52,44,0.26)';
     g.fillRect(0, 0, W2, H2);
     // shaggy, every-which-way pile
     this._paintPile(g, W2, H2, {
@@ -448,7 +455,7 @@ export class CarpetFloor {
    */
   drawPile(ctx, vac, t) {
     const mx = vac.mouthX, my = vac.mouthY;
-    const RAD = vac.radius * 1.12;
+    const RAD = vac.radius * 1.22;
     const S = 16;
     let n = 0;
     const R2 = RAD * RAD;
@@ -472,9 +479,9 @@ export class CarpetFloor {
         const f = vac.field(px, py, TMPF);
         const s = f.strength;
         const cb = this.combAt(px, py);
-        const bend = clamp(s * 1.30, 0, 1);
+        const bend = clamp(s * 1.55, 0, 1);
         // pulled pile stretches: it lengthens as it leans
-        const L = (8.0 + hl * 2.2) * (1 - cb * 0.30) * (1 + bend * 0.45);
+        const L = (10.4 + hl * 3.0) * (1 - cb * 0.30) * (1 + bend * 0.62);
         // rest pose matches the baked pile exactly, so nothing "appears":
         // what you see is the same pile, leaning
         const ra = -1.22 + hx * 0.58 + cb * 0.22;
@@ -514,14 +521,14 @@ export class CarpetFloor {
       const lv = (b % 4) / 3;                 // 0 = at rest, 1 = fully bent
       const combed = b >= 4;
       if (lv > 0) {   // at rest the baked pile already supplies the dark roots
-        ctx.strokeStyle = 'rgba(46,32,18,' + (0.26 + lv * 0.26).toFixed(3) + ')';
-        ctx.lineWidth = 2.5 + lv * 0.7;
+        ctx.strokeStyle = 'rgba(38,25,12,' + (0.32 + lv * 0.36).toFixed(3) + ')';
+        ctx.lineWidth = 2.9 + lv * 1.2;
         ctx.stroke();
       }
       ctx.strokeStyle = combed
-        ? 'rgba(255,252,238,' + (0.34 + lv * 0.46).toFixed(3) + ')'
-        : 'rgba(238,228,206,' + (0.28 + lv * 0.48).toFixed(3) + ')';
-      ctx.lineWidth = 1.3 + lv * 0.5;
+        ? 'rgba(255,253,244,' + (0.42 + lv * 0.52).toFixed(3) + ')'
+        : 'rgba(244,236,218,' + (0.34 + lv * 0.56).toFixed(3) + ')';
+      ctx.lineWidth = 1.6 + lv * 0.8;
       ctx.stroke();
     }
     ctx.restore();

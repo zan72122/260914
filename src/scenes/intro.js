@@ -33,8 +33,8 @@ export class IntroScene extends Scene {
 
     if (portrait) {
       this.startPointer = { x: 0.5, y: 0.72 };
-      this.door = { x: 0, y: -h * 0.60, w: 150, h: 200 };
-      this.wallY = -h * 0.52;
+      this.door = { x: 0, y: -h * 0.575, w: 150, h: 210 };
+      this.wallY = -h * 0.455;
       this.floor = makeWoodFloor({ x0: -w * 0.95, y0: -h * 1.25, x1: w * 0.95, y1: h * 0.85 }, rng, { plankW: 84 });
       this.leg = this._p(0.17, 0.235);
       this._spawn([
@@ -47,24 +47,30 @@ export class IntroScene extends Scene {
       this.rollIn.entryFrom = this._p(1.35, 0.52);
       this.peeker = this._makeBunny(0.235, 0.245, 24);
       this.peeker.peekFrom = this._p(0.155, 0.235);
-      this.exitCam = { x: 0, y: -h * 0.60, zoom: this.scale * 1.04, tilt: 0.32 };
+      this.exitCam = { x: 0, y: -h * 0.575, zoom: this.scale * 1.04, tilt: 0.32 };
     } else {
+      // The wide room has to show WHERE NEXT while the vacuum is still parked:
+      // the wall with its lit doorway is on screen from the first frame, at the
+      // right-hand end of the floor, with the table leg between here and there.
       this.startPointer = { x: 0.20, y: 0.78 };
-      this.door = { x: w * 0.76, y: -h * 0.06, w: 170, h: 230 };
-      this.wallX = w * 0.60;
+      this.wallX = w * 0.34;
+      this.door = { x: 0, y: -h * 0.03, w: 118, h: 208 };
       this.floor = makeWoodFloor({ x0: -w * 0.9, y0: -h * 1.1, x1: w * 1.35, y1: h * 1.1 }, rng, { plankW: 78, horizontal: true });
-      this.leg = this._p(0.615, 0.135);
+      this.leg = this._p(0.615, 0.150);
+      // the very first bunny sits a head and a half AHEAD of the parked nozzle,
+      // inside the idle airflow, so its near edge is already swaying at rest
+      const park = this.parkPoint(78);
+      this.debris.push(this._makeBunnyAt(park.x + 18, park.y - 146, 33));
       this._spawn([
-        [0.250, 0.290, 32, false],
-        [0.410, 0.320, 27, false],
-        [0.565, 0.565, 30, false],
-        [0.710, 0.370, 25, false],
+        [0.375, 0.300, 28, false],
+        [0.545, 0.560, 30, false],
+        [0.665, 0.330, 25, false],
       ]);
       this.rollIn = this._makeBunny(0.49, 0.80, 29);
       this.rollIn.entryFrom = this._p(-0.35, 0.86);
-      this.peeker = this._makeBunny(0.670, 0.175, 24);
-      this.peeker.peekFrom = this._p(0.60, 0.14);
-      this.exitCam = { x: w * 0.55, y: -h * 0.05, zoom: this.scale * 1.04, tilt: 0.24 };
+      this.peeker = this._makeBunny(0.670, 0.185, 24);
+      this.peeker.peekFrom = this._p(0.60, 0.15);
+      this.exitCam = { x: w * 0.34, y: -h * 0.03, zoom: this.scale * 1.04, tilt: 0.24 };
     }
     // the late arrivals wait off-stage until the player has understood the game
     this.props.length = 0;
@@ -72,7 +78,7 @@ export class IntroScene extends Scene {
       x: this.leg.x, y: this.leg.y, shape: 'circle', r: 15, pushable: false,
       shadow: false, draw: () => {},
     }));
-    this.clearStartZone(140);
+    this.clearStartZone(138);
     this.rollIn.dormant = true;
     this.peeker.dormant = true;
     this.debris.push(this.rollIn, this.peeker);
@@ -80,8 +86,11 @@ export class IntroScene extends Scene {
 
   _makeBunny(nx, ny, r) {
     const p = this._p(nx, ny);
-    const b = new DustBunny(p.x, p.y, r, this.rng);
-    b.hx = p.x; b.hy = p.y;
+    return this._makeBunnyAt(p.x, p.y, r);
+  }
+  _makeBunnyAt(x, y, r) {
+    const b = new DustBunny(x, y, r, this.rng);
+    b.hx = x; b.hy = y;
     return b;
   }
   _spawn(list) {
@@ -165,37 +174,67 @@ export class IntroScene extends Scene {
     if (this.pose === 'portrait') {
       const y = this.wallY;
       const x0 = -this.vw * 0.95, x1 = this.vw * 0.95;
+      // the next room's light, thrown out across THIS floor: drawn first so it
+      // lies on the boards
+      const R = d.w * 1.5;
+      const sp = ctx.createRadialGradient(d.x, y, 8, d.x, y, R);
+      sp.addColorStop(0, 'rgba(255,222,146,0.55)');
+      sp.addColorStop(0.5, 'rgba(255,222,146,0.26)');
+      sp.addColorStop(1, 'rgba(255,222,146,0)');
+      ctx.fillStyle = sp;
+      ctx.beginPath(); ctx.ellipse(d.x, y, R, R * 0.78, 0, 0, TAU); ctx.fill();
       ctx.fillStyle = '#e6d8c3';
       ctx.fillRect(x0, y - 520, x1 - x0, 520);
       ctx.fillStyle = '#cbb99f';
       ctx.fillRect(x0, y - 18, x1 - x0, 18);
-      // doorway: warm light spilling out of the next room
-      ctx.fillStyle = '#2b2622';
-      ctx.fillRect(d.x - d.w / 2, y - d.h, d.w, d.h);
-      const g = ctx.createLinearGradient(0, y - d.h, 0, y + 90);
-      g.addColorStop(0, 'rgba(255,226,160,0.85)');
-      g.addColorStop(1, 'rgba(255,226,160,0.0)');
+      ctx.fillStyle = 'rgba(70,52,30,0.22)';
+      ctx.fillRect(x0, y, x1 - x0, 11);
+      // doorway: an opening FULL of warm light, brightest where it meets the floor
+      ctx.fillStyle = '#7a6444';
+      ctx.fillRect(d.x - d.w / 2 - 9, y - d.h - 9, d.w + 18, d.h + 9);
+      const g = ctx.createLinearGradient(0, y - d.h, 0, y);
+      g.addColorStop(0, '#e7b368');
+      g.addColorStop(0.45, '#ffdd95');
+      g.addColorStop(1, '#fff0c8');
       ctx.fillStyle = g;
-      ctx.fillRect(d.x - d.w / 2, y - d.h, d.w, d.h + 90);
-      ctx.strokeStyle = '#b9a586'; ctx.lineWidth = 8;
-      ctx.strokeRect(d.x - d.w / 2, y - d.h, d.w, d.h);
+      ctx.fillRect(d.x - d.w / 2, y - d.h, d.w, d.h);
+      ctx.fillStyle = 'rgba(120,88,44,0.30)';
+      ctx.fillRect(d.x - d.w / 2, y - d.h, d.w, 16);
+      ctx.strokeStyle = '#b9a586'; ctx.lineWidth = 7;
+      ctx.strokeRect(d.x - d.w / 2 - 5, y - d.h - 5, d.w + 10, d.h + 5);
     } else {
       const x = this.wallX;
       const y0 = -this.vh * 1.1, y1 = this.vh * 1.1;
+      // light out of the next room, thrown across THIS floor: drawn first, so
+      // it lies on the boards and not on the wall
+      const R = d.h * 1.15;
+      const sp = ctx.createRadialGradient(x + 10, d.y, 8, x + 10, d.y, R);
+      sp.addColorStop(0, 'rgba(255,222,146,0.52)');
+      sp.addColorStop(0.5, 'rgba(255,222,146,0.26)');
+      sp.addColorStop(1, 'rgba(255,222,146,0)');
+      ctx.fillStyle = sp;
+      ctx.beginPath(); ctx.ellipse(x + 10, d.y, R, R * 0.82, 0, 0, TAU); ctx.fill();
+      // the wall itself
       ctx.fillStyle = '#e6d8c3';
       ctx.fillRect(x, y0, this.vw * 0.9, y1 - y0);
       ctx.fillStyle = '#cbb99f';
-      ctx.fillRect(x, y0, 16, y1 - y0);
-      ctx.fillStyle = '#2b2622';
-      ctx.fillRect(x + 10, d.y - d.h / 2, d.w, d.h);
-      const g = ctx.createLinearGradient(x + 10, 0, x + 10 + d.w + 80, 0);
-      g.addColorStop(0, 'rgba(255,226,160,0.0)');
-      g.addColorStop(0.15, 'rgba(255,226,160,0.8)');
-      g.addColorStop(1, 'rgba(255,226,160,0.0)');
+      ctx.fillRect(x, y0, 18, y1 - y0);
+      ctx.fillStyle = 'rgba(70,52,30,0.22)';
+      ctx.fillRect(x + 18, y0, 12, y1 - y0);
+      // the doorway: an opening full of warm light, with a dark frame
+      const dy = d.y - d.h / 2;
+      ctx.fillStyle = '#7a6444';
+      ctx.fillRect(x + 8, dy - 9, d.w + 26, d.h + 18);
+      const g = ctx.createLinearGradient(x + 18, 0, x + 18 + d.w, 0);
+      g.addColorStop(0, '#ffeec2');
+      g.addColorStop(0.55, '#ffdd95');
+      g.addColorStop(1, '#e7b368');
       ctx.fillStyle = g;
-      ctx.fillRect(x - 80, d.y - d.h / 2, d.w + 170, d.h);
-      ctx.strokeStyle = '#b9a586'; ctx.lineWidth = 8;
-      ctx.strokeRect(x + 10, d.y - d.h / 2, d.w, d.h);
+      ctx.fillRect(x + 18, dy, d.w, d.h);
+      ctx.fillStyle = 'rgba(120,88,44,0.35)';
+      ctx.fillRect(x + 18, dy, d.w, 14);
+      ctx.strokeStyle = '#b9a586'; ctx.lineWidth = 7;
+      ctx.strokeRect(x + 12, dy - 5, d.w + 12, d.h + 10);
     }
   }
 
