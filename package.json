@@ -1,0 +1,14 @@
+{
+  "name": "ame-torikome",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Wordless mobile web game: bring the laundry in before the rain.",
+  "scripts": {
+    "start": "python3 -m http.server 8123",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
+  }
+}
