@@ -32,7 +32,7 @@ import {
   srgbToLinearComponent,
   toHex,
   xyzToLinearSRGB,
-} from '../../src/flame/color.js';
+} from '../../src/flame/color';
 
 // ---------------------------------------------------------------------------
 // 1. 等色関数

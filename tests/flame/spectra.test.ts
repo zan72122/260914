@@ -18,7 +18,7 @@ import {
   totalIntensity,
   type ElementId,
   type EmissionLine,
-} from '../../src/flame/spectra.js';
+} from '../../src/flame/spectra';
 
 const ALL: ElementId[] = ['copper', 'strontium', 'lithium', 'sodium', 'barium'];
 

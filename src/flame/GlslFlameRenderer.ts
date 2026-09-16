@@ -31,8 +31,8 @@ import {
   flameColorToUniform,
   innerConeColor,
   sootColor,
-} from './color.js';
-import type { ElementId } from './spectra.js';
+} from './color';
+import type { ElementId } from './spectra';
 
 export interface FlameRendererOptions {
   /** 炎の矩形の幅 [px]（親コンテナの座標系）。 */

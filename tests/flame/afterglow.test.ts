@@ -14,8 +14,8 @@ import {
   afterglowRemainingMs,
   isAfterglowing,
   startAfterglow,
-} from '../../src/flame/afterglow.js';
-import { elementFlameColor, flameColorToUniform, rgbToHSV } from '../../src/flame/color.js';
+} from '../../src/flame/afterglow';
+import { elementFlameColor, flameColorToUniform, rgbToHSV } from '../../src/flame/color';
 
 describe('減衰カーブ', () => {
   it('継続時間は 3.0 秒（PLAN §3.3 の「約 3 秒」）', () => {

@@ -19,7 +19,7 @@ import {
   blendSpectra,
   getSpectrum,
   type ElementId,
-} from './spectra.js';
+} from './spectra';
 
 // ---------------------------------------------------------------------------
 // 型

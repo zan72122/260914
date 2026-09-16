@@ -26,7 +26,7 @@ import {
   rgbToHSV,
   xyzToLinearSRGB,
   xyzFromChromaticity,
-} from '../../src/flame/color.js';
+} from '../../src/flame/color';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const flameDir = join(here, '..', '..', 'src', 'flame');
