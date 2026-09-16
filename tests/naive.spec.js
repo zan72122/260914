@@ -14,7 +14,7 @@
 import { test, expect } from '@playwright/test';
 import {
   IPHONE_PORTRAIT, IPAD_LANDSCAPE, collectErrors, openGame, snapshot, waitFor,
-  naiveStroke, drag, setTimeScale,
+  naiveStroke, drag, setTimeScale, settledSnapshot,
 } from './helpers.js';
 
 const CASES = [
@@ -124,8 +124,10 @@ for (const [name, vp] of CASES) {
 for (const [name, vp] of CASES) {
   test(`${name}: twenty random drags leave every item its own shape`, async ({ page }) => {
     const errors = collectErrors(page);
-    const start = await rain(page, vp);
-    // The rest size of each item, measured before anything is touched.
+    await rain(page, vp);
+    // The rest size of each item, measured before anything is touched -- and
+    // between gusts, because a gust is supposed to change it.
+    const start = await settledSnapshot(page);
     const rest = start.items.map((i) => ({
       w: i.bounds.x1 - i.bounds.x0, h: i.bounds.y1 - i.bounds.y0,
     }));
@@ -146,7 +148,7 @@ for (const [name, vp] of CASES) {
     // 0.6s is what the cloth is given to forget it was ever pulled on.
     await setTimeScale(page, 1);
     await page.waitForTimeout(900);
-    const after = await snapshot(page);
+    const after = await settledSnapshot(page);
     for (let i = 0; i < IDS.length; i++) {
       const it = after.items[i];
       expect(it.state, IDS[i]).toBe('HANGING');
@@ -249,5 +251,146 @@ for (const [name, vp] of CASES) {
       expect(h.ok, `${h.id} hit coverage`).toBe(h.n);
       expect(h.pad, `${h.id} pad`).toBeGreaterThanOrEqual(64);
     }
+  });
+}
+
+// ---- 7. a rotation, and a pull the wrong way, leave a cloth --------------
+//
+// Both of these were the same picture in the second playtest: a piece of
+// washing drawn as a thin diagonal streak across the screen, which a four year
+// old reads as something she has broken. A rotation now lets go of the cloth
+// before the world is rebuilt under it, and every release settles the mesh, so
+// what is left in both cases is a cloth the size of a cloth.
+//
+// Two different questions, measured two different ways. `strain` is the worst
+// stretched edge of the mesh: it says whether this is still a shape a cloth
+// can have, and it has to be back to about 1 within half a second. The
+// bounding box says where the cloth *is*, and it is allowed to take longer,
+// because a cloth that has been hauled sideways and let go swings home -- that
+// is the spring-back the spec asks for, not damage.
+
+/** Hold the weather still, so this measures the cloth and not the wind. */
+async function holdTheWind(page) {
+  await page.evaluate(() => {
+    const w = window.__gameInstance.weather;
+    w.windEnabled = false;
+    w.gust = 0;
+    w.gustPulse = 0;
+    w.gustBoost = 1;
+    w.setStill(true);
+  });
+  await page.waitForTimeout(1500);   // and let what it was doing die away
+}
+
+/**
+ * No item is stretched further than it was before any of this happened.
+ *
+ * The baseline is not 1: heavy cloth hanging on two pegs pulls its own cells
+ * a third longer than their rest length, and that is what a pair of jeans on
+ * a line looks like. What must not survive half a second is the *extra*
+ * stretch a finger (or a relayout) put into it.
+ */
+function expectUndeformed(s, calm) {
+  for (let i = 0; i < IDS.length; i++) {
+    const it = s.items[i];
+    if (it.state !== 'HANGING') continue;
+    expect(it.strain, `${IDS[i]} is stretched out of shape`)
+      .toBeLessThan(Math.max(1.15, calm.items[i].strain + 0.12));
+  }
+}
+
+function expectRestShaped(s) {
+  for (let i = 0; i < IDS.length; i++) {
+    const it = s.items[i];
+    if (it.state !== 'HANGING') continue;
+    const w = it.bounds.x1 - it.bounds.x0;
+    const h = it.bounds.y1 - it.bounds.y0;
+    expect(w / it.anchor.w, `${IDS[i]} width vs rest`).toBeGreaterThan(0.8);
+    expect(w / it.anchor.w, `${IDS[i]} width vs rest`).toBeLessThan(1.3);
+    expect(h / it.anchor.h, `${IDS[i]} height vs rest`).toBeGreaterThan(0.8);
+    expect(h / it.anchor.h, `${IDS[i]} height vs rest`).toBeLessThan(1.3);
+  }
+}
+
+/** Poll until everything is back to its rest shape, or give up loudly. */
+async function waitRestShaped(page, ms = 3000) {
+  const start = Date.now();
+  let last = null;
+  for (;;) {
+    last = await snapshot(page);
+    const ok = last.items.every((it, i) => {
+      if (it.state !== 'HANGING') return true;
+      const w = (it.bounds.x1 - it.bounds.x0) / it.anchor.w;
+      const h = (it.bounds.y1 - it.bounds.y0) / it.anchor.h;
+      return w > 0.8 && w < 1.3 && h > 0.8 && h < 1.3 && IDS[i];
+    });
+    if (ok || Date.now() - start > ms) break;
+    await page.waitForTimeout(100);
+  }
+  return last;
+}
+
+test('rotating mid-drag leaves a cloth, not a diagonal streak', async ({ page }) => {
+  const errors = collectErrors(page);
+  await rain(page, IPHONE_PORTRAIT);
+  await holdTheWind(page);
+  const s = await snapshot(page);
+  const it = s.items[0];
+
+  // A finger hauling it off its pins, and then the screen turns.
+  await page.mouse.move(it.x, it.y);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i++) {
+    await page.mouse.move(it.x - i * 10, it.y + i * 10);
+    await page.waitForTimeout(16);
+  }
+  await page.setViewportSize(IPAD_LANDSCAPE);
+  await page.evaluate(() => {
+    const w = window.__gameInstance.weather;
+    w.windEnabled = false; w.gust = 0; w.gustPulse = 0; w.setStill(true);
+  });
+  await page.waitForTimeout(600);
+
+  // Six tenths of a second later, with the finger still down, the drag has
+  // been let go of and every item is its own shape in the new layout.
+  const after = await snapshot(page);
+  expectUndeformed(after, s);
+  expectRestShaped(after);
+  expect(after.items[0].grabbed, 'the rotation kept hold of the cloth').toBe(false);
+
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  expectUndeformed(await snapshot(page), s);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+for (const [name, vp] of CASES) {
+  test(`${name}: a pull the wrong way leaves a cloth`, async ({ page }) => {
+    const errors = collectErrors(page);
+    await rain(page, vp);
+    await holdTheWind(page);
+    const s = await snapshot(page);
+    const it = s.items[1];
+    // Straight against the room direction, and sideways with it.
+    const d = 140;
+    await page.mouse.move(it.x, it.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 10; i++) {
+      const t = i / 10;
+      await page.mouse.move(it.x - s.inDir.x * d * t - 30 * t, it.y - s.inDir.y * d * t - 30 * t);
+      await page.waitForTimeout(16);
+    }
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+
+    // Half a second: the mesh is a cloth again, whatever it was doing.
+    const half = await snapshot(page);
+    expect(half.items[1].state, 'the wrong way took it off the line').toBe('HANGING');
+    expect(half.items[1].clips).toBe(s.items[1].clips);
+    expectUndeformed(half, s);
+
+    // ...and it swings back to where it hangs.
+    expectRestShaped(await waitRestShaped(page));
+    expect(errors, errors.join('\n')).toEqual([]);
   });
 }

@@ -118,8 +118,18 @@ class Game {
     return world;
   }
 
-  /** Resize / rotate: geometry is recomputed, game state is untouched. */
+  /**
+   * Resize / rotate: geometry is recomputed, game state is untouched.
+   *
+   * The finger goes first. A drag that started in portrait is holding one
+   * vertex of a mesh whose anchors are about to jump to the other side of the
+   * screen, and carrying that pin across the relayout is what drew the cloth
+   * as a diagonal thread in the playtest. Aborting the pointer runs the
+   * item's own cancel path -- pins restored, mesh settled -- and then the new
+   * layout finds a piece of washing hanging quietly and simply re-lays it.
+   */
   relayout() {
+    this.input.abort();
     const world = this.measure();
     this.world = world;
     this.basket.layout(world);

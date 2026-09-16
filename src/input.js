@@ -62,7 +62,14 @@ export class Input {
     window.addEventListener('scroll', () => { this._rect = null; });
   }
 
-  /** Drop the active pointer as if it had been cancelled. */
+  /**
+   * Drop the active pointer as if it had been cancelled.
+   *
+   * Public: a rotation has to be able to let go of the cloth before the world
+   * is rebuilt under it.
+   */
+  abort() { this._abort(); }
+
   _abort() {
     if (this.activeId === null) return;
     const id = this.activeId;

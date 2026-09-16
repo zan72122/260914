@@ -57,6 +57,25 @@ export async function waitFor(page, fn, timeout = 40000, label = 'condition') {
   }
 }
 
+/**
+ * A snapshot taken between gusts.
+ *
+ * Cloth in a gust is half again as wide as cloth at rest -- that is the point
+ * of the gust -- so any test that measures an item's *shape* has to measure it
+ * when the wind is not blowing, or it is measuring the weather. Waits for the
+ * gust to fall away, gives the cloth time to subside with it, and makes sure
+ * the next gust has not started in the meantime.
+ */
+export async function settledSnapshot(page, tries = 8) {
+  for (let i = 0; i < tries; i++) {
+    await page.waitForFunction(() => window.__game.gust < 0.12, null, { timeout: 15000 });
+    await page.waitForTimeout(450);
+    const g = await page.evaluate(() => window.__game.gust);
+    if (g < 0.3) return snapshot(page);
+  }
+  return snapshot(page);
+}
+
 /** A slow, child-sized drag. */
 export async function drag(page, x0, y0, x1, y1, steps = 14) {
   await page.mouse.move(x0, y0);

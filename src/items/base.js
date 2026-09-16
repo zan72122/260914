@@ -394,8 +394,11 @@ export class Item {
     this.beatT = 0;
     if (this.state === 'HANGING') {
       this.applyPins();
-      // Hand back a cloth, not a wreck. See settleCloth in cloth.js.
-      settleCloth(this.cloth, 8, 0.5);
+      // Hand back a cloth, not a wreck. See settleCloth in cloth.js. A pull
+      // that went the wrong way is the worst case -- the mesh has been hauled
+      // sideways across its own pins -- so the solve is hard enough to undo
+      // that in one call, and the half second after it keeps it honest.
+      settleCloth(this.cloth, 16, 0.75);
       this.settleT = 0.6;
     }
     this.grabIdx = -1;
@@ -771,6 +774,12 @@ export class Item {
     this.cloth.bounds(BOX);
     const on = out.bounds || (out.bounds = { x0: 0, y0: 0, x1: 0, y1: 0 });
     on.x0 = r1(BOX.x0); on.y0 = r1(BOX.y0); on.x1 = r1(BOX.x1); on.y1 = r1(BOX.y1);
+    // The shape this item has when nothing is touching it: the tests compare
+    // the live bounds against it after a rotation or a wrong-way pull.
+    const a = this.anchor;
+    const oa = out.anchor || (out.anchor = { x: 0, y: 0, w: 0, h: 0 });
+    oa.x = r1(a.x); oa.y = r1(a.y); oa.w = r1(a.w); oa.h = r1(a.h);
+    out.strain = Math.round(this.cloth.strain() * 100) / 100;
     out.pad = Math.round(this.hitPad * 10) / 10;
     out.spots = this.spots.length;
     out.billow = Math.round(this.billow * 1000) / 1000;

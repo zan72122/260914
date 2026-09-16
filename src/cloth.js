@@ -92,6 +92,36 @@ export class Cloth {
     }
   }
 
+  /**
+   * The worst-stretched edge in the mesh, as a multiple of its rest length.
+   *
+   * 1 is a cloth. A cloth swinging back from a pull is still 1 -- it has
+   * moved, not deformed. The diagonal streak the playtest saw after a rotation
+   * is 4, 8, 12: the number says "this is not a shape a cloth can have", which
+   * is exactly what has to be tested for and cannot be read off a bounding
+   * box. Walked once, from the test hook only.
+   */
+  strain() {
+    const { cols, rows } = this;
+    let worst = 0;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const i = r * cols + c;
+        if (c + 1 < cols) {
+          const dx = this.x[i + 1] - this.x[i], dy = this.y[i + 1] - this.y[i];
+          const v = Math.sqrt(dx * dx + dy * dy) / this.restH;
+          if (v > worst) worst = v;
+        }
+        if (r + 1 < rows) {
+          const dx = this.x[i + cols] - this.x[i], dy = this.y[i + cols] - this.y[i];
+          const v = Math.sqrt(dx * dx + dy * dy) / this.restV;
+          if (v > worst) worst = v;
+        }
+      }
+    }
+    return worst;
+  }
+
   translate(dx, dy) {
     for (let i = 0; i < this.n; i++) {
       this.x[i] += dx; this.ox[i] += dx;
