@@ -66,21 +66,118 @@ export async function drag(page, x0, y0, x1, y1, steps = 14) {
   await page.mouse.up();
 }
 
+/** Item #1 and #5: a slow pull toward the room pops one peg per stroke. */
+export async function pullIn(page, s, it, dist = 170) {
+  await drag(page, it.x, it.y, it.x + s.inDir.x * dist, it.y + s.inDir.y * dist);
+}
+
 /**
- * Pull every item off the line. One pull pops at most one peg (by design), so
- * this just keeps pulling until nothing is HANGING any more.
+ * Item #2, the shirt: lift the hanger clear of the pole (upward, in either
+ * orientation), then arc toward the room. Neither half works on its own.
+ */
+export async function liftAndArc(page, s, it, { lift = 44, reach = 150 } = {}) {
+  await page.mouse.move(it.x, it.y);
+  await page.mouse.down();
+  for (let i = 1; i <= 6; i++) {
+    await page.mouse.move(it.x, it.y - (lift * i) / 6);
+    await page.waitForTimeout(14);
+  }
+  await page.waitForTimeout(40);
+  for (let i = 1; i <= 10; i++) {
+    const t = i / 10;
+    await page.mouse.move(it.x + s.inDir.x * reach * t, it.y - lift + s.inDir.y * reach * t);
+    await page.waitForTimeout(14);
+  }
+  await page.waitForTimeout(40);
+  await page.mouse.up();
+}
+
+/** Item #2, the wrong way: a plain pull with no lift. The hook keeps hold. */
+export async function plainPull(page, s, it, dist = 180) {
+  await drag(page, it.x, it.y, it.x + s.inDir.x * dist, it.y + s.inDir.y * dist, 16);
+}
+
+/** Item #3: trace one finger along the row of little clips. */
+export async function swipeClips(page, index) {
+  const s = await snapshot(page);
+  const pts = s.items[index].clipPts;
+  if (!pts || !pts.length) throw new Error('item ' + index + ' has no clips to trace');
+  await page.mouse.move(pts[0].x, pts[0].y);
+  await page.mouse.down();
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    for (let k = 1; k <= 3; k++) {
+      await page.mouse.move(a.x + (b.x - a.x) * (k / 3), a.y + (b.y - a.y) * (k / 3));
+      await page.waitForTimeout(16);
+    }
+  }
+  await page.waitForTimeout(40);
+  await page.mouse.up();
+}
+
+/** Item #3, all of it: one trace, then a tap on anything the trace missed. */
+export async function popPinch(page, index) {
+  await swipeClips(page, index);
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const s = await snapshot(page);
+    const it = s.items[index];
+    if (it.state !== 'HANGING' || !it.clipPts) return;
+    const left = it.clipPts.filter((c) => !c.popped);
+    if (!left.length) return;
+    await page.mouse.click(left[0].x, left[0].y);
+    await page.waitForTimeout(90);
+  }
+}
+
+/** Item #4: a long slow pull, and then keep leaning on it. */
+export async function heavyPull(page, s, it, { reach = 240, hold = 640 } = {}) {
+  await page.mouse.move(it.x, it.y);
+  await page.mouse.down();
+  for (let i = 1; i <= 14; i++) {
+    const t = i / 14;
+    await page.mouse.move(it.x + s.inDir.x * reach * t, it.y + s.inDir.y * reach * t);
+    await page.waitForTimeout(18);
+  }
+  // Hold, with the small jitter a real finger always has.
+  const ex = it.x + s.inDir.x * reach, ey = it.y + s.inDir.y * reach;
+  const steps = Math.max(1, Math.round(hold / 60));
+  for (let i = 0; i < steps; i++) {
+    await page.mouse.move(ex + (i % 2), ey + ((i + 1) % 2));
+    await page.waitForTimeout(60);
+  }
+  await page.mouse.up();
+}
+
+/** Item #4, the wrong way: a fast flick. Heavy things ignore fast. */
+export async function flick(page, s, it, dist = 260) {
+  await page.mouse.move(it.x, it.y);
+  await page.mouse.down();
+  for (let i = 1; i <= 5; i++) {
+    const t = i / 5;
+    await page.mouse.move(it.x + s.inDir.x * dist * t, it.y + s.inDir.y * dist * t);
+  }
+  await page.mouse.up();
+}
+
+/** The real gesture for whichever item this is. */
+export async function playItem(page, s, it, index) {
+  if (it.id === 'shirt') return liftAndArc(page, s, it);
+  if (it.id === 'pinch') return popPinch(page, index);
+  if (it.id === 'pants') return heavyPull(page, s, it);
+  return pullIn(page, s, it);
+}
+
+/**
+ * Bring the whole line in, each item with its own gesture. The towel and the
+ * sheet pop one peg per stroke, so this keeps going until nothing is HANGING.
  */
 export async function playAllItems(page, { maxStrokes = 60 } = {}) {
   for (let stroke = 0; stroke < maxStrokes; stroke++) {
     const s = await snapshot(page);
-    const hanging = s.items.filter((it) => it.state === 'HANGING');
-    if (!hanging.length) return s;
-    const it = hanging[0];
-    const dist = 170;
-    const x1 = it.x + s.inDir.x * dist;
-    const y1 = it.y + s.inDir.y * dist;
-    await drag(page, it.x, it.y, x1, y1);
-    await page.waitForTimeout(60);
+    const index = s.items.findIndex((it) => it.state === 'HANGING');
+    if (index < 0) return s;
+    await playItem(page, s, s.items[index], index);
+    await page.waitForTimeout(80);
   }
   throw new Error('items did not come off the line: ' + JSON.stringify(await snapshot(page)));
 }
