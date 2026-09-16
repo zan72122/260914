@@ -13,6 +13,9 @@ export function collectErrors(page) {
 
 export async function openGame(page, viewport, opts = {}) {
   await page.setViewportSize(viewport);
+  // The game only fills window.__game when it is asked to: on a phone that
+  // bookkeeping is per-frame garbage nobody needs. Ask, before it boots.
+  await page.addInitScript(() => { window.__game = { debug: true, timeScale: 1 }; });
   if (opts.initScript) await page.addInitScript(opts.initScript);
   await page.goto('/index.html');
   await page.waitForFunction(() => window.__game && window.__game.items && window.__game.items.length === 5);
@@ -37,6 +40,7 @@ export function snapshot(page) {
     orientation: window.__game.orientation,
     inDir: window.__game.inDir,
     handle: window.__game.handle,
+    view: { width: window.innerWidth, height: window.innerHeight },
     items: window.__game.items,
   })));
 }
@@ -66,14 +70,49 @@ export async function drag(page, x0, y0, x1, y1, steps = 14) {
   await page.mouse.up();
 }
 
-/** Item #1 and #5: a slow pull toward the room pops one peg per stroke. */
+/**
+ * THE gesture: put a finger on the cloth and haul it toward the room.
+ *
+ * No aiming, no lifting, no rhythm -- the whole body of the item is the
+ * target, the direction is the one the wind is already blowing, and the only
+ * thing being asked of the stroke is that it keeps going. One of these, on any
+ * of the five, has to bring that item in: that is spec §10.1, and it is what
+ * the phase-3 playtest could not do.
+ *
+ * `hold` is the child who has pulled it as far as her arm goes and is still
+ * pulling: the world answers with a peg, a beat, another peg.
+ */
+export async function naiveStroke(page, s, it, opts = {}) {
+  const span = Math.min(s.view.width, s.view.height);
+  const dist = opts.dist === undefined ? span * 0.42 : opts.dist;
+  const hold = opts.hold === undefined ? 1900 : opts.hold;
+  const steps = opts.steps === undefined ? 24 : opts.steps;
+  const x1 = it.x + s.inDir.x * dist;
+  const y1 = it.y + s.inDir.y * dist;
+  await page.mouse.move(it.x, it.y);
+  await page.mouse.down();
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    await page.mouse.move(it.x + (x1 - it.x) * t, it.y + (y1 - it.y) * t);
+    await page.waitForTimeout(16);
+  }
+  // Still pulling. A real finger is never perfectly still.
+  const beats = Math.max(1, Math.round(hold / 70));
+  for (let i = 0; i < beats; i++) {
+    await page.mouse.move(x1 + (i % 2 ? 1 : -1), y1 + (i % 3 ? 1 : 0));
+    await page.waitForTimeout(70);
+  }
+  await page.mouse.up();
+}
+
+/** Item #1 and #5: a slow pull toward the room. */
 export async function pullIn(page, s, it, dist = 170) {
   await drag(page, it.x, it.y, it.x + s.inDir.x * dist, it.y + s.inDir.y * dist);
 }
 
 /**
- * Item #2, the shirt: lift the hanger clear of the pole (upward, in either
- * orientation), then arc toward the room. Neither half works on its own.
+ * Item #2's flourish: lift the hanger clear of the pole by hand, then arc.
+ * Still supported, still nicer, and no longer the only way in.
  */
 export async function liftAndArc(page, s, it, { lift = 44, reach = 150 } = {}) {
   await page.mouse.move(it.x, it.y);
@@ -90,11 +129,6 @@ export async function liftAndArc(page, s, it, { lift = 44, reach = 150 } = {}) {
   }
   await page.waitForTimeout(40);
   await page.mouse.up();
-}
-
-/** Item #2, the wrong way: a plain pull with no lift. The hook keeps hold. */
-export async function plainPull(page, s, it, dist = 180) {
-  await drag(page, it.x, it.y, it.x + s.inDir.x * dist, it.y + s.inDir.y * dist, 16);
 }
 
 /** Item #3: trace one finger along the row of little clips. */
@@ -129,25 +163,6 @@ export async function popPinch(page, index) {
   }
 }
 
-/** Item #4: a long slow pull, and then keep leaning on it. */
-export async function heavyPull(page, s, it, { reach = 240, hold = 640 } = {}) {
-  await page.mouse.move(it.x, it.y);
-  await page.mouse.down();
-  for (let i = 1; i <= 14; i++) {
-    const t = i / 14;
-    await page.mouse.move(it.x + s.inDir.x * reach * t, it.y + s.inDir.y * reach * t);
-    await page.waitForTimeout(18);
-  }
-  // Hold, with the small jitter a real finger always has.
-  const ex = it.x + s.inDir.x * reach, ey = it.y + s.inDir.y * reach;
-  const steps = Math.max(1, Math.round(hold / 60));
-  for (let i = 0; i < steps; i++) {
-    await page.mouse.move(ex + (i % 2), ey + ((i + 1) % 2));
-    await page.waitForTimeout(60);
-  }
-  await page.mouse.up();
-}
-
 /** Item #4, the wrong way: a fast flick. Heavy things ignore fast. */
 export async function flick(page, s, it, dist = 260) {
   await page.mouse.move(it.x, it.y);
@@ -159,25 +174,27 @@ export async function flick(page, s, it, dist = 260) {
   await page.mouse.up();
 }
 
-/** The real gesture for whichever item this is. */
-export async function playItem(page, s, it, index) {
-  if (it.id === 'shirt') return liftAndArc(page, s, it);
-  if (it.id === 'pinch') return popPinch(page, index);
-  if (it.id === 'pants') return heavyPull(page, s, it);
-  return pullIn(page, s, it);
+/** Tap a single peg. The sheet's pegs open to a touch; so do the pinch's. */
+export async function tapPeg(page, index, which = 0) {
+  const s = await snapshot(page);
+  const pts = s.items[index].clipPts.filter((c) => !c.popped);
+  const peg = pts[Math.min(which, pts.length - 1)];
+  await page.mouse.click(peg.x, peg.y);
+  await page.waitForTimeout(140);
+  return peg;
 }
 
 /**
- * Bring the whole line in, each item with its own gesture. The towel and the
- * sheet pop one peg per stroke, so this keeps going until nothing is HANGING.
+ * Bring the whole line in the way a child would: find something still hanging,
+ * pull it toward the room, repeat. One gesture, five items.
  */
-export async function playAllItems(page, { maxStrokes = 60 } = {}) {
+export async function playAllItems(page, { maxStrokes = 30 } = {}) {
   for (let stroke = 0; stroke < maxStrokes; stroke++) {
     const s = await snapshot(page);
     const index = s.items.findIndex((it) => it.state === 'HANGING');
     if (index < 0) return s;
-    await playItem(page, s, s.items[index], index);
-    await page.waitForTimeout(80);
+    await naiveStroke(page, s, s.items[index]);
+    await page.waitForTimeout(120);
   }
   throw new Error('items did not come off the line: ' + JSON.stringify(await snapshot(page)));
 }

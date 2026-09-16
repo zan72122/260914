@@ -20,13 +20,30 @@ const CASES = [
   ['landscape', IPAD_LANDSCAPE, 'iPad landscape'],
 ];
 
-/** Pull the first peg that is still holding, toward the room. */
-async function pullPeg(page, dist) {
+/**
+ * Take one peg off, on its own.
+ *
+ * A *touch* on a peg is the sheet's flourish and the only gesture that takes
+ * exactly one peg however long the finger stays down -- a held pull now unzips
+ * the row on the beat, which is the point of phase 4 and is covered in
+ * tests/naive.spec.js. So this is the one-at-a-time gesture, and it is still
+ * the one that lets a child take the four corners off in any order she likes.
+ */
+async function tapPeg(page) {
   const s = await snapshot(page);
   const sheet = s.items[SHEET];
   const peg = sheet.clipPts.find((c) => !c.popped);
   expect(peg, 'a peg that is still holding').toBeTruthy();
-  // Start a little below the peg so the finger is on cloth, not on thin air.
+  await page.mouse.click(peg.x, peg.y);
+  await page.waitForTimeout(160);
+  return sheet.clips;
+}
+
+/** The pull that hauls on the cloth itself, well away from any peg. */
+async function pullPeg(page, dist) {
+  const s = await snapshot(page);
+  const sheet = s.items[SHEET];
+  const peg = sheet.clipPts.find((c) => !c.popped);
   const x0 = peg.x + s.inDir.x * 6;
   const y0 = peg.y + (s.inDir.y ? 10 : 6);
   await drag(page, x0, y0, x0 + s.inDir.x * dist, y0 + s.inDir.y * dist, 16);
@@ -56,10 +73,10 @@ for (const [name, vp, label] of CASES) {
     expect(sheetOf(start).clips).toBe(4);
     const basket0 = start.basket;
 
-    // --- three pegs, one gesture each ------------------------------------
+    // --- three pegs, one touch each --------------------------------------
     for (let i = 1; i <= 3; i++) {
       const before = await snapshot(page);
-      await pullPeg(page, dist);
+      await tapPeg(page);
       const after = await waitFor(page, (s) => sheetOf(s).clips === 4 - i,
         8000, `${4 - i} pegs left`);
       expect(sheetOf(after).clips).toBe(sheetOf(before).clips - 1);
@@ -132,5 +149,51 @@ test('the sheet stretches but never lets go when pulled the wrong way', async ({
   const after = await snapshot(page);
   expect(sheetOf(after).state).toBe('HANGING');
   expect(sheetOf(after).clips).toBe(4);
+  expect(errors, errors.join('\n')).toEqual([]);
+});
+
+test('a held pull takes the sheet apart on the beat, not all at once', async ({ page }) => {
+  const errors = collectErrors(page);
+  await openGame(page, IPHONE_PORTRAIT, { timeScale: 1 });   // real seconds
+  await waitFor(page, (s) => s.state === 'WIND' || s.state === 'RAIN_RAMP', 30000, 'wind');
+
+  // Record, frame by frame, the moment each peg goes.
+  await page.evaluate(() => {
+    window.__pegT = [];
+    let last = 4;
+    const tick = () => {
+      const it = window.__gameInstance.items[4];
+      const n = it.popped.filter((v) => !v).length;
+      if (n < last) { last = n; window.__pegT.push(performance.now()); }
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
+
+  const s = await snapshot(page);
+  const sheet = s.items[SHEET];
+  // One stroke: on to the cloth, down toward the room, and keep pulling.
+  const x0 = sheet.x, y0 = sheet.y;
+  await page.mouse.move(x0, y0);
+  await page.mouse.down();
+  for (let i = 1; i <= 20; i++) {
+    await page.mouse.move(x0, y0 + (140 * i) / 20);
+    await page.waitForTimeout(16);
+  }
+  for (let i = 0; i < 26; i++) {
+    await page.mouse.move(x0 + (i % 2), y0 + 140);
+    await page.waitForTimeout(70);
+  }
+  await page.mouse.up();
+
+  const times = await page.evaluate(() => window.__pegT);
+  expect(times.length, 'all four pegs came off the one pull').toBe(4);
+  for (let i = 1; i < times.length; i++) {
+    const gap = times[i] - times[i - 1];
+    // Long enough to watch the freed corner fill with air, short enough that
+    // a four year old never wonders whether it has stopped working.
+    expect(gap, `peg ${i} came ${Math.round(gap)}ms after the last`).toBeGreaterThan(280);
+    expect(gap).toBeLessThan(900);
+  }
   expect(errors, errors.join('\n')).toEqual([]);
 });

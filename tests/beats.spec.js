@@ -139,6 +139,68 @@ test('she keeps pointing at the washing until something is touched', async ({ pa
   }
 });
 
+for (const [label, vp] of [['portrait', IPHONE_PORTRAIT], ['landscape', IPAD_LANDSCAPE]]) {
+  test(`${label}: the pointing is unmistakable in a single still frame`, async ({ page }) => {
+    const errors = collectErrors(page);
+    await openGame(page, vp, { timeScale: 1 });
+    await waitFor(page, (s) => s.state === 'SPOT' || s.state === 'WIND', 15000, 'the cue');
+
+    // Freeze the moment the arm is out.
+    await page.waitForFunction(() => window.__game.pointing, null, { timeout: 12000 });
+    await page.waitForTimeout(120);
+
+    // She is pointing at something that is still on the line, and the pegs
+    // holding *that* thing are lit up with her.
+    const cue = await page.evaluate(() => {
+      const g = window.__gameInstance;
+      const it = g.cueItem;
+      const f = { x: 0, y: 0 };
+      g.character.foot(f);
+      return {
+        id: it && it.id,
+        state: it && it.state,
+        glint: it ? it.cueGlint : 0,
+        point: g.character.point ? { x: g.character.point.x, y: g.character.point.y } : null,
+        foot: f,
+        h: g.character.h,
+      };
+    });
+    expect(cue.state, 'she points at something still hanging').toBe('HANGING');
+    expect(cue.glint, 'the pegs on it are not lit').toBeGreaterThan(0.3);
+    expect(cue.point).toBeTruthy();
+
+    // The arm points *out of the room and up at the washing*, not at her feet.
+    const dx = cue.point.x - cue.foot.x;
+    const dy = cue.point.y - (cue.foot.y - cue.h * 0.6);
+    expect(Math.hypot(dx, dy), 'she points at something right next to her')
+      .toBeGreaterThan(cue.h * 0.5);
+    expect(dy, 'she points downward').toBeLessThan(0);
+
+    // And in the picture: one still with the arm out, one with it down. If the
+    // gesture were too small to see, these would be nearly identical.
+    const clip = {
+      x: Math.max(0, Math.round(cue.foot.x - cue.h * 1.1)),
+      y: Math.max(0, Math.round(cue.foot.y - cue.h * 1.5)),
+      width: Math.round(cue.h * 2.2),
+      height: Math.round(cue.h * 1.7),
+    };
+    const pointing = await page.screenshot({ clip });
+    await page.screenshot({ path: `tests/screenshots/${label}-pointing.png` });
+    await page.evaluate(() => {
+      window.__gameInstance.character.stopPointing();
+      window.__gameInstance.touched = true;   // and keep it down
+    });
+    await page.waitForTimeout(200);
+    const armDown = await page.screenshot({ clip });
+
+    let diff = 0;
+    const n = Math.min(pointing.length, armDown.length);
+    for (let i = 0; i < n; i++) if (pointing[i] !== armDown[i]) diff++;
+    expect(diff / n, 'the pointing arm barely shows').toBeGreaterThan(0.05);
+    expect(errors, errors.join('\n')).toEqual([]);
+  });
+}
+
 test('the empty line: the handle is alive in a single still frame', async ({ page }) => {
   const errors = collectErrors(page);
   await openGame(page, IPHONE_PORTRAIT, { timeScale: 4 });
