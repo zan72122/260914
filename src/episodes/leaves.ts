@@ -209,6 +209,10 @@ class Leaves implements Episode {
   // beats
   private loops = 0;
   private ending: 'none' | 'held' | 'scattered' = 'none';
+  /** some lap ended with a pile still standing: the squirrel gets his dive */
+  private heldOnce = false;
+  /** seconds since the finger last touched anything */
+  private idle = 0;
   private quiet = 0;
   private settleBeat = -1;
   private driftT = -1;
@@ -620,6 +624,8 @@ class Leaves implements Episode {
     this.ch.x = this.geo.charFrom.x;
     this.loops = 0;
     this.ending = 'none';
+    this.heldOnce = false;
+    this.idle = 0;
 
     switch (name) {
       case 'establish':
@@ -747,14 +753,15 @@ class Leaves implements Episode {
       case 'resolve':
         this.breezeT = 0.12;
         this.vortex = null;
-        this.ending = this.pileFrac() > 0.4 ? 'held' : 'scattered';
+        if (this.pileFrac() > 0.42) this.heldOnce = true;
+        this.ending = this.pileFrac() > 0.4 || this.heldOnce ? 'held' : 'scattered';
         break;
       case 'comic':
         this.ch.on = true;
         this.ch.t = 0;
         this.ch.x = this.geo.charFrom.x;
         this.ch.y = this.geo.charTo.y;
-        this.ending = this.pileFrac() > 0.42 ? 'held' : 'scattered';
+        this.ending = this.pileFrac() > 0.42 || this.heldOnce ? 'held' : 'scattered';
         this.breezeT = 0.1;
         break;
       case 'settle':
@@ -772,6 +779,8 @@ class Leaves implements Episode {
     ph.update(dt);
 
     if (this.down && !this.held) this.applyHold(1);
+    if (this.down || this.held) this.idle = 0;
+    else this.idle += dt;
     this.updateBeats(dt);
     this.updateWind(dt);
     for (const l of this.leaves) this.stepLeaf(l, dt);
@@ -860,6 +869,9 @@ class Leaves implements Episode {
           if (this.settleBeat > 1.9) this.advance('foreshadow');
         } else if (ph.t > 44 && this.pileFrac() > 0.3) {
           this.advance('foreshadow');
+        } else if (this.idle > 18) {
+          // the wind comes anyway, and scatters whatever is lying about
+          this.advance('foreshadow');
         }
         break;
       }
@@ -878,7 +890,7 @@ class Leaves implements Episode {
 
       case 'resolve': {
         const rebuilt = this.pileFrac() >= 0.6;
-        if (rebuilt && !this.down && this.loops < 2) {
+        if (rebuilt && !this.down && this.loops < 1) {
           this.quiet += dt;
           if (this.quiet > 1.1) {
             this.loops++;
@@ -888,7 +900,7 @@ class Leaves implements Episode {
         } else {
           this.quiet = 0;
         }
-        if (ph.t > 10 && !this.down) this.advance('comic');
+        if (ph.t > 6 && !this.down) this.advance('comic');
         break;
       }
 
@@ -2248,6 +2260,7 @@ class Leaves implements Episode {
   // ------------------------------------------------------------ input
 
   pointer(e: PointerEvt): void {
+    this.idle = 0;
     if (e.type === 'down') {
       this.down = true;
       this.ptX = e.x;
@@ -2580,6 +2593,8 @@ class Leaves implements Episode {
       waves: this.waves.length,
       waveClock: +this.waveClock.toFixed(2),
       loops: this.loops,
+      heldOnce: this.heldOnce,
+      idle: +this.idle.toFixed(1),
       ending: this.ending,
       critter: this.ch.on ? { t: +this.ch.t.toFixed(2), inPile: +this.ch.inPile.toFixed(2), hat: !!this.ch.hatLeaf } : null,
     };

@@ -23,7 +23,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 const argv = process.argv.slice(2);
 const outIdx = argv.findIndex((a) => a === '--out' || a === '--outDir');
 const DIST = (outIdx >= 0 ? argv[outIdx + 1] : process.env.DIST_DIR) || 'dist';
-const ONLY = argv.filter((a, i) => !a.startsWith('--') && i !== outIdx + 1)[0] || null;
+const ONLY = argv.filter((a, i) => !a.startsWith('--') && (outIdx < 0 || i !== outIdx + 1))[0] || null;
 const OUT = `shots/${ONLY ?? 'all'}`;
 const PORT = 4100 + Math.floor(Math.random() * 800);
 

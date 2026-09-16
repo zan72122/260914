@@ -215,6 +215,14 @@ class Snowman implements Episode {
   private foreDripY = 0;
   private foreDripFall = 0;
   private replayArmed = false;
+  /** seconds since the finger last did anything */
+  private idle = 0;
+  /** the one idle gust that shows a ball can roll */
+  private gust: { b: Ball; t: number; fromX: number; toX: number } | null = null;
+  private gustDone = false;
+  /** the idle sun that comes out for a look and then goes back in */
+  private peekT = 0;
+  private peekDone = false;
 
   // camera
   private camZ = 1;
@@ -577,6 +585,11 @@ class Snowman implements Episode {
     this.foreDripFall = 0;
     this.clumpDone = false;
     this.meltedMass = 0;
+    this.idle = 0;
+    this.gust = null;
+    this.gustDone = false;
+    this.peekT = 0;
+    this.peekDone = false;
 
     const cold = () => {
       this.ending = 'none';
@@ -597,7 +610,7 @@ class Snowman implements Episode {
       this.snowLeanV = 0;
       this.cloud.x = this.geo.cloudHome.x;
       this.cloud.y = this.geo.cloudHome.y;
-      this.cloud.vx = this.geo.unit * 0.0006;
+      this.cloud.vx = this.cloudDrift();
       this.bird.state = 'away';
       this.bird.t = 0;
       this.homeBalls();
@@ -775,6 +788,8 @@ class Snowman implements Episode {
     const ph = this.ctx.phase;
     ph.update(dt);
 
+    if (this.held || this.cloud.held) this.idle = 0;
+    else this.idle += dt;
     this.updateBeats(dt);
     this.updateSky(dt);
     this.updateShade();
@@ -827,6 +842,7 @@ class Snowman implements Episode {
         } else {
           this.quiet = 0;
         }
+        this.updateIdleAction(dt);
         break;
       }
 
@@ -866,6 +882,14 @@ class Snowman implements Episode {
         if (this.savedFor > 1.1 && this.stack.length >= 2) {
           this.ending = 'saved';
           this.advance('resolve');
+        } else if (this.stack.length === 0) {
+          // nobody built anything: the sun takes the loose snow instead
+          let m = 0;
+          for (const b of this.balls) if (b.state === 'ground' && b.x > -1000) m = Math.max(m, b.melt);
+          if (m >= 0.72 || this.troubleT > 16) {
+            this.ending = 'melted';
+            this.advance('resolve');
+          }
         } else if (this.stack.length <= 1 && (this.stack[0]?.melt ?? 1) >= 0.78) {
           this.ending = 'melted';
           this.advance('resolve');
@@ -902,6 +926,104 @@ class Snowman implements Episode {
         if (ph.t > (this.ending === 'melted' ? 13 : 6.5) && !this.held && !this.replayArmed) this.leave();
         break;
     }
+  }
+
+  /**
+   * Nothing is happening and nobody is touching the snow. The world shows the
+   * child what this place does, in this order: a gust rolls a ball a little,
+   * then the sun comes out for a look and goes back in. If they still do not
+   * come in, the weather stops waiting.
+   */
+  private updateIdleAction(dt: number): void {
+    if (this.held || this.cloud.held) return;
+
+    // two balls on top of each other is already a snowman: get on with it
+    if (this.stack.length >= 2) {
+      if (this.idle > 8) this.advance('foreshadow');
+      return;
+    }
+
+    if (this.gust) {
+      const a = this.gust;
+      a.t += dt / 1.1;
+      const f = clamp(a.t, 0, 1);
+      const nx = lerp(a.fromX, a.toX, smooth(f));
+      a.b.rot += (nx - a.b.x) / Math.max(6, a.b.r);
+      a.b.x = nx;
+      this.pushTrail(a.b);
+      if (a.t >= 1) {
+        a.b.squash = 0.18;
+        this.gust = null;
+      }
+      return;
+    }
+
+    if (this.peekT > 0) {
+      this.peekT -= dt;
+      // the loose snow answers the light: wet shine, a slightly sagging shape
+      for (const b of this.balls) {
+        if (b.state !== 'ground' || b.x < -1000) continue;
+        b.sheen += (this.sunUp * 0.8 - b.sheen) * (1 - Math.exp(-dt * 2));
+        b.melt = Math.min(0.1, b.melt + this.sunUp * dt * 0.012);
+      }
+      if (this.peekT <= 0) {
+        this.peekT = 0;
+        this.peekDone = true;
+        this.lidTarget = 1;
+        this.sunUpTarget = 0;
+        this.idle = 0;
+        this.ctx.audio.whoosh(0.3, 1.9);
+      }
+      return;
+    }
+
+    if (!this.gustDone && this.idle > 12) {
+      this.startIdleGust();
+      return;
+    }
+    if (this.idle > (this.peekDone ? 10 : 20)) {
+      if (!this.peekDone) {
+        // the sun opens a gap and has a look at the loose snow
+        this.peekT = 5.5;
+        this.lidTarget = 0.3;
+        this.sunUpTarget = 0.85;
+        this.ctx.audio.whoosh(0.4, 1.5);
+      } else {
+        // it has been patient long enough
+        this.advance('foreshadow');
+      }
+    }
+  }
+
+  /** one small gust: the ball nearest the building spot rolls a little */
+  private startIdleGust(): void {
+    this.gustDone = true;
+    const g = this.geo;
+    let best: Ball | null = null;
+    let bd = 1e9;
+    for (const b of this.balls) {
+      if (b.state !== 'ground' || b.x < -1000) continue;
+      const d = Math.abs(b.x - g.buildX);
+      if (d < bd) {
+        bd = d;
+        best = b;
+      }
+    }
+    if (!best) return;
+    const dir = Math.sign(g.buildX - best.x) || 1;
+    const to = clamp(best.x + dir * g.unit * 0.075, best.r * 0.8, g.w - best.r * 0.8);
+    this.gust = { b: best, t: 0, fromX: best.x, toX: to };
+    this.ctx.audio.whoosh(0.45, 1.6);
+    for (let i = 0; i < 6; i++) this.puff(best.x - dir * best.r * 0.8, g.groundY, 0.5);
+  }
+
+  /**
+   * The idle drift of the free cloud. It moves away from the sun and it moves
+   * slowly: left alone it needs the best part of a minute to wander round to
+   * the sun, so the save always belongs to the child, never to the weather.
+   */
+  private cloudDrift(): number {
+    return -this.geo.sunSide * this.geo.unit * 0.0002;
   }
 
   private updateSky(dt: number): void {
@@ -1029,7 +1151,15 @@ class Snowman implements Episode {
         }
       }
 
-      if (melting && b.state === 'stacked') {
+      // loose snow only melts when it is all there is: a leftover ball beside a
+      // finished snowman keeps its shape, as it always has
+      if (melting && b.state === 'ground' && this.stack.length === 0 && b.x > -1000) {
+        const rate = this.heat * 0.075 * (g.unit * 0.076 / Math.max(6, b.r));
+        b.melt = Math.min(0.95, b.melt + rate * dt);
+        b.sheen += (this.heat * 0.85 + b.melt * 0.2 - b.sheen) * (1 - Math.exp(-dt * 2.4));
+        this.puddle = Math.min(0.8, this.puddle + this.heat * dt * 0.03);
+        this.wetGround = Math.min(1, this.wetGround + this.heat * dt * 0.2);
+      } else if (melting && b.state === 'stacked') {
         const rate = this.heat * 0.1 * (g.unit * 0.076 / Math.max(6, b.r));
         const cap = this.stack.length === 1 && this.stack[0] === b ? 0.8 : 1;
         b.melt = Math.min(cap, b.melt + rate * dt);
@@ -2641,6 +2771,7 @@ class Snowman implements Episode {
   // ---------------------------------------------------------------- input
 
   pointer(e: PointerEvt): void {
+    this.idle = 0;
     const prevX = this.px;
     this.px = e.x;
     this.py = e.y;
@@ -2688,24 +2819,26 @@ class Snowman implements Episode {
       return;
     }
 
-    const cand: Array<{ d: number; fn: () => void }> = [];
-    const add = (px: number, py: number, pad: number, fn: () => void) => {
+    // small props win over the big snowballs they lie next to: a carrot is a
+    // thin thing on the ground and a four-year-old aims at it approximately
+    const cand: Array<{ d: number; pri: number; fn: () => void }> = [];
+    const add = (px: number, py: number, pad: number, fn: () => void, pri = 1) => {
       const d = Math.hypot(x - px, y - py) - pad;
-      if (d < reach) cand.push({ d, fn });
+      if (d < reach) cand.push({ d, pri, fn });
     };
 
     if (this.hat.state === 'ground' || this.hat.state === 'fallen') {
-      add(this.hat.x, this.hat.y - g.unit * 0.04, g.unit * 0.075, () => {
+      add(this.hat.x, this.hat.y - g.unit * 0.04, g.unit * 0.085, () => {
         this.hat.state = 'held';
         this.hat.grabDX = 0;
         this.hat.grabDY = -g.unit * 0.05;
         this.heldKind = 'hat';
         this.held = this.hat;
         this.ctx.audio.flump(0);
-      });
+      }, 0);
     }
     if (this.carrot.state === 'ground' || this.carrot.state === 'fallen') {
-      add(this.carrot.x, this.carrot.y, g.unit * 0.06, () => {
+      add(this.carrot.x, this.carrot.y, g.unit * 0.095, () => {
         this.carrot.state = 'held';
         this.carrot.grabDX = 0;
         this.carrot.grabDY = -g.unit * 0.02;
@@ -2713,7 +2846,7 @@ class Snowman implements Episode {
         this.heldKind = 'carrot';
         this.held = this.carrot;
         this.ctx.audio.drop(1.5);
-      });
+      }, 0);
     }
     add(this.umbrella.x, this.umbrella.y - g.unit * 0.19, g.unit * 0.11, () => {
       this.umbrella.state = 'held';
@@ -2733,7 +2866,7 @@ class Snowman implements Episode {
       }
     }
 
-    cand.sort((a, b) => a.d - b.d);
+    cand.sort((a, b) => a.pri - b.pri || a.d - b.d);
     if (cand.length) {
       cand[0].fn();
       return;
@@ -2794,7 +2927,8 @@ class Snowman implements Episode {
     const h = this.held;
     this.held = null;
     if (kind === 'cloud') {
-      this.cloud.vx = g.unit * 0.0006;
+      this.cloud.vx = this.cloudDrift();
+      void g;
       return;
     }
     if (kind === 'stack') {
@@ -3001,7 +3135,7 @@ class Snowman implements Episode {
       run: () => {
         this.cloud.x = this.geo.sun.x;
         this.cloud.y = this.geo.sun.y;
-        this.cloud.vx = this.geo.unit * 0.0003;
+        this.cloud.vx = this.cloudDrift();
       },
     },
     {
@@ -3154,6 +3288,10 @@ class Snowman implements Episode {
       carrot: this.carrot.state,
       umbrellaX: Math.round(this.umbrella.x),
       cloudX: Math.round(this.cloud.x),
+      cloudVX: +this.cloud.vx.toFixed(4),
+      idle: +this.idle.toFixed(1),
+      peeked: this.peekDone,
+      gusted: this.gustDone,
       bird: this.bird.state,
       held: this.heldKind,
       topXY: (() => {

@@ -209,6 +209,20 @@ class Laundry implements Episode {
   private pointerX = 0;
   private pointerY = 0;
 
+  // nobody is playing: the person at the door does the washing themselves
+  /** seconds since the finger last did anything */
+  private idle = 0;
+  /** idle time at which the next self-hang starts */
+  private autoNext = 10;
+  /** the scripted hang in flight */
+  private autoHang: { g: Garment; t: number; fromX: number; fromY: number; u: number } | null = null;
+  /** idle time at which the first garment went up by itself, -1 if none yet */
+  private autoHungAt = -1;
+  /** 0..1 how far they are leaning out with an arm to the line */
+  private reach = 0;
+  /** a dev-posed garment hangs off an imaginary finger: it blocks nothing */
+  private posed = false;
+
   // ---------------------------------------------------------------- setup
 
   init(ctx: EpisodeCtx): void {
@@ -487,6 +501,12 @@ class Laundry implements Episode {
     this.soakClock = 0;
     this.dropBeats = [1.1, 2.6, 3.4, 4.1, 4.7, 5.2, 5.6, 5.9];
     this.held = null;
+    this.idle = 0;
+    this.autoNext = 10;
+    this.autoHang = null;
+    this.autoHungAt = -1;
+    this.reach = 0;
+    this.posed = false;
     this.bits = [];
     this.drops = [];
     this.ripples = [];
@@ -682,6 +702,9 @@ class Laundry implements Episode {
     const ph = this.ctx.phase;
     ph.update(dt);
 
+    if (this.busy() && !this.autoHang) this.idle = 0;
+    else this.idle += dt;
+    this.updateAutoHang(dt);
     this.updateBeats(dt);
     this.updateSky(dt);
     this.updateRain(dt);
@@ -724,8 +747,19 @@ class Laundry implements Episode {
     }
   }
 
+  /** a finger (or the scripted hand) is really holding something right now */
+  private busy(): boolean {
+    return !!this.held && !this.posed;
+  }
+
   private outdoors(g: Garment): boolean {
-    return g.state === 'hung' || g.state === 'loose' || (g.state === 'held' && !this.inDoor(g.spine[0].x, g.spine[0].y));
+    // the basket is out on the balcony too — the rain does not spare it
+    return (
+      g.state === 'hung' ||
+      g.state === 'loose' ||
+      g.state === 'basket' ||
+      (g.state === 'held' && !this.inDoor(g.spine[0].x, g.spine[0].y))
+    );
   }
 
   private inDoor(x: number, y: number): boolean {
@@ -737,16 +771,22 @@ class Laundry implements Episode {
     const ph = this.ctx.phase;
     switch (ph.name) {
       case 'establish':
-        if (ph.t > 2.6 && !this.held) this.advance('action');
+        if (ph.t > 2.6 && !this.busy()) this.advance('action');
         break;
 
       case 'action': {
         const hung = this.garments.filter((g) => g.state === 'hung').length;
-        if (hung === this.garments.length && !this.held) {
+        if (hung === this.garments.length && !this.busy()) {
           this.quiet += dt;
           if (this.quiet > 2.4) this.advance('foreshadow');
         } else {
           this.quiet = 0;
+        }
+        // nobody is playing: the weather arrives on its own once something is
+        // on the line (and in any case before the child gets bored)
+        if (!this.autoHang && !this.busy()) {
+          const waited = this.autoHungAt >= 0 && this.idle > this.autoHungAt + 6;
+          if ((hung > 0 && waited) || this.idle > 25) this.advance('foreshadow');
         }
         break;
       }
@@ -794,13 +834,68 @@ class Laundry implements Episode {
         break;
 
       case 'settle':
-        if (ph.t > 6 && !this.held) this.leave();
+        if (ph.t > 6 && !this.busy()) this.leave();
         break;
     }
   }
 
   private leave(): void {
     if (!this.fadeOut) this.fadeOut = true;
+  }
+
+  /**
+   * Nobody has touched the screen. Rather than wait, the person at the door
+   * steps out and hangs one themselves: the garment travels the very path a
+   * finger would drag it along and lands with the same snap, so the child who
+   * looks up has just been shown what to do.
+   */
+  private updateAutoHang(dt: number): void {
+    const playable = this.ctx.phase.at('action');
+    if (!playable) {
+      if (this.autoHang) this.finishAutoHang();
+      this.reach = Math.max(0, this.reach - dt * 3);
+      return;
+    }
+
+    const a = this.autoHang;
+    if (a) {
+      a.t += dt / 1.6;
+      const f = clamp(a.t, 0, 1);
+      const p = this.linePoint(a.u);
+      const e = smooth(f);
+      this.pointerX = lerp(a.fromX, p.x, e);
+      this.pointerY = lerp(a.fromY, p.y, e) - Math.sin(Math.PI * f) * this.geo.h * 0.045;
+      this.reach = Math.min(1, this.reach + dt * 3);
+      if (f >= 1) this.finishAutoHang();
+      return;
+    }
+
+    this.reach = Math.max(0, this.reach - dt * 2.4);
+    if (this.held || this.idle < this.autoNext) return;
+    const g = this.garments.find((x) => x.state === 'basket') ?? this.garments.find((x) => x.state === 'loose');
+    if (!g) return;
+    this.grab(g);
+    this.autoHang = { g, t: 0, fromX: g.spine[0].x, fromY: g.spine[0].y, u: this.freeSlot(0.5) };
+  }
+
+  /** snap the scripted garment onto the line, exactly as a release would */
+  private finishAutoHang(): void {
+    const a = this.autoHang;
+    this.autoHang = null;
+    if (!a) return;
+    const g = a.g;
+    if (g.state === 'held') {
+      g.state = 'hung';
+      g.u = this.freeSlot(a.u);
+      const lp = this.linePoint(g.u);
+      g.spine[0].x = lp.x;
+      g.spine[0].y = lp.y;
+      g.settle = 1;
+      this.ctx.audio.flump(g.wet * 0.6);
+    }
+    if (this.held === g) this.held = null;
+    if (this.autoHungAt < 0) this.autoHungAt = this.idle;
+    this.autoNext = this.idle + 5; // one more every five quiet seconds
   }
 
   private updateSky(dt: number): void {
@@ -819,7 +914,9 @@ class Laundry implements Episode {
   }
 
   private aimDrop(first: boolean): void {
-    const targets = this.garments.filter((g) => g.state === 'hung');
+    let targets = this.garments.filter((g) => g.state === 'hung');
+    // nothing on the line: the rain simply finds the basket instead
+    if (!targets.length) targets = this.garments.filter((g) => g.state === 'basket' || g.state === 'loose');
     if (!targets.length) return;
     const g = first ? targets.find((x) => x.kind === 'shirt') ?? targets[0] : this.rng.pick(targets);
     const t = first ? 0.22 : this.rng.range(0.1, 0.55);
@@ -955,6 +1052,13 @@ class Laundry implements Episode {
   private stepGarment(g: Garment, dt: number, warm: boolean): void {
     if (g.state === 'basket' || g.state === 'inside') {
       g.settle = Math.max(0, g.settle - dt * 2);
+      // a basketful left out in the rain slowly darkens too
+      if (g.state === 'basket' && !warm && this.rain > 0.02) {
+        const r = this.rain * 0.05 * dt;
+        g.wet = Math.min(1, g.wet + r);
+        g.front = Math.min(1, g.front + r * 2.6);
+        for (const sp of g.spots) sp.grow = Math.min(3.4, sp.grow + dt * 0.5);
+      }
       return;
     }
     const geo = this.geo;
@@ -1762,7 +1866,9 @@ class Laundry implements Episode {
   }
 
   private comicLean(): number {
-    return this.ctx.phase.is('comic', 'settle') ? smooth((this.comicT - 0.05) / 0.5) : 0;
+    const comic = this.ctx.phase.is('comic', 'settle') ? smooth((this.comicT - 0.05) / 0.5) : 0;
+    // reaching out to the line leans them through the doorway the same way
+    return Math.max(comic, this.reach * 0.85);
   }
 
   private drawCharacter(gg: CanvasRenderingContext2D, d: { x: number; y: number; w: number; h: number }, side: number): void {
@@ -1831,8 +1937,24 @@ class Laundry implements Episode {
     const ax = x + out * headR * 0.78;
     const ay = shoulderY + headR * 0.2;
     const alen = headR * 1.55;
-    const ex = ax + Math.cos(armA) * alen * out;
-    const ey = ay + Math.sin(armA) * alen;
+    let ex = ax + Math.cos(armA) * alen * out;
+    let ey = ay + Math.sin(armA) * alen;
+    // reaching out to peg a garment up themselves: the hand goes to the cloth
+    if (this.reach > 0.002 && this.autoHang) {
+      const n = this.autoHang.g.spine[0];
+      let tx = n.x;
+      let ty = n.y;
+      const dx = tx - ax;
+      const dy = ty - ay;
+      const dl = Math.hypot(dx, dy) || 1;
+      const max = headR * 3.1;
+      if (dl > max) {
+        tx = ax + (dx / dl) * max;
+        ty = ay + (dy / dl) * max;
+      }
+      ex = lerp(ex, tx, this.reach);
+      ey = lerp(ey, ty, this.reach);
+    }
     gg.strokeStyle = shirtC;
     gg.lineWidth = headR * 0.52;
     gg.lineCap = 'round';
@@ -2355,6 +2477,10 @@ class Laundry implements Episode {
   // ---------------------------------------------------------------- input
 
   pointer(e: PointerEvt): void {
+    this.idle = 0;
+    this.autoNext = 10;
+    this.posed = false;
+    if (this.autoHang) this.finishAutoHang(); // a finger always wins
     this.pointerX = e.x;
     this.pointerY = e.y;
     if (e.type === 'down') {
@@ -2462,6 +2588,17 @@ class Laundry implements Episode {
 
   // ---------------------------------------------------------------- dev
 
+  /**
+   * A posed dev frame keeps the garment hanging off an imaginary finger, but
+   * nothing is waiting for a pointerup: the beats run on, and a real finger can
+   * pick it up again from there.
+   */
+  private posePause(g: Garment): void {
+    if (this.held === g) this.posed = true;
+    this.autoHang = null;
+    this.idle = 0;
+  }
+
   readonly devActions: DevAction[] = [
     { name: 'hang:all', run: () => this.hangAll() },
     {
@@ -2496,6 +2633,7 @@ class Laundry implements Episode {
           this.pointerY -= 2.3;
           this.stepGarment(g, 1 / 120, true);
         }
+        this.posePause(g);
       },
     },
     {
@@ -2531,6 +2669,7 @@ class Laundry implements Episode {
         this.resetSpine(g, this.pointerX, this.pointerY);
         this.grab(g);
         for (let i = 0; i < 26; i++) this.stepGarment(g, 1 / 120, false);
+        this.posePause(g);
       },
     },
     {
@@ -2565,6 +2704,9 @@ class Laundry implements Episode {
       drops: this.drops.length,
       bits: this.bits.length,
       held: this.held?.kind ?? null,
+      idle: +this.idle.toFixed(1),
+      selfHang: !!this.autoHang,
+      posed: this.posed,
       garments: this.garments.map((g) => ({
         kind: g.kind,
         state: g.state,

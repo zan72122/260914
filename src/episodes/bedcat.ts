@@ -263,6 +263,8 @@ class BedCat implements Episode {
   private strokeDist = 0;
   private heldCat = false;
   private heldPillow = false;
+  /** the child picked the cat up at least once this lap */
+  private catMoved = false;
 
   // ------------------------------------------------------------- setup
 
@@ -647,6 +649,7 @@ class BedCat implements Episode {
     this.stroking = false;
     this.heldCat = false;
     this.heldPillow = false;
+    this.catMoved = false;
     this.comicT = 0;
 
     switch (name) {
@@ -1688,6 +1691,7 @@ class BedCat implements Episode {
     c.sy = 1;
     c.trail = [];
     this.heldCat = true;
+    this.catMoved = true;
     this.ctx.audio.mew();
   }
 
@@ -3429,6 +3433,15 @@ class BedCat implements Episode {
     },
   ];
 
+  /**
+   * How this lap reads once the comic beat is up: the cat kept the bed, or the
+   * child carried it off and it stayed off. Before the comic beat: undecided.
+   */
+  private endingName(): 'cat-won' | 'cat-moved' | 'none' {
+    if (!this.ctx.phase.is('comic', 'settle')) return 'none';
+    return this.catMoved && !this.cat.onBed ? 'cat-moved' : 'cat-won';
+  }
+
   devState(): Record<string, unknown> {
     return {
       phase: this.ctx.phase.name,
@@ -3462,6 +3475,8 @@ class BedCat implements Episode {
         belly: +this.cat.belly.toFixed(2),
         seat: this.cat.seat,
       },
+      ending: this.endingName(),
+      catMoved: this.catMoved,
       spotIndex: this.spotIndex,
       motes: this.motes.length,
       held: this.heldCat ? 'cat' : this.heldPillow ? 'pillow' : this.stroking ? 'sheet' : null,

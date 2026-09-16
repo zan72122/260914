@@ -201,6 +201,8 @@ class Sandcastle implements Episode {
     poured: false,
   };
   private newTower: Tower | null = null;
+  /** nobody has touched anything: the child does one tower on their own */
+  private auto = { on: false, t: 0, fromS: 0, fromU: 0, toS: 0, toU: 0, done: false };
 
   private crab = {
     mode: 'hidden' as CrabMode,
@@ -432,6 +434,8 @@ class Sandcastle implements Episode {
 
     const resetProps = (): void => {
       const hm = this.geo.home;
+      this.auto.on = false;
+      this.auto.done = false;
       this.bucket.state = 'rest';
       this.bucket.s = hm.bucket.x;
       this.bucket.u = hm.bucket.y;
@@ -749,7 +753,7 @@ class Sandcastle implements Episode {
 
   private updateBeats(dt: number): void {
     const ph = this.ctx.phase;
-    if (this.held === 'none' && this.bucket.state === 'rest') this.idle += dt;
+    if (this.held === 'none' && (this.bucket.state === 'rest' || this.auto.on || this.auto.done)) this.idle += dt;
     else this.idle = 0;
 
     switch (ph.name) {
@@ -774,6 +778,10 @@ class Sandcastle implements Episode {
         } else if (!this.toweringDone) {
           // the tide is not going to wait forever
           if (built >= 1 && this.idle > 11) this.advance('foreshadow');
+          // nothing built and nobody touching: the child does one themselves
+          else if (built < 1 && !this.auto.on && !this.auto.done && this.idle > 12 && this.bucket.state === 'rest') {
+            this.startAutoTower();
+          }
           // a small world-cue: the bucket settles a grain or two
           this.nudge -= dt;
           if (this.idle > 5 && this.nudge <= 0) {
@@ -961,9 +969,55 @@ class Sandcastle implements Episode {
 
   // ---------------------------------------------------------------- bucket
 
+  /**
+   * Nobody has touched the beach. The child picks the bucket up themselves and
+   * hops it over to the building spot — the same path a finger would drag it
+   * along, so what happens next is exactly what a finger would have caused.
+   */
+  private startAutoTower(): void {
+    const b = this.bucket;
+    const g = this.geo.build;
+    this.auto.on = true;
+    this.auto.t = 0;
+    this.auto.fromS = b.s;
+    this.auto.fromU = b.u;
+    this.auto.toS = clamp(g.s + 0.02, this.waterAtU(g.u) + 0.06, 1);
+    this.auto.toU = g.u - 0.12;
+    this.kid.look = 1;
+    this.ctx.audio.whoosh(0.28, 0.3);
+  }
+
+  private updateAutoTower(dt: number): void {
+    const a = this.auto;
+    if (!a.on) return;
+    const b = this.bucket;
+    if (b.state !== 'rest') {
+      // a finger took over mid-hop: leave it alone
+      a.on = false;
+      return;
+    }
+    a.t += dt / 1.5;
+    const f = clamp(a.t, 0, 1);
+    // three little hops along the way, the bucket bobbing on each one
+    b.s = lerp(a.fromS, a.toS, smooth(f));
+    b.u = lerp(a.fromU, a.toU, smooth(f));
+    b.lift = Math.abs(Math.sin(f * Math.PI * 3)) * 0.2 * (1 - f * 0.4);
+    if (a.t >= 1) {
+      a.on = false;
+      a.done = true;
+      b.s = a.toS;
+      b.u = a.toU;
+      this.releaseBucket(); // flips it: sand slides out, the tower stands up
+      this.kid.nod = 1;
+      // a short nod at their own work, then the tide fallback takes over
+      this.idle = 8;
+    }
+  }
+
   private updateBucket(dt: number): void {
     const b = this.bucket;
     b.wob = Math.max(0, b.wob - dt * 2.2);
+    this.updateAutoTower(dt);
 
     if (b.state === 'held') {
       const k = 1 - Math.exp(-dt * 20);
@@ -3450,6 +3504,8 @@ class Sandcastle implements Episode {
       surf: +this.surf.toFixed(2),
       bermMax: +bermMax.toFixed(2),
       bucket: this.bucket.state,
+      idle: +this.idle.toFixed(1),
+      autoTower: this.auto.done,
       held: this.held,
       towers: this.towers.map((t) => ({
         s: +t.s.toFixed(2),
