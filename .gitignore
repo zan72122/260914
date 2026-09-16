@@ -1,2 +1,11 @@
 .DS_Store
 **/.DS_Store
+node_modules/
+dist/
+shots/
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+*.log
+dist-*/
