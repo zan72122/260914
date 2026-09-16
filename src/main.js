@@ -437,6 +437,10 @@ class Game {
     g.handle = { x: 0, y: 0 };
     g.inDir = this.world.inDir;
     g.restart = () => this.restart();
+    // Fill it in straight away. A restart resets the game between frames, and
+    // anything reading the global in that gap must not see the old numbers
+    // sitting next to the new state.
+    this.updateDebug();
   }
 
   updateDebug() {
@@ -454,6 +458,10 @@ class Game {
     g.basket = this.basket.count;
     g.time = Math.round(this.t * 100) / 100;
     g.gust = Math.round(this.weather.gust * 1000) / 1000;
+    g.gustBoost = this.weather.gustBoost;
+    g.glassDrop = this.weather.glassDrop
+      ? Math.round(this.weather.glassDrop.v * 1000) / 1000 : -1;
+    g.glint = Math.round(this.sash.glint * 1000) / 1000;
     g.pointing = this.character.pointT > 0;
     const op = this.world.opening;
     if (!g.opening) g.opening = {};

@@ -175,12 +175,26 @@ export class Item {
     return x >= b.x0 - p && x <= b.x1 + p && y >= b.y0 - p && y <= b.y1 + p;
   }
 
-  /** Distance to the cloth, used to pick the front-most item under a finger. */
+  /**
+   * How far the finger is from this actual piece of cloth, in css px.
+   *
+   * Measured to the nearest point of the mesh, not to the bounding box: a
+   * towel swinging on a gust has a box half as wide again as the towel, and
+   * on a line this tightly packed that box reaches well into its neighbours.
+   * The mesh does not lie -- the nearest vertex of the thing the finger is
+   * actually on is a few px away at most, and the nearest vertex of anything
+   * else is a whole item away. Costs one pass over 30-70 points, on
+   * pointerdown only.
+   */
   hitDistance(x, y) {
-    const b = this.hitBox();
-    const dx = Math.max(b.x0 - x, 0, x - b.x1);
-    const dy = Math.max(b.y0 - y, 0, y - b.y1);
-    return Math.sqrt(dx * dx + dy * dy);
+    const cl = this.cloth;
+    let best = Infinity;
+    for (let i = 0; i < cl.n; i++) {
+      const dx = cl.x[i] - x, dy = cl.y[i] - y;
+      const d = dx * dx + dy * dy;
+      if (d < best) best = d;
+    }
+    return Math.sqrt(best);
   }
 
   /**
@@ -392,15 +406,21 @@ export class Item {
    */
   _billow(dt) {
     const g = this.gust;
-    const hanging = this.state === 'HANGING' || this.state === 'RELEASING';
+    // Only while it is still pegged up. Once it has been let go the air in it
+    // is the release's business, and a hem lift here would fight the fall.
+    const hanging = this.state === 'HANGING';
     this.billowTo = hanging ? (this.rainStarted ? 0.10 + 0.95 * g : 0.06) : 0;
     // Fast to fill, slow to empty: cloth snaps out and then subsides.
     const k = this.billowTo > this.billow ? 7.5 : 2.2;
     this.billow += (this.billowTo - this.billow) * Math.min(1, dt * k);
     this.zPhase += dt * (2.2 + 6.5 * g);
     if (this.baseRestH) {
-      setClothScale(this.cloth, this.baseRestH, this.baseRestV,
-        1 + this.billow * 0.07);
+      // Perspective, cheaply: a cloth ballooning at the camera gets wider
+      // across and shorter down the screen, because more of its length is
+      // pointing at the lens. Same helper the sheet scales itself with, given
+      // two different rest lengths instead of one zoom.
+      setClothScale(this.cloth, this.baseRestH * (1 + this.billow * 0.13),
+        this.baseRestV * (1 - this.billow * 0.11), 1);
     }
   }
 
@@ -411,7 +431,10 @@ export class Item {
     const cl = this.cloth;
     const rows = cl.rows, cols = cl.cols;
     if (rows < 2) return;
-    const lift = this.world.min * (1.1 + 2.3 * this.gust) * b *
+    // At full gust the bottom row is pushed up harder than gravity pulls it
+    // down, so the hem actually curls upward instead of merely swinging --
+    // which is the difference between cloth in wind and cloth on a string.
+    const lift = this.world.min * (1.2 + 2.6 * this.gust) * b *
       (this.spec.windScale === undefined ? 1 : this.spec.windScale);
     const dt2 = dt * dt;
     for (let r = 1; r < rows; r++) {
@@ -551,6 +574,7 @@ export class Item {
     this.cloth.bounds(BOX);
     out.bounds = { x0: r1(BOX.x0), y0: r1(BOX.y0), x1: r1(BOX.x1), y1: r1(BOX.y1) };
     out.pad = Math.round(this.hitPad * 10) / 10;
+    out.spots = this.spots.length;
     out.billow = Math.round(this.billow * 1000) / 1000;
     return out;
   }

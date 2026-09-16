@@ -10,17 +10,22 @@
 // itself 78% of the window opening -- the last fifth is the parked pane of
 // glass the first raindrop lands on):
 //
-//   towel  body [0.000 .. 0.140]   centre 0.070
-//   shirt  body [0.152 .. 0.325]   centre 0.238   (0.117 of cloth + sleeves)
-//   pinch  body [0.336 .. 0.506]   centre 0.421
-//   pants  body [0.518 .. 0.633]   centre 0.575
-//   sheet  body [0.644 .. 0.999]   centre 0.8215  (35.5%: the biggest, by far)
+//   towel  body [0.0000 .. 0.1320]  centre 0.0660
+//   shirt  body [0.1435 .. 0.3165]  centre 0.2300  (0.117 of cloth + sleeves)
+//   pinch  body [0.3280 .. 0.4830]  centre 0.4055
+//   pants  body [0.4945 .. 0.6095]  centre 0.5520
+//   sheet  body [0.6440 .. 0.9990]  centre 0.8215  (35.5%: the biggest, by far)
 //
-// Every gap is ~1.15% of the span and every body is disjoint from its
-// neighbours in both orientations, because all of it is proportional to the
-// pole. The shirt's body is wider than its cloth: its sleeves hang out past
-// the shoulders by SLEEVE_OVERHANG of the cloth width on each side, and the
-// packing above counts them.
+// Every body is disjoint from its neighbours in both orientations, because
+// all of it is proportional to the pole. The shirt's body is wider than its
+// cloth: its sleeves hang out past the shoulders by SLEEVE_OVERHANG of the
+// cloth width on each side, and the packing above counts them.
+//
+// The gaps are 1.15% of the span except the one before the sheet, which is
+// three times that. The sheet's outermost peg sits on the very corner of the
+// cloth, so that gap is the whole distance between two pegs belonging to two
+// different items -- and a finger reaching for one of them must never be
+// given the other.
 //
 // `hFrac` is a fraction of the window opening's height. Phase 3 roughly
 // doubled it: on a phone the hems now reach about two thirds of the way down
@@ -37,14 +42,14 @@ export const SLEEVE_OVERHANG = 0.24;
 
 export const SPECS = [
   {
-    id: 'towel', cls: Towel, slot: 0.070,
-    cols: 6, rows: 7, wFrac: 0.140, hFrac: 0.50,
+    id: 'towel', cls: Towel, slot: 0.0660,
+    cols: 6, rows: 7, wFrac: 0.132, hFrac: 0.50,
     rgb: [255, 206, 92], clipRGB: [238, 96, 90],
     clipCount: 2, pullPx: 42, gravityK: 1, damping: 0.984,
     windScale: 1.05, clothSize: 0.8, clipPitch: 1.15, clipLen: 0.05,
   },
   {
-    id: 'shirt', cls: Shirt, slot: 0.238,
+    id: 'shirt', cls: Shirt, slot: 0.2300,
     cols: 6, rows: 7, wFrac: 0.117, hFrac: 0.50,
     rgb: [124, 202, 231], clipRGB: [201, 211, 220],
     clipCount: 2, pullPx: 46, gravityK: 0.9, damping: 0.986,
@@ -53,15 +58,15 @@ export const SPECS = [
   {
     // Thirteen mesh columns so the six clips sit on odd columns and the row a
     // finger traces never reaches into the neighbouring washing.
-    id: 'pinch', cls: Pinch, slot: 0.421,
-    cols: 13, rows: 4, wFrac: 0.170, hFrac: 0.34,
+    id: 'pinch', cls: Pinch, slot: 0.4055,
+    cols: 13, rows: 4, wFrac: 0.155, hFrac: 0.34,
     rgb: [255, 150, 196], clipRGB: [120, 200, 160],
     clipCount: 6, clipCols: [1, 3, 5, 7, 9, 11],
     pullPx: 34, gravityK: 0.8, damping: 0.982,
     windScale: 1.3, clothSize: 0.55, clipPitch: 1.3, clipLen: 0.035,
   },
   {
-    id: 'pants', cls: Pants, slot: 0.575,
+    id: 'pants', cls: Pants, slot: 0.5520,
     cols: 6, rows: 9, wFrac: 0.115, hFrac: 0.58,
     rgb: [92, 124, 196], clipRGB: [70, 90, 130],
     clipCount: 2, pullPx: 64, gravityK: 1.5, damping: 0.99,
