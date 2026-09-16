@@ -232,3 +232,150 @@ export function drawWetSpot(ctx, x, y, r, alpha) {
   ctx.fill();
   ctx.restore();
 }
+
+// ---------------------------------------------------------------------------
+// Additions for the big sheet (phase 2). Append-only: nothing above changed.
+//
+// The sheet is the only cloth in the game that has to read as a *volume* --
+// something with a front and a back that comes toward the camera and folds
+// over itself. That needs two things the small items do not: a rest length
+// that can grow (2.5D "closer to the lens"), and per-quad lighting from a
+// cheap height field. Both live here so `Cloth` itself stays dumb.
+// ---------------------------------------------------------------------------
+
+/**
+ * Hard cap on Verlet velocity (the per-step delta). A sheet with three pegs
+ * off takes a lot of wind; without this a gust plus a growing rest length can
+ * push a point far enough in one step that the constraint solver never catches
+ * up and the mesh turns inside out. Cheap insurance, runs on 70 points.
+ */
+export function clampClothVelocity(cl, maxStep) {
+  const n = cl.n;
+  const m2 = maxStep * maxStep;
+  for (let i = 0; i < n; i++) {
+    if (cl.pinned[i]) continue;
+    const vx = cl.x[i] - cl.ox[i];
+    const vy = cl.y[i] - cl.oy[i];
+    const d2 = vx * vx + vy * vy;
+    if (d2 > m2) {
+      const k = maxStep / Math.sqrt(d2);
+      cl.ox[i] = cl.x[i] - vx * k;
+      cl.oy[i] = cl.y[i] - vy * k;
+    }
+  }
+}
+
+/**
+ * 2.5D scale: growing the rest lengths makes the mesh physically bigger while
+ * its pinned points stay put, which is exactly what a sheet billowing toward
+ * the viewer looks like. The constraint solver does the rest.
+ */
+export function setClothScale(cl, baseH, baseV, zoom) {
+  cl.restH = baseH * zoom;
+  cl.restV = baseV * zoom;
+}
+
+// Light comes from up and to the left, slightly in front of the cloth.
+const LX = -0.46, LY = -0.62, LZ = 0.64;
+
+/**
+ * Lit strip renderer.
+ *
+ * `z` is a per-point height field (same indexing as the mesh) in units of one
+ * rest cell. The quad normal is approximated as (-dz/dx, -dz/dy, 1) in grid
+ * space and dotted with the light, so a fold that turns away from the window
+ * goes dark and the crest beside it catches the light. Combined with the
+ * foreshortening term from `drawCloth`, folds read as real volume.
+ *
+ * `sheen` (0..1) is the "it just flipped over" highlight: a soft band that
+ * sweeps across the columns during the big release.
+ */
+export function drawClothLit(ctx, cl, palette, wetness, z, sheen, sheenPos, lightBias) {
+  const { cols, rows } = cl;
+  const pal = palette[wetBucket(wetness)];
+  const rest = cl.restH * cl.restV;
+  const lb = lightBias === undefined ? 0 : lightBias;
+  const sh = sheen === undefined ? 0 : sheen;
+  const sp = sheenPos === undefined ? 0 : sheenPos;
+  const invC = cols > 1 ? 1 / (cols - 1) : 1;
+  for (let r = 0; r < rows - 1; r++) {
+    for (let c = 0; c < cols - 1; c++) {
+      const i = r * cols + c;
+      const j = i + 1;
+      const k = i + cols;
+      const l = k + 1;
+      const ax = cl.x[i], ay = cl.y[i];
+      const bx = cl.x[j], by = cl.y[j];
+      const cx2 = cl.x[l], cy2 = cl.y[l];
+      const dx2 = cl.x[k], dy2 = cl.y[k];
+      const area = Math.abs((bx - ax) * (dy2 - ay) - (dx2 - ax) * (by - ay));
+      let t = (rest > 0 ? area / rest : 1) * 0.62;
+      // Surface normal from the height field.
+      const gx = ((z[j] + z[l]) - (z[i] + z[k])) * 0.5;
+      const gy = ((z[k] + z[l]) - (z[i] + z[j])) * 0.5;
+      const inv = 1 / Math.sqrt(gx * gx + gy * gy + 1);
+      const lam = (-gx * LX - gy * LY + LZ) * inv;
+      t += lam * 0.52 + lb;
+      if (sh > 0) {
+        const d = c * invC - sp;
+        t += sh * Math.exp(-d * d * 26) * 0.45;
+      }
+      const si = clamp((t * SHADES) | 0, 0, SHADES - 1);
+      ctx.fillStyle = pal[si];
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.lineTo(cx2, cy2);
+      ctx.lineTo(dx2, dy2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = pal[si];
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+}
+
+/**
+ * Diagonal (shear) relaxation, for meshes that have to keep their shape when
+ * only one or two points are pinned.
+ *
+ * `Cloth.solve` only knows about the horizontal and vertical springs, which is
+ * plenty for a towel on two pegs but not for a sheet hanging off a single
+ * corner: with nothing resisting shear the grid folds up into a rope. Pulling
+ * both diagonals of every cell back toward their rest length costs one extra
+ * pass over ~54 quads and keeps the cloth a cloth.
+ *
+ * `k` is stiffness, 0..1; anything above ~0.6 starts to look like cardboard.
+ */
+export function relaxShear(cl, k) {
+  const { cols, rows, restH, restV } = cl;
+  const rest = Math.sqrt(restH * restH + restV * restV);
+  const s = (k === undefined ? 0.5 : k) * 0.5;
+  for (let r = 0; r < rows - 1; r++) {
+    for (let c = 0; c < cols - 1; c++) {
+      const i = r * cols + c;
+      shear(cl, i, i + cols + 1, rest, s);
+      shear(cl, i + 1, i + cols, rest, s);
+    }
+  }
+  for (let i = 0; i < cl.n; i++) {
+    if (cl.pinned[i]) { cl.x[i] = cl.pinX[i]; cl.y[i] = cl.pinY[i]; }
+  }
+}
+
+function shear(cl, a, b, rest, s) {
+  const dx = cl.x[b] - cl.x[a];
+  const dy = cl.y[b] - cl.y[a];
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d < 1e-5) return;
+  const pa = cl.pinned[a], pb = cl.pinned[b];
+  if (pa && pb) return;
+  const diff = ((d - rest) / d) * s;
+  let fa = 1, fb = 1;
+  if (pa) { fa = 0; fb = 2; }
+  if (pb) { fb = 0; fa = 2; }
+  const ox = dx * diff, oy = dy * diff;
+  cl.x[a] += ox * fa; cl.y[a] += oy * fa;
+  cl.x[b] -= ox * fb; cl.y[b] -= oy * fb;
+}

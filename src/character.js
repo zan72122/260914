@@ -21,6 +21,13 @@ export class Character {
     this.gaze = null;       // {x, y} world point to look at
     this.point = null;      // {x, y} world point to point at
     this.pointT = 0;
+    // The sheet is not caught, it is hugged: arms right round a bundle
+    // bigger than she is. `hugging` changes the reach, the carry height and
+    // the arms; `hugPulse` is the little squash on the moment of the "gyu".
+    this.hugging = false;
+    this.hugPulse = 0;
+    this.hugHold = 0;       // stand still and squeeze before walking off
+    this._chest = { x: 0, y: 0, r: 0 };
     this.layout(world);
   }
 
@@ -52,6 +59,12 @@ export class Character {
   handPos(out) {
     this.foot(out);
     const h = this.h;
+    if (this.hugging) {
+      // A hugged bundle sits against the chest, not out on the hands.
+      out.y -= h * 0.44;
+      out.x += this.world.inDir.x * h * 0.04;
+      return out;
+    }
     const reach = (this.mode === 'toCatch' || this.mode === 'toBasket' || this.carrying) ? 1 : 0.6;
     out.y -= h * (0.60 + 0.12 * reach);
     out.x += this.world.inDir.x * h * 0.10;
@@ -78,6 +91,7 @@ export class Character {
 
   update(dt, world) {
     this.t += dt;
+    this.hugPulse = Math.max(0, this.hugPulse - dt * 1.7);
     this.moodT = Math.max(0, this.moodT - dt);
     if (this.moodT === 0 && this.mood !== 'relief') this.mood = 'calm';
     this.pointT = Math.max(0, this.pointT - dt);
@@ -89,9 +103,13 @@ export class Character {
       const it = this.target;
       this.gaze = { x: it.cx, y: it.cy };
       const near = Math.abs(this.pos - goal) < this.h * 0.35;
-      const ready = it.releaseT > 0.55;
+      // A big bundle needs its moment in the air first, so it may ask to be
+      // caught later than the small items.
+      const delay = it.catchDelay === undefined ? 0.55 : it.catchDelay;
+      const ready = it.releaseT > delay;
       // Success is guaranteed: after a beat, the catch simply happens.
-      if ((near && ready) || it.releaseT > 1.6) {
+      if ((near && ready) || it.releaseT > delay + 1.05) {
+        this.hugging = !!it.bigBundle;
         this.handPos(HAND);
         it.beginCarry(HAND.x, HAND.y);
         this.carrying = it;
@@ -99,20 +117,33 @@ export class Character {
         this.mode = 'toBasket';
         this.mood = it.wetness > 0.32 ? 'shiver' : 'smile';
         this.moodT = 1.1;
+        if (this.hugging) {
+          it.hugger = this;
+          this.hugPulse = 1;
+          this.hugHold = 0.85;   // the hug has to last long enough to read
+          if (this.audio && this.audio.gyu) this.audio.gyu();
+        }
       }
     } else if (this.mode === 'toBasket') {
       const b = w.basket;
       const goal = clamp(w.portrait ? b.cx : b.cy, w.trackMin, w.trackMax);
-      this._moveTo(goal, dt);
+      if (this.hugHold > 0) {
+        this.hugHold -= dt;
+        this.walk = false;
+      } else {
+        this._moveTo(goal, dt);
+      }
       if (this.carrying) {
         this.handPos(HAND);
         this.carrying.setCarry(HAND.x, HAND.y);
         this.gaze = { x: b.cx, y: b.cy };
       }
-      if (Math.abs(this.pos - goal) < this.h * 0.22) {
+      if (this.hugHold <= 0 && Math.abs(this.pos - goal) < this.h * 0.22) {
         const it = this.carrying;
         this.carrying = null;
+        this.hugging = false;
         if (it) {
+          it.hugger = null;
           it.stow();
           if (this.hooks.onStow) this.hooks.onStow(it);
         }
@@ -154,11 +185,14 @@ export class Character {
     fy -= bob + hop;
     fx += shiver;
 
-    const bodyH = h * 0.42;
+    // Hugging something as big as the sheet squashes her a little: shorter
+    // body, wider, head pushed down into the bundle.
+    const sq = this.hugging ? 0.32 + 0.68 * this.hugPulse : 0;
+    const bodyH = h * 0.42 * (1 - 0.13 * sq);
     const headR = h * 0.24;
     const hipY = fy - h * 0.20;
     const shoulderY = hipY - bodyH;
-    const headY = shoulderY - headR * 0.82;
+    const headY = shoulderY - headR * 0.82 + headR * 0.16 * sq;
 
     ctx.save();
     ctx.lineCap = 'round';
@@ -184,8 +218,15 @@ export class Character {
     // body
     ctx.fillStyle = '#f5a25d';
     ctx.beginPath();
-    ctx.ellipse(fx, shoulderY + bodyH * 0.5, h * 0.19, bodyH * 0.62, 0, 0, Math.PI * 2);
+    ctx.ellipse(fx, shoulderY + bodyH * 0.5, h * 0.19 * (1 + 0.10 * sq), bodyH * 0.62, 0, 0, Math.PI * 2);
     ctx.fill();
+
+    // Remember where the bundle sits, so the forearms can be drawn on top of
+    // it after the item has drawn itself.
+    this._chest.x = fx + world.inDir.x * h * 0.04;
+    this._chest.y = shoulderY + bodyH * 0.42;
+    this._chest.r = h * 0.30;
+    this._chestArm = shoulderY + h * 0.04;
 
     // arms -- the pose is the message
     const gx = this.gaze ? this.gaze.x : fx + world.inDir.x * h;
@@ -194,8 +235,9 @@ export class Character {
     if (this.mode === 'toCatch') armT = 0.9;
     else if (this.carrying) armT = 0.75;
     else if (this.mode === 'happy') armT = 1;
-    const reachX = this.carrying ? fx + world.inDir.x * h * 0.30 : gx;
-    const reachY = this.carrying ? shoulderY - h * 0.02 : gy;
+    if (this.hugging) armT = 1;
+    const reachX = this.hugging ? fx : (this.carrying ? fx + world.inDir.x * h * 0.30 : gx);
+    const reachY = this.hugging ? shoulderY + bodyH * 0.45 : (this.carrying ? shoulderY - h * 0.02 : gy);
     const armLen = h * 0.34;
     ctx.strokeStyle = '#f5a25d';
     ctx.lineWidth = h * 0.095;
@@ -277,6 +319,36 @@ export class Character {
         ctx.ellipse(fx + s * headR * 0.62, headY + headR * 0.34, headR * 0.16, headR * 0.10, 0, 0, Math.PI * 2);
         ctx.fill();
       }
+    }
+    ctx.restore();
+  }
+
+  /**
+   * The forearms that go *round* the bundle. The item draws after the child,
+   * so it calls this at the end of its own draw: arms behind the sheet, then
+   * the sheet, then these two on top. That is what makes it a hug and not a
+   * cloth balanced on two hands.
+   */
+  drawHugArms(ctx, world) {
+    if (!this.hugging) return;
+    const h = this.h;
+    const c = this._chest;
+    const sy = this._chestArm;
+    const squeeze = 0.32 + 0.68 * this.hugPulse;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#f5a25d';
+    ctx.lineWidth = h * 0.095;
+    for (let s = -1; s <= 1; s += 2) {
+      const ax = c.x + s * h * 0.15;
+      // Hands meet in the middle, a bit further round on the squeeze.
+      const hx = c.x - s * c.r * (0.18 + 0.16 * squeeze);
+      const hy = c.y + c.r * 0.30;
+      ctx.beginPath();
+      ctx.moveTo(ax, sy);
+      ctx.quadraticCurveTo(ax + s * c.r * 0.85, c.y + c.r * 0.12, hx, hy);
+      ctx.stroke();
     }
     ctx.restore();
   }

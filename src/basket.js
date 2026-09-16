@@ -23,6 +23,8 @@ export class Basket {
       wetness: item.wetness,
       seed: Math.random(),
       grow: 0,
+      // A whole sheet is not one towel's worth of laundry: it heaps.
+      scale: item.basketScale || 1,
     });
     this.pop = 1;
   }
@@ -55,10 +57,11 @@ export class Basket {
     for (let i = 0; i < this.layers.length; i++) {
       const L = this.layers[i];
       const t = i / maxLayers;
-      const hh = r.h * 0.21;
+      const sc = L.scale || 1;
+      const hh = r.h * 0.21 * sc;
       // The heap rises *above* the rim, otherwise the front wall hides it.
-      const cy = bodyY + r.h * 0.05 - t * r.h * 0.40 * squash;
-      const ww = r.w * (0.96 - t * 0.26) * (0.86 + 0.14 * L.grow);
+      const cy = bodyY + r.h * 0.05 - t * r.h * 0.40 * squash - r.h * 0.05 * (sc - 1);
+      const ww = r.w * (0.96 - t * 0.26) * (0.86 + 0.14 * L.grow) * (1 + 0.16 * (sc - 1));
       ctx.fillStyle = darken(L.rgb[0], L.rgb[1], L.rgb[2], L.wetness, 1);
       ctx.beginPath();
       ctx.ellipse(r.cx + (L.seed - 0.5) * r.w * 0.10 + (i % 2 ? 1 : -1) * r.w * 0.05, cy, ww * 0.5, hh * 0.5 * L.grow + 2, 0, 0, Math.PI * 2);
