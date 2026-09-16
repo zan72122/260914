@@ -78,12 +78,19 @@ export class KitchenScene extends Scene {
     // parked nozzle, or they would vanish before the player touched anything)
     const park = this._p(this.startPointer.x, this.startPointer.y - 92 / this.scale / this.vh);
     this.persist.park = park;
+    // ...and never below the line the head can reach: the lead offset puts a
+    // whole band along the bottom of the screen out of the nozzle's range, and
+    // a single rice grain down there is a room that can never be finished
+    const reach = this.reachRect({ x0: 0, y0: 0, x1: 0, y1: 0 }, 28);
     for (let i = 0; i < 7; i++) {
       let p = null;
       for (let tries = 0; tries < 24; tries++) {
         p = portrait
           ? this._p(rng.range(0.15, 0.85), rng.range(0.50, 0.78))
           : this._p(rng.range(0.20, 0.72), rng.range(0.52, 0.86));
+        if (p.y > reach.y1) p.y = reach.y1;
+        if (p.x < reach.x0) p.x = reach.x0;
+        if (p.x > reach.x1) p.x = reach.x1;
         if (Math.hypot(p.x - park.x, p.y - park.y) > 250) break;
       }
       this.debris.push(new Crumb(p.x, p.y, rng, 'rice'));
