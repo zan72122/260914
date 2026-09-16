@@ -302,14 +302,14 @@ class Sandcastle implements Episode {
       g.nB = { x: w * 1.06, y: h * 1.06 };
       g.sun = { x: w * 0.78, y: h * 0.085 };
       g.home.bucket = { x: 0.775, y: 0.5 };
-      g.home.shovel = { x: 0.805, y: 0.7 };
-      g.home.flag = { x: 0.785, y: -0.06 };
+      g.home.shovel = { x: 0.805, y: 0.72 };
+      g.home.flag = { x: 0.79, y: -0.06 };
       g.home.shells = [
-        { x: 0.845, y: -0.44 },
-        { x: 0.86, y: 0.2 },
+        { x: 0.86, y: -0.42 },
+        { x: 0.87, y: 0.2 },
       ];
-      g.home.kid = { x: 0.715, y: -0.68 };
-      g.home.crab = { x: 0.86, y: -0.18 };
+      g.home.kid = { x: 0.765, y: -0.66 };
+      g.home.crab = { x: 0.9, y: -0.2 };
       g.build = { s: 0.615, u: 0.0 };
     } else {
       // sea to the left, castle centre, dry sand (safe) to the right
@@ -319,16 +319,16 @@ class Sandcastle implements Episode {
       g.nA = { x: w * 0.78, y: h * 0.34 };
       g.nB = { x: w * 0.86, y: h * 1.1 };
       g.sun = { x: w * 0.18, y: h * 0.045 };
-      g.home.bucket = { x: 0.8, y: -0.05 };
-      g.home.shovel = { x: 0.95, y: -0.25 };
-      g.home.flag = { x: 0.78, y: 0.62 };
+      g.home.bucket = { x: 0.78, y: -0.75 };
+      g.home.shovel = { x: 0.99, y: 0.3 };
+      g.home.flag = { x: 0.73, y: 0.76 };
       g.home.shells = [
-        { x: 0.98, y: 0.55 },
-        { x: 0.9, y: -0.45 },
+        { x: 0.97, y: 0.34 },
+        { x: 0.88, y: -0.9 },
       ];
-      g.home.kid = { x: 0.92, y: 0.66 };
-      g.home.crab = { x: 0.99, y: -0.85 };
-      g.build = { s: 0.66, u: 0.0 };
+      g.home.kid = { x: 0.86, y: 0.66 };
+      g.home.crab = { x: 0.93, y: -0.45 };
+      g.build = { s: 0.62, u: 0.0 };
     }
 
     this.geo = g;
@@ -473,19 +473,14 @@ class Sandcastle implements Episode {
         this.enterPhase('action');
         this.ctx.phase.set('foreshadow');
         this.buildCastle(4);
-        this.tideS = 0.18;
-        this.tideTarget = 0.4;
-        this.waveAmp = 0.07;
-        this.waveAmpTarget = 0.17;
-        this.waveStrength = 0.3;
+        this.tideS = 0.24;
+        this.tideTarget = 0.38;
+        this.waveAmp = 0.12;
+        this.waveAmpTarget = 0.2;
+        this.waveStrength = 0.32;
         this.waveEvery = 2.1;
         this.waveTimer = 0.5;
-        this.crab.mode = 'sidle';
-        this.crab.s = 0.44;
-        this.crab.u = this.geo.home.crab.y - 0.7;
-        this.crab.tu = this.geo.home.crab.y;
-        this.crab.ts = this.geo.home.crab.x;
-        this.crab.face = 1;
+        this.startCrabSidle();
         this.surf = 0.3;
         break;
 
@@ -493,10 +488,10 @@ class Sandcastle implements Episode {
         this.enterPhase('foreshadow');
         this.ctx.phase.set('trouble');
         this.ctx.phase.intervening = true;
-        this.tideS = 0.4;
-        this.tideTarget = 0.47;
-        this.waveAmp = 0.22;
-        this.waveAmpTarget = 0.27;
+        this.tideS = 0.39;
+        this.tideTarget = 0.43;
+        this.waveAmp = 0.26;
+        this.waveAmpTarget = 0.31;
         this.waveStrength = 0.75;
         this.waveEvery = 2.7;
         this.waveTimer = 0.7;
@@ -505,8 +500,9 @@ class Sandcastle implements Episode {
         this.crab.u = this.geo.home.crab.y;
         this.crab.face = -1;
         this.surf = 0.72;
-        for (let i = 0; i < NB; i++) this.wetS[i] = 0.63 + this.noise(i * 0.35) * 0.008;
+        for (let i = 0; i < NB; i++) this.wetS[i] = 0.655 + this.noise(i * 0.35) * 0.02;
         for (const tw of this.towers) tw.wetBase = 0.25;
+        this.kid.look = 1;
         break;
       }
 
@@ -521,11 +517,11 @@ class Sandcastle implements Episode {
         this.bermH.fill(0);
         {
           const bu = this.geo.build.u;
-          const span = this.geo.o === 'portrait' ? 0.72 : 0.5;
+          const span = this.geo.o === 'portrait' ? 0.72 : 0.82;
           for (let i = 0; i < NB; i++) {
             const d = Math.abs(binU(i) - bu);
+            this.bermS[i] = this.geo.build.s - 0.1;
             if (d > span) continue;
-            this.bermS[i] = this.geo.build.s - 0.145;
             this.bermH[i] = Math.max(0, 0.6 * (1 - (d / span) ** 2));
           }
         }
@@ -584,26 +580,22 @@ class Sandcastle implements Episode {
         break;
       case 'foreshadow':
         this.tideTarget = 0.38;
-        this.waveAmpTarget = 0.17;
+        this.waveAmpTarget = 0.2;
         this.waveStrength = 0.3;
         this.waveEvery = 2.1;
         this.waveTimer = Math.min(this.waveTimer, 0.9);
-        this.crab.mode = 'sidle';
-        this.crab.s = 0.44;
-        this.crab.u = this.geo.home.crab.y - 0.72;
-        this.crab.tu = this.geo.home.crab.y;
-        this.crab.ts = this.geo.home.crab.x;
-        this.crab.face = 1;
+        this.startCrabSidle();
         this.ctx.audio.whoosh(0.4, 1.6);
         break;
       case 'trouble':
-        this.tideTarget = 0.47;
-        this.waveAmpTarget = 0.27;
+        this.tideTarget = 0.43;
+        this.waveAmpTarget = 0.31;
         this.waveStrength = 0.4;
         this.waveEvery = 2.7;
         this.waveTimer = Math.min(this.waveTimer, 1.1);
         this.waveCount = 0;
         this.firstSheetDone = false;
+        this.kid.look = 1;
         break;
       case 'resolve':
         // whatever the sea did reach has softened a little
@@ -623,6 +615,18 @@ class Sandcastle implements Episode {
       default:
         break;
     }
+  }
+
+  /** the crab walks in from whichever side of its spot is still on the beach */
+  private startCrabSidle(): void {
+    const hc = this.geo.home.crab;
+    const from = clamp(hc.y + (hc.y >= 0 ? -0.75 : 0.75), -1.08, 1.08);
+    this.crab.mode = 'sidle';
+    this.crab.s = Math.max(0.42, this.tideS + 0.18);
+    this.crab.u = from;
+    this.crab.ts = hc.x;
+    this.crab.tu = hc.y;
+    this.crab.face = Math.sign(hc.y - from) || 1;
   }
 
   private decideEnding(): void {
@@ -679,8 +683,8 @@ class Sandcastle implements Episode {
   private buildCastle(n: number): void {
     const b = this.geo.build;
     const wide = this.geo.o === 'portrait';
-    const du = wide ? 1 : 0.62;
-    const ds = wide ? 1 : 1.4;
+    const du = wide ? 1 : 0.82;
+    const ds = wide ? 1 : 1.2;
     const slots: Array<[number, number]> = [
       [b.s - 0.02 * ds, b.u - 0.52 * du],
       [b.s - 0.05 * ds, b.u - 0.17 * du],
@@ -857,15 +861,15 @@ class Sandcastle implements Episode {
         let r = lerp(this.tideS, wv.peak[i], p);
         const bh = this.bermH[i];
         const bs = this.bermS[i];
-        if (bh > 0.06 && bs > this.tideS && r > bs - 0.005) {
+        if (bh > 0.06 && bs > this.tideS - 0.05 && r > bs - 0.005) {
           // the berm holds until the sea out-muscles it
-          const over = (wv.strength * 0.9 + (r - bs) * 2.4) - bh * 1.5;
+          const over = (wv.strength * 0.72 + (r - bs) * 1.7) - bh * 2.6;
           const stop = bs - 0.006 + Math.max(0, over) * 0.09;
           if (stop < r) {
             blocked.push(i);
             if (rising) {
-              this.bermH[i] = Math.max(0, bh - dt * (0.1 + wv.strength * 0.28));
-              if (this.rng.next() < 0.5) this.splashAt(bs, binU(i), wv.strength);
+              this.bermH[i] = Math.max(0, bh - dt * (0.05 + wv.strength * 0.18));
+              if (this.rng.next() < 0.11) this.splashAt(bs, binU(i), wv.strength * 1.15);
             }
             r = stop;
           }
@@ -1232,6 +1236,10 @@ class Sandcastle implements Episode {
     } else if (ph.is('comic', 'settle')) {
       k.laugh = smooth((this.comicT - 0.8) / 0.6);
     }
+    if (!ph.at('resolve')) {
+      k.foam = Math.max(0, k.foam - dt * 2.5);
+      k.laugh = Math.max(0, k.laugh - dt * 1.6);
+    }
     if (k.clap > 0.55 && !this.clapped) {
       this.clapped = true;
       this.ctx.audio.thump(2.2);
@@ -1273,7 +1281,7 @@ class Sandcastle implements Episode {
       vy: this.rng.range(20, 120) * power,
       life: this.rng.range(0.4, 0.85),
       max: 0.85,
-      r: sc * this.rng.range(0.035, 0.075),
+      r: sc * this.rng.range(0.03, 0.058),
       kind: 0,
       spin: 0,
     });
@@ -1378,6 +1386,7 @@ class Sandcastle implements Episode {
     this.drawWetBand(gg, P);
     this.drawSea(gg, P);
     this.drawWater(gg, P);
+    this.drawHaze(gg, P);
     this.drawBerm(gg, P);
     this.drawWorld(gg);
     this.drawParticles(gg);
@@ -1439,22 +1448,50 @@ class Sandcastle implements Episode {
       gg.restore();
     }
 
-    // a gull, once in a while
+  }
+
+  /**
+   * Where the sea stops being water and becomes distance: a luminous band of
+   * haze sitting on the horizon that both the sea and the far sand dissolve
+   * into. The sailboat and the gull live inside it.
+   */
+  private drawHaze(gg: CanvasRenderingContext2D, P: ReturnType<Sandcastle['pal']>): void {
+    const { w, horizonY, short, o } = this.geo;
+    const band = short * (o === 'portrait' ? 0.42 : 0.24);
+
+    // a gull, once in a while, gliding just over the far water
     if (this.gullT > 0 && this.gullT < 12) {
       const f = this.gullT / 12;
-      const gx = lerp(-w * 0.1, w * 1.1, this.geo.o === 'portrait' ? f : 1 - f);
-      const gy = horizonY * (0.36 + 0.12 * Math.sin(f * 5)) + Math.sin(this.t * 0.9) * 4;
-      const sc = this.geo.short * 0.028;
+      const gx = lerp(-w * 0.1, w * 1.1, o === 'portrait' ? f : 1 - f);
+      const gy = horizonY + band * (0.12 + 0.1 * Math.sin(f * 5)) + Math.sin(this.t * 0.9) * 3;
+      const sc = short * 0.03;
       const flap = Math.sin(this.t * 5.5) * 0.5 + 0.5;
-      gg.strokeStyle = 'rgba(58,72,88,0.78)';
+      gg.strokeStyle = 'rgba(64,84,102,0.7)';
       gg.lineWidth = Math.max(1.2, sc * 0.16);
       gg.lineCap = 'round';
       gg.beginPath();
-      gg.moveTo(gx - sc, gy + flap * sc * 0.38);
-      gg.quadraticCurveTo(gx - sc * 0.4, gy - sc * 0.3 * flap, gx, gy);
-      gg.quadraticCurveTo(gx + sc * 0.4, gy - sc * 0.3 * flap, gx + sc, gy + flap * sc * 0.38);
+      gg.moveTo(gx - sc, gy + flap * sc * 0.4);
+      gg.quadraticCurveTo(gx - sc * 0.4, gy - sc * 0.32 * flap, gx, gy);
+      gg.quadraticCurveTo(gx + sc * 0.4, gy - sc * 0.32 * flap, gx + sc, gy + flap * sc * 0.4);
       gg.stroke();
     }
+
+    const g1 = gg.createLinearGradient(0, horizonY - band * 0.42, 0, horizonY + band);
+    g1.addColorStop(0, rgb(P.haze, 0));
+    g1.addColorStop(0.3, rgb(P.haze, 0.62));
+    g1.addColorStop(0.42, rgb(P.haze, 0.88));
+    g1.addColorStop(0.56, rgb(P.haze, 0.52));
+    g1.addColorStop(0.78, rgb(P.haze, 0.18));
+    g1.addColorStop(1, rgb(P.haze, 0));
+    gg.fillStyle = g1;
+    gg.fillRect(-w, horizonY - band * 0.45, w * 3, band * 1.5);
+
+    // the sky just above keeps a touch more warmth, so the join never reads as a line
+    const g2 = gg.createLinearGradient(0, horizonY - band * 0.8, 0, horizonY + band * 0.1);
+    g2.addColorStop(0, 'rgba(255,248,226,0)');
+    g2.addColorStop(1, 'rgba(255,248,226,0.3)');
+    gg.fillStyle = g2;
+    gg.fillRect(-w, horizonY - band * 0.8, w * 3, band * 0.9);
   }
 
   // ------------------------------------------------------------------- sea
@@ -1465,6 +1502,19 @@ class Sandcastle implements Episode {
     for (let i = 0; i < NB; i++) out.push(this.pos(fn(i), binU(i)));
     out.push(this.pos(fn(NB - 1), U1 + 0.9));
     return out;
+  }
+
+  /** the ridge line, smoothed but weighted by how much sand is actually there */
+  private bermSAt(i: number): number {
+    let acc = 0;
+    let wt = 0;
+    for (let d = -1; d <= 1; d++) {
+      const j = clamp(i + d, 0, NB - 1);
+      const k = (d === 0 ? 2 : 1) * (0.03 + this.bermH[j]);
+      acc += this.bermS[j] * k;
+      wt += k;
+    }
+    return acc / wt;
   }
 
   /** 1-2-1 smoothed sample of a per-bin field, so shorelines read as curves */
@@ -1546,67 +1596,116 @@ class Sandcastle implements Episode {
     gg.fillStyle = grd;
     gg.fillRect(-w, horizonY - 4, w * 3, h * 2);
 
-    // swells rolling in: each one travels up the beach and whitens as it shoals
-    const par = this.camDrift * 0.45;
-    const NSW = 9;
-    for (let k = 0; k < NSW; k++) {
-      const f = ((this.t * 0.055 + k / NSW) % 1 + 1) % 1;
-      const sS = f * 0.99;
-      const shoal = smooth((f - 0.35) / 0.6);
-      const amp = lerp(1.6, 5.5, f);
-      const row: Pt[] = [];
-      for (let i = 0; i <= 16; i++) {
-        const u = lerp(U0, U1, i / 16);
-        const q = this.pos(sS, u);
-        const wob = (Math.sin(u * 3.1 + k * 1.9 + this.t * 0.8) + 0.5 * Math.sin(u * 7.4 + k * 3.1)) * amp;
-        row.push({ x: q.x + wob + par * f, y: q.y + wob * 0.25 });
-      }
-      const curve = (): void => {
+    // far water: faint swell lines in the distance, between horizon and s=0
+    {
+      const f0 = this.pos(0, -1.4);
+      const f1 = this.pos(0, 1.4);
+      for (let k = 0; k < 7; k++) {
+        const g0 = (k + 0.5) / 7;
+        const bob = Math.sin(this.t * 0.35 + k * 1.7) * 1.6;
+        gg.strokeStyle = `rgba(226,246,250,${0.05 + g0 * 0.09})`;
+        gg.lineWidth = lerp(0.8, 2.4, g0);
         gg.beginPath();
-        gg.moveTo(row[0].x, row[0].y);
-        for (let i = 1; i < row.length - 1; i++) {
-          gg.quadraticCurveTo(row[i].x, row[i].y, (row[i].x + row[i + 1].x) / 2, (row[i].y + row[i + 1].y) / 2);
+        gg.moveTo(-w, lerp(horizonY, f0.y, g0 * g0) + bob);
+        gg.lineTo(w * 2, lerp(horizonY, f1.y, g0 * g0) + bob);
+        gg.stroke();
+      }
+    }
+
+    // swell: three parallax layers, each travelling up the beach at its own
+    // pace, whitening into foam lines as the bottom shoals under them
+    const par = this.camDrift * 0.45;
+    const layers = [
+      { n: 5, sp: 0.028, amp: 2.0, wm: 0.85, a: 0.12, dark: 0.1, off: 0.0 },
+      { n: 6, sp: 0.05, amp: 3.2, wm: 1.3, a: 0.2, dark: 0.15, off: 0.37 },
+      { n: 4, sp: 0.082, amp: 4.8, wm: 2.0, a: 0.34, dark: 0.2, off: 0.71 },
+    ];
+    for (let li = 0; li < layers.length; li++) {
+      const L = layers[li];
+      for (let k = 0; k < L.n; k++) {
+        const f = (((this.t * L.sp + k / L.n + L.off) % 1) + 1) % 1;
+        const sS = f * 0.995;
+        const shoal = smooth((f - 0.4) / 0.52);
+        const amp = L.amp * lerp(0.45, 1.7, f);
+        const row: Pt[] = [];
+        for (let i = 0; i <= 18; i++) {
+          const u = lerp(U0 - 0.7, U1 + 0.7, i / 18);
+          const q = this.pos(sS, u);
+          const wob =
+            (Math.sin(u * 2.6 + k * 1.9 + li * 2.3 + this.t * 0.7) +
+              0.45 * Math.sin(u * 6.1 + k * 3.1 + li * 1.1)) *
+            amp;
+          row.push({ x: q.x + wob * 0.9 + par * f * (li + 1) * 0.35, y: q.y + wob * 0.3 });
         }
-        gg.lineTo(row[row.length - 1].x, row[row.length - 1].y);
-      };
-      // trough just seaward of the crest
-      gg.save();
-      gg.translate(0, -lerp(1, 4, f));
-      gg.strokeStyle = `rgba(12,74,104,${0.1 + f * 0.16})`;
-      gg.lineWidth = lerp(1.4, 4.2, f);
-      curve();
-      gg.stroke();
-      gg.restore();
-      // the crest
-      gg.strokeStyle = `rgba(255,255,255,${0.1 + shoal * 0.55})`;
-      gg.lineWidth = lerp(1.2, 3.4, f) * (0.6 + shoal * 0.9);
-      gg.lineCap = 'round';
-      curve();
-      gg.stroke();
+        const curve = (dy: number): void => {
+          gg.beginPath();
+          gg.moveTo(row[0].x, row[0].y + dy);
+          for (let i = 1; i < row.length - 1; i++) {
+            gg.quadraticCurveTo(
+              row[i].x,
+              row[i].y + dy,
+              (row[i].x + row[i + 1].x) / 2,
+              (row[i].y + row[i + 1].y) / 2 + dy,
+            );
+          }
+          gg.lineTo(row[row.length - 1].x, row[row.length - 1].y + dy);
+        };
+        // the trough on the seaward side gives the band its body
+        gg.strokeStyle = `rgba(10,66,96,${L.dark * (0.3 + f * 0.9)})`;
+        gg.lineWidth = lerp(1.6, 5.2, f) * L.wm;
+        curve(-lerp(1.6, 5.4, f) * L.wm);
+        gg.stroke();
+        // the crest
+        gg.lineCap = 'round';
+        gg.strokeStyle = `rgba(255,255,255,${L.a * (0.3 + shoal * 1.5)})`;
+        gg.lineWidth = lerp(1.2, 3.2, f) * L.wm * (0.55 + shoal * 1.15);
+        curve(0);
+        gg.stroke();
+        // in the shoaling zone the crest breaks up into patches of foam
+        if (shoal > 0.28) {
+          gg.save();
+          const seg = this.geo.short * 0.055;
+          gg.setLineDash([seg * (0.35 + shoal * 0.9), seg * (0.75 - shoal * 0.35)]);
+          gg.lineDashOffset = (k * 53 + li * 17 + this.t * 9) % 4096;
+          gg.strokeStyle = `rgba(255,255,255,${0.55 * smooth((shoal - 0.28) / 0.72)})`;
+          gg.lineWidth = lerp(2.2, 5.6, f) * L.wm;
+          curve(lerp(2, 6.5, f));
+          gg.stroke();
+          gg.restore();
+        }
+      }
     }
 
     // haze where the water meets the sky
     {
       const hz = gg.createLinearGradient(0, horizonY, 0, horizonY + h * 0.22);
-      hz.addColorStop(0, 'rgba(206,228,238,0.5)');
-      hz.addColorStop(1, 'rgba(206,228,238,0)');
+      hz.addColorStop(0, 'rgba(216,236,244,0.55)');
+      hz.addColorStop(1, 'rgba(216,236,244,0)');
       gg.fillStyle = hz;
       gg.fillRect(-w, horizonY, w * 3, h * 0.24);
     }
 
-    // sun glitter
+    // sun glitter: a broken column of light under the sun
     const sun = this.geo.sun;
     const glr = new Rng((this.rng.seed ^ 0x77aa) >>> 0);
-    for (let i = 0; i < 46; i++) {
-      const s = glr.range(0.02, 0.96);
-      const u = glr.range(U0, U1);
-      const p = this.pos(s, u);
-      const dx = Math.abs(p.x - sun.x) / w;
-      const a = clamp(1 - dx * 1.9, 0, 1) * (0.2 + 0.8 * (0.5 + 0.5 * Math.sin(this.t * 3 + i * 2.1)));
-      if (a < 0.05) continue;
-      gg.fillStyle = `rgba(255,255,244,${a * 0.5})`;
-      const ln = this.scl(s) * 0.09;
-      gg.fillRect(p.x - ln, p.y - 0.7, ln * 2, 1.4);
+    for (let i = 0; i < 74; i++) {
+      const sg2 = glr.range(-0.04, 0.99);
+      const u = glr.range(U0 - 0.7, U1 + 0.7);
+      const q = this.pos(sg2, u);
+      if (q.y < horizonY) continue;
+      const dx = Math.abs(q.x - sun.x) / (w * 0.5);
+      const near = clamp(1 - dx * dx * 0.8, 0, 1);
+      if (near < 0.04) continue;
+      const tw = 0.5 + 0.5 * Math.sin(this.t * (2.1 + (i % 7) * 0.55) + i * 2.1);
+      const a = near * (0.1 + 0.9 * tw * tw);
+      if (a < 0.07) continue;
+      const sc2 = this.scl(sg2);
+      const ln = sc2 * glr.range(0.035, 0.11) * (0.45 + near);
+      const th = Math.max(1, sc2 * 0.02);
+      gg.fillStyle = `rgba(255,255,238,${a * 0.5})`;
+      gg.beginPath();
+      gg.ellipse(q.x, q.y, ln, th * 0.5, 0, 0, Math.PI * 2);
+      gg.fill();
     }
 
     // a small sailboat, far out
@@ -1615,13 +1714,16 @@ class Sandcastle implements Episode {
   }
 
   private drawBoat(gg: CanvasRenderingContext2D): void {
-    const u = lerp(U0 - 0.2, U1 + 0.2, this.boatX);
-    const s = 0.1;
-    const p = this.pos(s, u);
-    const sc = this.geo.short * 0.028;
+    // far out: placed against the horizon rather than on the beach grid, so it
+    // ends up inside the haze band instead of paddling through the shallows
+    const { w, horizonY, short, o } = this.geo;
+    const band = short * (o === 'portrait' ? 0.42 : 0.24);
+    const px = o === 'portrait' ? lerp(-w * 0.06, w * 1.06, this.boatX) : lerp(-w * 0.04, w * 0.42, this.boatX);
+    const py = horizonY + band * 0.36;
+    const sc = short * 0.03;
     const bob = Math.sin(this.t * 0.9) * sc * 0.08;
     gg.save();
-    gg.translate(p.x + this.camDrift * 0.25, p.y + bob);
+    gg.translate(px + this.camDrift * 0.25, py + bob);
     // hull
     gg.fillStyle = 'rgb(58,70,86)';
     gg.beginPath();
@@ -1658,7 +1760,7 @@ class Sandcastle implements Episode {
     grd.addColorStop(0.35, rgb(P.dry));
     grd.addColorStop(1, rgb(mix(P.dry, [255, 240, 210], 0.35)));
     gg.fillStyle = grd;
-    gg.fillRect(-w, horizonY - 2, w * 3, h * 2);
+    gg.fillRect(-w, horizonY - 1, w * 3, h * 2);
 
     // granularity: a fixed speckle field in beach space, so it holds still
     const rr = new Rng((this.rng.seed ^ 0x2c1d) >>> 0);
@@ -1740,7 +1842,8 @@ class Sandcastle implements Episode {
   private drawWetBand(gg: CanvasRenderingContext2D, P: ReturnType<Sandcastle['pal']>): void {
     const water = this.edgePts((i) => this.soft(this.reach, i) - 0.004);
     // the damp sand keeps a soft, slightly ragged upper edge
-    const ragged = (i: number): number => this.noise(i * 0.45 + 3) * 0.008 + this.noise(i * 1.5 + 17) * 0.003;
+    const ragged = (i: number): number =>
+      this.noise(i * 0.4 + 3) * 0.03 + this.noise(i * 1.25 + 17) * 0.013 + this.noise(i * 2.9 + 41) * 0.005;
     const wet = this.edgePts((i) => this.soft(this.wetS, i) + ragged(i));
     const soft = this.edgePts((i) => this.soft(this.wetS, i) + 0.09 + ragged(i) * 1.2);
 
@@ -1778,9 +1881,10 @@ class Sandcastle implements Episode {
     const a = this.pos(wa, 0);
     const b = this.pos(wb + 0.02, 0);
     const grd = gg.createLinearGradient(a.x, a.y, b.x, b.y);
-    grd.addColorStop(0, rgb(mix(P.wet, [60, 56, 48], 0.16)));
-    grd.addColorStop(0.22, rgb(P.wet));
-    grd.addColorStop(0.58, rgb(mix(P.wet, P.dry, 0.4)));
+    grd.addColorStop(0, rgb(mix(P.wet, [116, 110, 94], 0.22)));
+    grd.addColorStop(0.1, rgb(mix(P.wet, P.dry, 0.04)));
+    grd.addColorStop(0.24, rgb(mix(P.wet, P.dry, 0.16)));
+    grd.addColorStop(0.55, rgb(mix(P.wet, P.dry, 0.46)));
     grd.addColorStop(1, rgb(mix(P.wet, P.dry, 0.9)));
     gg.fillStyle = grd;
     const { w, h, horizonY } = this.geo;
@@ -1874,14 +1978,16 @@ class Sandcastle implements Episode {
     for (let pass = 0; pass < 2; pass++) {
       const lip: Pt[] = [this.pos(this.reach[0], U0 - 0.9)];
       for (let i = 0; i < NB; i++) {
-        const wob = this.noise(i * 0.9 + this.t * 0.9) * 0.005 * (1 + (wv ? wv.strength : 0));
+        const wob =
+          (this.noise(i * 0.75 + this.t * 0.5) * 0.017 + this.noise(i * 2.2 + 7) * 0.007) *
+          (0.65 + (wv ? wv.strength * 0.8 : 0));
         lip.push(this.pos(this.soft(this.reach, i) + wob, binU(i)));
       }
       lip.push(this.pos(this.reach[NB - 1], U1 + 0.9));
       gg.beginPath();
       this.strokeEdge(gg, lip, 'none');
-      gg.strokeStyle = pass === 0 ? 'rgba(255,255,255,0.95)' : 'rgba(214,244,246,0.5)';
-      gg.lineWidth = pass === 0 ? lw : lw * 2.4;
+      gg.strokeStyle = pass === 0 ? 'rgba(255,255,255,0.95)' : 'rgba(222,246,248,0.32)';
+      gg.lineWidth = pass === 0 ? lw : lw * 3.2;
       gg.stroke();
     }
     // foam bubbles clinging to the wet sand behind the lip
@@ -1917,6 +2023,13 @@ class Sandcastle implements Episode {
     void P;
   }
 
+  /**
+   * The sand wall the finger pushes up. Drawn as a real mound: a rounded
+   * cross-section whose crest is lifted along the ground-plane normal (screen
+   * up, scaled by the depth at that point, so it keeps its perspective), with
+   * a scoured damp face towards the sea, a lit crown and a shaded landward
+   * foot. Loose grains sit along the top.
+   */
   private drawBerm(gg: CanvasRenderingContext2D, P: ReturnType<Sandcastle['pal']>): void {
     // contiguous runs of raised sand, drawn as smooth ridges
     const runs: number[][] = [];
@@ -1931,75 +2044,111 @@ class Sandcastle implements Episode {
     if (cur.length) runs.push(cur);
     if (!runs.length) return;
 
+    // the cross-section, sampled from the seaward foot (-1) to the landward foot (+1)
+    const PROF = [-1, -0.66, -0.3, 0.06, 0.44, 0.78, 1];
+    const roundness = (t: number): number => Math.pow(Math.max(0, 1 - t * t), 0.62);
+
     gg.save();
     for (const run of runs) {
       if (run.length < 2) continue;
-      const back: Pt[] = [];
+      // lanes[j][k] — one polyline per profile sample, along the run
+      const lanes: Pt[][] = PROF.map(() => []);
       const crest: Pt[] = [];
-      const front: Pt[] = [];
+      const foot: Pt[] = [];
       let scour = 0;
-      for (const i of run) {
+      let hAvg = 0;
+      for (let ri = 0; ri < run.length; ri++) {
+        const i = run[ri];
         const u = binU(i);
-        const hgt = this.soft(this.bermH, i);
-        const bs = this.soft(this.bermS, i);
+        // the ends of a run die away instead of stopping in a vertical fin
+        const fade = smooth(clamp(Math.min(ri + 0.6, run.length - 0.4 - ri) / 1.7, 0, 1));
+        const hgt = this.soft(this.bermH, i) * fade;
+        const bs = this.bermSAt(i);
         const sc = this.scl(bs);
-        const w2 = 0.01 + 0.026 * hgt;
-        const b = this.pos(bs - w2, u);
-        const f = this.pos(bs + w2 * 0.9, u);
-        back.push(b);
-        front.push(f);
-        crest.push({ x: (b.x + f.x) / 2, y: (b.y + f.y) / 2 - hgt * sc * 0.52 });
+        // a little lateral wander so the wall is never a ruled line
+        const wig0 = this.noise(i * 0.55 + 9) * 0.012;
+        const wig = wig0;
+        // apparent distance along the ridge: the far end of a long wall is
+        // further away than the near end, so its section shrinks with it
+        const gp = this.pos(bs + wig0, u);
+        const pf = clamp((gp.y - this.geo.horizonY) / (this.geo.short * 0.55), 0.3, 1);
+        const wSea = (0.014 + 0.023 * hgt) * pf;
+        const wLand = (0.018 + 0.031 * hgt) * pf;
+        const rise = hgt * sc * 1.06 * pf;
+        for (let j = 0; j < PROF.length; j++) {
+          const t = PROF[j];
+          const ds = t < 0 ? -t * wSea * -1 : t * wLand;
+          const q = this.pos(bs + (t < 0 ? t * wSea : t * wLand) + wig, u);
+          void ds;
+          lanes[j].push({ x: q.x, y: q.y - rise * roundness(t) });
+        }
+        const c = this.pos(bs + wig, u);
+        crest.push({ x: c.x, y: c.y - rise });
+        foot.push(this.pos(bs + wLand + wig, u));
         scour += clamp((this.soft(this.wetS, i) - bs + 0.02) * 12, 0, 1);
+        hAvg += hgt;
       }
       scour /= run.length;
+      hAvg /= run.length;
 
       const mid = crest[Math.floor(crest.length / 2)];
-      this.sandShadow(gg, mid.x, mid.y, this.geo.short * 0.09, this.geo.short * 0.04, 0.1);
+      const msc = this.geo.short;
+      this.sandShadow(gg, mid.x, mid.y + msc * 0.03, msc * 0.09, msc * 0.04, 0.17);
 
-      const m = Math.floor(crest.length / 2);
-      // seaward face, scoured and damp
-      gg.beginPath();
-      this.smoothPoly(gg, back, crest);
-      const sg = gg.createLinearGradient(back[m].x, back[m].y, crest[m].x, crest[m].y);
-      sg.addColorStop(0, rgb(mix(mix(P.dry, P.wet, scour), [104, 82, 54], 0.34)));
-      sg.addColorStop(1, rgb(mix(mix(P.dry, P.wet, scour * 0.6), [200, 168, 120], 0.3)));
-      gg.fillStyle = sg;
-      gg.fill();
-      // landward face: bright along the crest, falling into shadow at the foot
-      gg.beginPath();
-      this.smoothPoly(gg, crest, front);
-      const lg = gg.createLinearGradient(crest[m].x, crest[m].y, front[m].x, front[m].y);
-      lg.addColorStop(0, rgb(mix(P.dry, [255, 250, 226], 0.32)));
-      lg.addColorStop(0.45, rgb(P.dry));
-      lg.addColorStop(1, rgb(mix(P.dryShade, [148, 120, 82], 0.45)));
-      gg.fillStyle = lg;
-      gg.fill();
-      // crest
-      gg.beginPath();
-      gg.moveTo(crest[0].x, crest[0].y);
-      for (let i = 1; i < crest.length - 1; i++) {
-        gg.quadraticCurveTo(crest[i].x, crest[i].y, (crest[i].x + crest[i + 1].x) / 2, (crest[i].y + crest[i + 1].y) / 2);
+      const damp = mix(P.dry, P.wet, clamp(scour, 0, 1));
+      // colour at each profile sample: scoured wet face -> lit crown -> shadowed foot
+      const band: RGB[] = [
+        mix(damp, [82, 62, 40], 0.5),
+        mix(damp, [112, 88, 58], 0.34),
+        mix(mix(damp, P.dry, 0.55), [186, 154, 108], 0.34),
+        mix(P.dry, [255, 251, 232], 0.55),
+        mix(P.dry, [238, 212, 166], 0.5),
+        mix(P.dryShade, [196, 164, 116], 0.35),
+        mix(P.dryShade, [122, 96, 62], 0.55),
+      ];
+
+      for (let j = 0; j < PROF.length - 1; j++) {
+        gg.beginPath();
+        this.smoothPoly(gg, lanes[j], lanes[j + 1]);
+        const a = lanes[j][Math.floor(lanes[j].length / 2)];
+        const b = lanes[j + 1][Math.floor(lanes[j + 1].length / 2)];
+        const gr = gg.createLinearGradient(a.x, a.y, b.x, b.y);
+        gr.addColorStop(0, rgb(band[j]));
+        gr.addColorStop(1, rgb(band[j + 1]));
+        gg.fillStyle = gr;
+        gg.fill();
       }
-      gg.lineTo(crest[crest.length - 1].x, crest[crest.length - 1].y);
-      gg.strokeStyle = 'rgba(255,250,228,0.3)';
-      gg.lineWidth = Math.max(1.2, this.geo.short * 0.0045);
+
+      // the wet, glossy line where the sea has been licking the seaward foot
+      if (scour > 0.12) {
+        gg.beginPath();
+        this.strokeEdge(gg, lanes[0], 'none');
+        gg.strokeStyle = `rgba(226,244,248,${0.3 * scour})`;
+        gg.lineWidth = Math.max(1.4, this.geo.short * 0.006);
+        gg.lineCap = 'round';
+        gg.stroke();
+      }
+
+      // the crown, catching the sun
+      gg.beginPath();
+      this.strokeEdge(gg, crest, 'none');
+      gg.strokeStyle = `rgba(255,251,232,${0.2 + hAvg * 0.2})`;
+      gg.lineWidth = Math.max(1.2, this.geo.short * 0.004);
       gg.lineCap = 'round';
       gg.lineJoin = 'round';
       gg.stroke();
 
-      // loose grains on the landward slope
-      const gr = new Rng((this.rng.seed ^ 0x6b1f) >>> 0);
+      // loose grains heaped along the crest and tumbling down the lit slope
+      const gr2 = new Rng((this.rng.seed ^ 0x6b1f) >>> 0);
+      const land = lanes[PROF.length - 1];
       for (let k = 0; k < crest.length; k++) {
-        const sc = this.geo.short * 0.012;
+        const g = this.geo.short * 0.008;
         for (let n = 0; n < 3; n++) {
-          const f = gr.range(-0.2, 1.1);
-          gg.fillStyle = gr.next() < 0.5 ? 'rgba(255,250,228,0.4)' : 'rgba(158,124,80,0.24)';
-          gg.fillRect(
-            lerp(crest[k].x, front[k].x, f) + gr.range(-sc, sc),
-            lerp(crest[k].y, front[k].y, f),
-            sc * 0.5,
-            sc * 0.42,
-          );
+          const f = gr2.range(-0.35, 1.05);
+          const x = lerp(crest[k].x, land[k].x, Math.max(0, f)) + gr2.range(-g, g);
+          const y = lerp(crest[k].y, land[k].y, Math.max(0, f)) + (f < 0 ? f * g * 2.4 : 0);
+          gg.fillStyle = gr2.next() < 0.55 ? 'rgba(255,250,228,0.45)' : 'rgba(150,118,76,0.26)';
+          gg.fillRect(x, y, g * 0.55, g * 0.48);
         }
       }
     }
@@ -2259,14 +2408,20 @@ class Sandcastle implements Episode {
 
     if (d.kind === 'flag') {
       const planted = d.on >= 0;
-      const len = sc * (planted ? 0.62 : 0.5);
+      const len = sc * (planted ? 0.74 : 0.5);
       gg.save();
       gg.translate(x, y);
       gg.rotate(planted ? d.tilt : d.rot);
       if (!planted) this.sandShadow(gg, 0, 0, sc * 0.3, sc * 0.1, 0.16);
-      gg.strokeStyle = 'rgb(226,220,206)';
-      gg.lineWidth = Math.max(1.6, sc * 0.035);
+      gg.strokeStyle = 'rgba(122,104,86,0.5)';
+      gg.lineWidth = Math.max(2.4, sc * 0.055);
       gg.lineCap = 'round';
+      gg.beginPath();
+      gg.moveTo(0, 0);
+      gg.lineTo(0, -len);
+      gg.stroke();
+      gg.strokeStyle = 'rgb(240,236,226)';
+      gg.lineWidth = Math.max(1.6, sc * 0.036);
       gg.beginPath();
       gg.moveTo(0, 0);
       gg.lineTo(0, -len);
@@ -2547,160 +2702,262 @@ class Sandcastle implements Episode {
     gg.restore();
   }
 
+  /**
+   * The child: sitting on the dry sand, knees up, facing the sea.
+   * Everything is drawn in a frame where +x points at the water, so the
+   * same code composes in portrait (sea above) and landscape (sea left).
+   */
   private drawKid(gg: CanvasRenderingContext2D): void {
     const hm = this.geo.home.kid;
     const p = this.pos(hm.x, hm.y);
     const sc = this.scl(hm.x);
     const k = this.kid;
-    const headR = sc * 0.3;
-    const nod = smooth(k.nod) * Math.sin(k.nod * 9) * 0.22;
-    const lean = k.look * 0.12 + k.laugh * 0.16;
-    const baseY = p.y;
-
-    this.sandShadow(gg, p.x, baseY, headR * 2.1, headR * 0.6, 0.24);
-
-    // which way the sea is, in screen x
+    const R = sc * 0.34;
     const seaDir = Math.sign(this.pos(0.2, hm.y).x - p.x) || -1;
 
-    gg.save();
-    gg.translate(p.x, baseY);
-    gg.rotate(lean * seaDir * 0.5);
+    const nod = smooth(k.nod) * Math.sin(k.nod * 9) * 0.22;
+    const clap = clamp(k.clap, 0, 1);
+    const laugh = clamp(k.laugh, 0, 1);
+    const point = clamp(k.look, 0, 1) * (1 - clap) * (1 - laugh);
+    const breathe = Math.sin(this.t * 1.5) * 0.012;
 
-    // legs stretched out towards the sea, one a little in front of the other
-    for (const sgn of [-1, 1]) {
-      const near = sgn > 0 ? 1 : 0;
-      const oy = -headR * (0.34 + near * 0.16);
-      gg.strokeStyle = near ? 'rgb(248,212,182)' : 'rgb(232,192,162)';
-      gg.lineWidth = headR * 0.42;
-      gg.lineCap = 'round';
-      gg.lineJoin = 'round';
+    const skin: RGB = [250, 216, 186];
+    const skinFar: RGB = [228, 188, 158];
+    const suitA: RGB = [40, 142, 158];
+    const suitB: RGB = [86, 198, 202];
+
+    this.sandShadow(gg, p.x, p.y, R * 2.3, R * 0.6, 0.26);
+
+    gg.save();
+    gg.translate(p.x, p.y);
+    gg.scale(seaDir, 1);
+    gg.rotate(point * -0.05 + laugh * 0.09);
+    gg.scale(1 + breathe, 1 - breathe);
+    gg.lineCap = 'round';
+    gg.lineJoin = 'round';
+
+    const X = (v: number): number => v * R;
+    const Y = (v: number): number => v * R;
+
+    // --- a leg: hip -> knee (raised) -> ankle on the sand, plus a foot
+    const leg = (kx: number, ky: number, ax: number, ay: number, near: boolean): void => {
+      const col = near ? skin : skinFar;
+      gg.strokeStyle = rgb(col);
+      gg.lineWidth = R * (near ? 0.5 : 0.44);
       gg.beginPath();
-      gg.moveTo(-seaDir * headR * 0.18, oy);
-      gg.quadraticCurveTo(seaDir * headR * 0.85, oy - headR * 0.16, seaDir * headR * 1.62, oy + headR * 0.06);
+      gg.moveTo(X(-0.08), Y(-0.52));
+      gg.quadraticCurveTo(X(kx * 0.5), Y(ky * 0.86), X(kx), Y(ky));
+      gg.lineTo(X(ax), Y(ay));
       gg.stroke();
-      // foot
-      gg.fillStyle = near ? 'rgb(252,220,192)' : 'rgb(236,196,166)';
-      gg.save();
-      gg.translate(seaDir * headR * 1.72, oy + headR * 0.02);
-      gg.rotate(seaDir * -0.5);
+      // knee highlight
+      gg.fillStyle = rgb(mix(col, [255, 244, 226], 0.4), 0.55);
       gg.beginPath();
-      gg.ellipse(0, 0, headR * 0.3, headR * 0.19, 0, 0, Math.PI * 2);
+      gg.ellipse(X(kx), Y(ky), R * 0.2, R * 0.15, 0, 0, Math.PI * 2);
+      gg.fill();
+      // foot
+      gg.save();
+      gg.translate(X(ax), Y(ay));
+      gg.rotate(-0.3);
+      gg.fillStyle = rgb(mix(col, [255, 240, 220], 0.25));
+      gg.beginPath();
+      gg.ellipse(R * 0.2, 0, R * 0.36, R * 0.21, 0, 0, Math.PI * 2);
+      gg.fill();
+      gg.fillStyle = 'rgba(190,142,112,0.35)';
+      gg.beginPath();
+      gg.ellipse(R * 0.38, R * 0.04, R * 0.14, R * 0.1, 0, 0, Math.PI * 2);
       gg.fill();
       gg.restore();
-    }
+    };
 
-    // body: a small round swimsuit
-    const bodyY = -headR * 0.95;
-    const bg = gg.createLinearGradient(0, bodyY - headR * 0.7, 0, bodyY + headR * 0.7);
-    bg.addColorStop(0, 'rgb(96,196,196)');
-    bg.addColorStop(1, 'rgb(42,140,152)');
-    gg.fillStyle = bg;
-    gg.beginPath();
-    gg.ellipse(0, bodyY, headR * 0.72, headR * 0.82, 0, 0, Math.PI * 2);
-    gg.fill();
-    gg.fillStyle = 'rgba(255,255,255,0.5)';
-    gg.beginPath();
-    gg.ellipse(-headR * 0.22, bodyY - headR * 0.3, headR * 0.2, headR * 0.12, -0.4, 0, Math.PI * 2);
-    gg.fill();
-
-    // arms: resting on knees, or coming together for a clap
-    const clap = k.clap;
-    gg.strokeStyle = 'rgb(246,208,178)';
-    gg.lineWidth = headR * 0.3;
-    gg.lineCap = 'round';
-    for (const sgn of [-1, 1]) {
-      const hx = lerp(seaDir * headR * 0.95 + sgn * headR * 0.3, seaDir * headR * 0.55, clap);
-      const hy = lerp(-headR * 0.72, -headR * 1.35, clap);
+    // --- an arm: shoulder -> elbow -> hand
+    const arm = (sx: number, sy: number, hx: number, hy: number, near: boolean): void => {
+      const col = near ? skin : skinFar;
+      const ex = (sx + hx) / 2 + 0.16;
+      const ey = (sy + hy) / 2 + 0.26;
+      gg.strokeStyle = rgb(col);
+      gg.lineWidth = R * (near ? 0.34 : 0.3);
       gg.beginPath();
-      gg.moveTo(sgn * headR * 0.55, bodyY);
-      gg.quadraticCurveTo(sgn * headR * 0.8, bodyY + headR * 0.4, hx, hy);
+      gg.moveTo(X(sx), Y(sy));
+      gg.quadraticCurveTo(X(ex), Y(ey), X(hx), Y(hy));
+      gg.stroke();
+      gg.fillStyle = rgb(mix(col, [255, 242, 224], 0.2));
+      gg.beginPath();
+      gg.ellipse(X(hx), Y(hy), R * 0.21, R * 0.19, 0, 0, Math.PI * 2);
+      gg.fill();
+    };
+
+    // far arm props on the sand behind, or joins the clap
+    const fx = lerp(-0.98, 0.5, clap);
+    const fy = lerp(-0.22, -1.52, clap);
+    arm(-0.3, -1.78, fx, fy, false);
+    // far leg
+    leg(0.7, -0.95, 1.2, -0.16, false);
+
+    // --- torso, in a striped swimsuit
+    const torso = new Path2D();
+    torso.moveTo(X(-0.66), Y(-0.34));
+    torso.quadraticCurveTo(X(-0.76), Y(-1.16), X(-0.44), Y(-1.92));
+    torso.quadraticCurveTo(X(0.18), Y(-2.16), X(0.62), Y(-1.82));
+    torso.quadraticCurveTo(X(0.9), Y(-1.04), X(0.74), Y(-0.36));
+    torso.quadraticCurveTo(X(0.06), Y(-0.06), X(-0.66), Y(-0.34));
+    torso.closePath();
+
+    const bg = gg.createLinearGradient(X(-0.8), 0, X(0.9), 0);
+    bg.addColorStop(0, rgb(mix(suitA, [12, 70, 86], 0.35)));
+    bg.addColorStop(0.55, rgb(suitA));
+    bg.addColorStop(1, rgb(suitB));
+    gg.fillStyle = bg;
+    gg.fill(torso);
+
+    gg.save();
+    gg.clip(torso);
+    // horizontal stripes
+    gg.fillStyle = 'rgba(255,252,244,0.92)';
+    for (let i = 0; i < 4; i++) {
+      const y = -0.32 - i * 0.46;
+      gg.fillRect(X(-1), Y(y) - R * 0.11, R * 2.2, R * 0.22);
+    }
+    // the shaded far side of the body
+    const sh = gg.createLinearGradient(X(-0.8), 0, X(-0.1), 0);
+    sh.addColorStop(0, 'rgba(30,58,72,0.38)');
+    sh.addColorStop(1, 'rgba(30,58,72,0)');
+    gg.fillStyle = sh;
+    gg.fillRect(X(-1), Y(-2.3), R * 2.2, R * 2.4);
+    gg.restore();
+
+    // straps over the shoulders
+    gg.strokeStyle = rgb(suitA);
+    gg.lineWidth = R * 0.16;
+    for (const s of [-1, 1]) {
+      gg.beginPath();
+      gg.moveTo(X(-0.3 + s * 0.16), Y(-1.86));
+      gg.quadraticCurveTo(X(0.1 + s * 0.2), Y(-2.12), X(0.44 + s * 0.06), Y(-1.9));
       gg.stroke();
     }
 
-    // head
-    const headY = bodyY - headR * 1.0 - nod * headR * 0.3;
-    gg.save();
-    gg.translate(0, headY);
-    gg.rotate(nod * 0.3 + k.laugh * -0.16 * seaDir);
-    gg.fillStyle = 'rgb(248,212,182)';
-    gg.beginPath();
-    gg.ellipse(0, 0, headR * 0.86, headR * 0.92, 0, 0, Math.PI * 2);
-    gg.fill();
-    // face, turned a little toward the sea
-    const ex = seaDir * headR * 0.1;
-    const eyeY = headR * 0.1;
-    gg.fillStyle = 'rgb(58,44,40)';
-    for (const sgn of [-1, 1]) {
-      const x = ex + sgn * headR * 0.3;
-      if (k.blink > 0) {
-        gg.fillRect(x - headR * 0.14, eyeY, headR * 0.28, headR * 0.07);
-      } else {
-        gg.beginPath();
-        gg.ellipse(x, eyeY, headR * 0.1, headR * 0.13, 0, 0, Math.PI * 2);
-        gg.fill();
-      }
-    }
-    // cheeks
-    gg.fillStyle = 'rgba(240,146,130,0.5)';
-    for (const sgn of [-1, 1]) {
-      gg.beginPath();
-      gg.ellipse(ex + sgn * headR * 0.46, eyeY + headR * 0.2, headR * 0.15, headR * 0.1, 0, 0, Math.PI * 2);
-      gg.fill();
-    }
-    // mouth
-    gg.strokeStyle = 'rgb(176,100,88)';
-    gg.lineWidth = headR * 0.1;
-    gg.lineCap = 'round';
-    gg.beginPath();
-    if (k.laugh > 0.3) {
-      gg.ellipse(ex, eyeY + headR * 0.42, headR * 0.18, headR * 0.16, 0, 0, Math.PI * 2);
-    } else {
-      gg.arc(ex, eyeY + headR * 0.18, headR * 0.26, 0.42, Math.PI - 0.42);
-    }
-    gg.stroke();
+    // --- near leg, in front of the body
+    leg(0.95, -0.82, 1.48, -0.14, true);
 
-    // sunhat: crown plus a wide straw brim
-    const brimW = headR * 1.5;
-    const hatY = -headR * 0.52;
-    const hg = gg.createLinearGradient(-brimW, hatY, brimW, hatY + headR * 0.4);
-    hg.addColorStop(0, 'rgb(252,232,176)');
-    hg.addColorStop(0.55, 'rgb(238,208,140)');
-    hg.addColorStop(1, 'rgb(206,170,104)');
+    // --- near arm: rests on the knee, points at the sea, claps, or covers a laugh
+    let hx = 1.02;
+    let hy = -1.0;
+    hx = lerp(hx, 2.02, point);
+    hy = lerp(hy, -1.42, point);
+    const clapJ = Math.abs(Math.sin(this.t * 24)) * 0.08 * clap;
+    hx = lerp(hx, 0.74 + clapJ, clap);
+    hy = lerp(hy, -1.5, clap);
+    hx = lerp(hx, 0.52, laugh);
+    hy = lerp(hy, -2.26, laugh);
+    arm(0.44, -1.72, hx, hy, true);
+
+    // --- head
+    const headX = 0.16;
+    const headY = -2.56 - nod * 0.24;
+    gg.save();
+    gg.translate(X(headX), Y(headY));
+    gg.rotate(nod * 0.34 - laugh * 0.2 + point * 0.06);
+
+    // hair at the nape, under the hat
+    gg.fillStyle = 'rgb(96,66,52)';
+    gg.beginPath();
+    gg.ellipse(-R * 0.6, R * 0.1, R * 0.4, R * 0.5, 0.2, 0, Math.PI * 2);
+    gg.fill();
+
+    const hg = gg.createLinearGradient(-R * 0.9, -R * 0.9, R * 0.9, R * 0.9);
+    hg.addColorStop(0, rgb(mix(skin, [255, 238, 218], 0.5)));
+    hg.addColorStop(1, rgb(mix(skin, [206, 160, 130], 0.4)));
     gg.fillStyle = hg;
     gg.beginPath();
-    gg.ellipse(0, hatY, brimW, headR * 0.34, 0, 0, Math.PI * 2);
+    gg.ellipse(0, 0, R * 0.84, R * 0.9, 0, 0, Math.PI * 2);
     gg.fill();
+
+    // face, turned a little towards the sea
+    const ex = R * 0.18;
+    const eyeY = -R * 0.02;
+    gg.fillStyle = 'rgb(56,42,38)';
+    for (const s of [-1, 1]) {
+      const x = ex + s * R * 0.3;
+      if (k.blink > 0) {
+        gg.fillRect(x - R * 0.14, eyeY, R * 0.28, R * 0.07);
+      } else {
+        gg.beginPath();
+        gg.ellipse(x, eyeY, R * 0.1, R * 0.135, 0, 0, Math.PI * 2);
+        gg.fill();
+        gg.fillStyle = 'rgba(255,255,255,0.85)';
+        gg.beginPath();
+        gg.arc(x + R * 0.04, eyeY - R * 0.05, R * 0.035, 0, Math.PI * 2);
+        gg.fill();
+        gg.fillStyle = 'rgb(56,42,38)';
+      }
+    }
+    gg.fillStyle = 'rgba(240,146,130,0.5)';
+    for (const s of [-1, 1]) {
+      gg.beginPath();
+      gg.ellipse(ex + s * R * 0.46, eyeY + R * 0.2, R * 0.15, R * 0.1, 0, 0, Math.PI * 2);
+      gg.fill();
+    }
+    // mouth: round "o" when laughing, otherwise a smile
+    const mouthO = Math.max(laugh, clap * 0.8);
+    gg.strokeStyle = 'rgb(176,100,88)';
+    gg.lineWidth = R * 0.1;
+    if (mouthO > 0.3) {
+      gg.fillStyle = 'rgb(198,116,102)';
+      gg.beginPath();
+      gg.ellipse(ex, eyeY + R * 0.42, R * 0.16, R * 0.17 * mouthO, 0, 0, Math.PI * 2);
+      gg.fill();
+      gg.stroke();
+    } else {
+      gg.beginPath();
+      gg.arc(ex, eyeY + R * 0.18, R * 0.26, 0.42, Math.PI - 0.42);
+      gg.stroke();
+    }
+
+    // --- sunhat: crown plus a wide straw brim
+    const brimW = R * 1.5;
+    const hatY = -R * 0.56;
+    const crown = gg.createLinearGradient(-brimW * 0.4, hatY - R * 0.7, brimW * 0.4, hatY);
+    crown.addColorStop(0, 'rgb(254,238,192)');
+    crown.addColorStop(1, 'rgb(222,188,122)');
+    gg.fillStyle = crown;
     gg.beginPath();
-    gg.ellipse(0, hatY - headR * 0.2, headR * 0.72, headR * 0.5, 0, Math.PI, Math.PI * 2);
+    gg.ellipse(R * 0.04, hatY - R * 0.16, R * 0.74, R * 0.56, 0, Math.PI, Math.PI * 2);
+    gg.fill();
+    const brim = gg.createLinearGradient(-brimW, hatY, brimW, hatY + R * 0.4);
+    brim.addColorStop(0, 'rgb(252,234,180)');
+    brim.addColorStop(0.5, 'rgb(238,208,140)');
+    brim.addColorStop(1, 'rgb(200,162,98)');
+    gg.fillStyle = brim;
+    gg.beginPath();
+    gg.ellipse(R * 0.02, hatY, brimW, R * 0.33, -0.04, 0, Math.PI * 2);
     gg.fill();
     gg.fillStyle = 'rgb(232,96,84)';
     gg.beginPath();
-    gg.ellipse(0, hatY - headR * 0.18, headR * 0.73, headR * 0.12, 0, Math.PI, Math.PI * 2);
+    gg.ellipse(R * 0.04, hatY - R * 0.14, R * 0.75, R * 0.12, 0, Math.PI, Math.PI * 2);
     gg.fill();
-    gg.strokeStyle = 'rgba(176,138,84,0.5)';
-    gg.lineWidth = Math.max(1, headR * 0.05);
+    gg.strokeStyle = 'rgba(176,138,84,0.45)';
+    gg.lineWidth = Math.max(1, R * 0.045);
     for (let i = 1; i <= 2; i++) {
       gg.beginPath();
-      gg.ellipse(0, hatY, brimW * (i / 3), headR * 0.34 * (i / 3), 0, 0, Math.PI * 2);
+      gg.ellipse(R * 0.02, hatY, brimW * (i / 3), R * 0.33 * (i / 3), -0.04, 0, Math.PI * 2);
       gg.stroke();
     }
 
     // a blob of sea foam that landed on the brim
     if (k.foam > 0.01) {
-      const fx = -brimW * 0.55;
-      const fy = hatY - headR * 0.06;
-      const wob = Math.sin(this.t * 6) * headR * 0.02;
+      const bx = -brimW * 0.58;
+      const by = hatY - R * 0.05;
+      const wob = Math.sin(this.t * 6) * R * 0.02;
       gg.fillStyle = 'rgba(255,255,255,0.94)';
       gg.beginPath();
-      gg.ellipse(fx, fy + wob, headR * 0.3, headR * 0.2, 0, 0, Math.PI * 2);
+      gg.ellipse(bx, by + wob, R * 0.3, R * 0.2, 0, 0, Math.PI * 2);
       gg.fill();
       gg.beginPath();
-      gg.arc(fx - headR * 0.16, fy - headR * 0.08 + wob, headR * 0.12, 0, Math.PI * 2);
-      gg.arc(fx + headR * 0.18, fy - headR * 0.04 + wob, headR * 0.1, 0, Math.PI * 2);
+      gg.arc(bx - R * 0.16, by - R * 0.09 + wob, R * 0.12, 0, Math.PI * 2);
+      gg.arc(bx + R * 0.18, by - R * 0.05 + wob, R * 0.1, 0, Math.PI * 2);
       gg.fill();
       gg.fillStyle = 'rgba(206,232,236,0.6)';
       gg.beginPath();
-      gg.arc(fx + headR * 0.05, fy + headR * 0.06 + wob, headR * 0.06, 0, Math.PI * 2);
+      gg.arc(bx + R * 0.04, by + R * 0.06 + wob, R * 0.06, 0, Math.PI * 2);
       gg.fill();
     }
     gg.restore();
@@ -2710,12 +2967,11 @@ class Sandcastle implements Episode {
   private drawParticles(gg: CanvasRenderingContext2D): void {
     for (const g of this.grains) {
       const a = clamp(g.life / g.max, 0, 1);
-      if (g.kind === 0) {
-        gg.fillStyle = `rgba(240,216,168,${0.85 * a})`;
-        gg.fillRect(g.x, g.y, g.r, g.r * 0.85);
-      } else if (g.kind === 1) {
-        gg.fillStyle = `rgba(164,132,92,${0.8 * a})`;
-        gg.fillRect(g.x, g.y, g.r, g.r * 0.85);
+      if (g.kind === 0 || g.kind === 1) {
+        gg.fillStyle = g.kind === 0 ? `rgba(240,216,168,${0.85 * a})` : `rgba(164,132,92,${0.8 * a})`;
+        gg.beginPath();
+        gg.ellipse(g.x, g.y, g.r * 0.58, g.r * 0.46, g.spin * 0.3, 0, Math.PI * 2);
+        gg.fill();
       } else if (g.kind === 2) {
         gg.fillStyle = `rgba(250,254,255,${0.9 * a})`;
         gg.beginPath();
@@ -2980,7 +3236,7 @@ class Sandcastle implements Episode {
     const s2 = clamp(s, 0.22, 1.02);
     const i0 = this.binOf(u);
     // before the sea is a threat a finger only scuffs the surface
-    const cap = this.ctx.phase.at('foreshadow') ? 1 : 0.28;
+    const cap = this.ctx.phase.at('foreshadow') ? 0.56 : 0.24;
     for (let d = -2; d <= 2; d++) {
       const i = i0 + d;
       if (i < 0 || i >= NB) continue;
@@ -2988,6 +3244,12 @@ class Sandcastle implements Episode {
       if (this.bermH[i] < 0.02) this.bermS[i] = s2;
       else this.bermS[i] += (s2 - this.bermS[i]) * 0.3 * wgt;
       this.bermH[i] = Math.min(cap, this.bermH[i] + power * wgt);
+    }
+    // the shoulders either side keep the ridge line continuous
+    for (const d of [-3, 3]) {
+      const i = i0 + d;
+      if (i < 0 || i >= NB) continue;
+      if (this.bermH[i] < 0.02) this.bermS[i] = s2;
     }
     if (this.rng.next() < 0.6) this.spillGrain(s2, u, 0.4);
     if (this.bermSound <= 0) {
@@ -3011,8 +3273,8 @@ class Sandcastle implements Episode {
     {
       name: 'tide:in',
       run: () => {
-        this.tideTarget = 0.47;
-        this.waveAmpTarget = 0.27;
+        this.tideTarget = 0.43;
+        this.waveAmpTarget = 0.31;
         this.waveStrength = 0.6;
         this.waveEvery = 2.6;
         this.waveTimer = 0.3;
@@ -3039,12 +3301,12 @@ class Sandcastle implements Episode {
       name: 'berm:demo',
       run: () => {
         const b = this.geo.build;
-        const span = this.geo.o === 'portrait' ? 0.7 : 0.5;
+        const span = this.geo.o === 'portrait' ? 0.7 : 0.82;
         for (let i = 0; i < NB; i++) {
           const d = Math.abs(binU(i) - b.u);
+          this.bermS[i] = b.s - 0.1;
           if (d > span) continue;
-          this.bermS[i] = b.s - 0.145;
-          this.bermH[i] = clamp(0.95 * (1 - (d / span) ** 2) + 0.05, 0, 1);
+          this.bermH[i] = clamp(0.52 * (1 - (d / span) ** 2) + 0.04, 0, 1);
         }
         this.tideTarget = Math.max(this.tideTarget, 0.52);
         this.tideS = Math.max(this.tideS, 0.46);
