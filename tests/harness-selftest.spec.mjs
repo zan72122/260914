@@ -38,7 +38,7 @@ test.describe('harness self-test', () => {
     const log = await page.evaluate(() => window.__log);
     expect(log.down).toBe(2);
     expect(log.up).toBe(2);
-    expect(log.move).toBeGreaterThan(3); // sloppyTap smears
+    expect(log.move, 'sloppyTap must smear with 4 distinct moves').toBeGreaterThanOrEqual(4);
   });
 
   test('longPress holds for the requested duration', async ({ page }) => {

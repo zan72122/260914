@@ -18,6 +18,7 @@
 /** @typedef {{id:string,x:number,y:number,r:number}} HitPoint */
 
 const sessions = new WeakMap();
+const lastMove = new WeakMap();
 
 /** Lazily create (and reuse) one CDP session per page. */
 async function cdp(page) {
@@ -59,10 +60,19 @@ async function send(page, type, pt) {
 }
 
 export async function touchStart(page, x, y) {
+  lastMove.set(page, { x: Math.round(x), y: Math.round(y) });
   await send(page, 'touchStart', { x, y });
 }
 export async function touchMove(page, x, y) {
-  await send(page, 'touchMove', { x, y });
+  // Chromium coalesces a touchmove whose rounded position equals the previous
+  // one, so a tiny tremor can silently produce fewer move events than we
+  // dispatched. Nudge by 1px to keep every step observable.
+  const prev = lastMove.get(page);
+  let px = Math.round(x);
+  let py = Math.round(y);
+  if (prev && prev.x === px && prev.y === py) px += 1;
+  lastMove.set(page, { x: px, y: py });
+  await send(page, 'touchMove', { x: px, y: py });
 }
 export async function touchEnd(page, x, y) {
   await send(page, 'touchEnd', { x, y });
@@ -87,15 +97,24 @@ export async function tap(page, x, y) {
  * Tap the way a 4-year-old taps: press, smear a few px, release.
  * Must still be recognised as a tap (maxMoveRatio = 0.06*S, DESIGN.md §5.5.7).
  */
-export async function sloppyTap(page, x, y, { drift = 9, ms = 160 } = {}) {
+export async function sloppyTap(page, x, y, { drift = 9, ms = 160, steps = 4 } = {}) {
   await touchStart(page, x, y);
-  const steps = 4;
-  for (let i = 1; i <= steps; i++) {
+  const d = Math.max(3, drift);
+  // Deterministic zig-zag (each leg is several px from the last) plus a little
+  // noise: the smear is always `steps` distinct moves, whatever the timing.
+  const legs = [
+    [d, -d],
+    [-d, d],
+    [d * 0.7, d],
+    [-d, -d * 0.7],
+  ];
+  for (let i = 0; i < steps; i++) {
     await sleep(ms / (steps + 1));
-    await touchMove(page, x + rnd(drift), y + rnd(drift));
+    const [ox, oy] = legs[i % legs.length];
+    await touchMove(page, x + ox + rnd(1), y + oy + rnd(1));
   }
   await sleep(ms / (steps + 1));
-  await touchEnd(page, x + rnd(drift), y + rnd(drift));
+  await touchEnd(page, x + rnd(d * 0.3), y + rnd(d * 0.3));
   await sleep(30);
 }
 
