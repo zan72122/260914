@@ -174,6 +174,37 @@ describe('縞のデータ（spectra.ts との一致）', () => {
   });
 });
 
+describe('縞が映る壁の置き場所', () => {
+  it.each([
+    ['縦', 390, 844],
+    ['横', 844, 390],
+    ['iPad 横', 1024, 768],
+  ])('%s: 壁は工房の中に収まり、炎の後ろにある', (_name, w, h) => {
+    const l = computeLayout(w, h);
+    const wall = l.spectrumWall;
+    expect(wall.w).toBeGreaterThan(0);
+    expect(wall.h).toBeGreaterThan(0);
+    expect(wall.x).toBeGreaterThanOrEqual(l.workshop.x);
+    expect(wall.x + wall.w).toBeLessThanOrEqual(l.workshop.x + l.workshop.w + 1e-6);
+    expect(wall.y).toBeGreaterThanOrEqual(l.workshop.y);
+    expect(wall.y + wall.h).toBeLessThanOrEqual(l.workshop.y + l.workshop.h + 1e-6);
+    // 切れた配線より下、作業机より上の空いた帯に置く
+    expect(wall.y).toBeGreaterThan(l.wireGap.y);
+    expect(wall.y + wall.h).toBeLessThan(l.desk.y);
+  });
+
+  it.each([
+    ['縦', 390, 844],
+    ['横', 844, 390],
+  ])('%s: 金属の輪は炎の中にあり、台の上に収まる', (_name, w, h) => {
+    const l = computeLayout(w, h);
+    expect(Math.abs(l.ring.x - l.flame.x)).toBeLessThan(l.flame.w * 0.55);
+    expect(l.ring.y).toBeLessThan(l.flame.y);
+    expect(l.ring.y).toBeGreaterThan(l.flame.y - l.flame.h);
+    expect(l.ring.y).toBeGreaterThan(l.bench.y);
+  });
+});
+
 describe('金属の輪（材料を置いたままにする）', () => {
   it('輪の上で離すと材料はそこに残り、炎はその色を保つ', () => {
     const h = makeWorld('two_reds_on_bench');
