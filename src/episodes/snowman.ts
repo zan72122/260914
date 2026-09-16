@@ -537,14 +537,22 @@ class Snowman implements Episode {
     return { x: t.x, y: t.y - this.ry(t) * 0.08, r: this.rx(t) };
   }
 
-  private hatSeat(): { x: number; y: number; rot: number } | null {
+  /**
+   * Where the bucket sits. As the head shrinks it rides up and tips back on
+   * the crown — a hat pushed off a forehead — so the face never disappears
+   * under the brim. Only late in the melt does it give up and slide off.
+   */
+  private hatSeat(): { x: number; y: number; rot: number; tip: number; s: number } | null {
     const t = this.top();
     if (!t) return null;
     const slide = this.hatSlide;
+    const tip = clamp((t.melt - 0.03) / 0.3, 0, 1);
     return {
-      x: t.x + slide * this.rx(t) * 0.95,
-      y: t.y - this.ry(t) * (0.84 - Math.abs(slide) * 0.25),
-      rot: slide * 0.7 + this.snowLean * 0.1,
+      x: t.x + slide * this.rx(t) * 0.95 - tip * this.rx(t) * 0.06,
+      y: t.y - this.ry(t) * (0.84 - Math.abs(slide) * 0.25) - this.ry(t) * tip * 0.52,
+      rot: slide * 0.7 + this.snowLean * 0.1 + tip * 0.14,
+      tip,
+      s: this.geo.unit * 0.088 * (1 - tip * 0.1),
     };
   }
 
@@ -1139,7 +1147,7 @@ class Snowman implements Episode {
     const melting = this.ctx.phase.at('trouble') && this.ending !== 'saved';
 
     // the bucket creeps off a shrinking head
-    const slideT = melting ? clamp((melt - 0.18) * 1.5, 0, 1) * 0.9 : 0;
+    const slideT = melting ? clamp((melt - 0.62) * 2.6, 0, 1) * 0.9 : 0;
     this.hatSlide += (slideT - this.hatSlide) * (1 - Math.exp(-dt * 1.1));
 
     for (const p of [this.hat, this.carrot, this.umbrella, ...this.pebbles]) {
@@ -2009,7 +2017,7 @@ class Snowman implements Episode {
     this.drawFace(gg);
     if (this.hat.state === 'on') {
       const s = this.hatSeat();
-      if (s) this.drawHat(gg, s.x, s.y, s.rot, this.geo.unit * 0.088);
+      if (s) this.drawHat(gg, s.x, s.y, s.rot, s.s, s.tip);
     }
     for (const pb of this.pebbles) if (pb.state !== 'on') this.drawPebble(gg, pb);
     if (this.carrot.state !== 'on') this.drawCarrot(gg, this.carrot.x, this.carrot.y, this.carrot.rot, this.geo.unit * 0.055);
@@ -2263,14 +2271,23 @@ class Snowman implements Episode {
     gg.restore();
   }
 
-  private drawHat(gg: CanvasRenderingContext2D, x: number, y: number, rot: number, s: number): void {
-    // a red garden bucket worn upside down: wide rim down, narrow base up
+  private drawHat(
+    gg: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    rot: number,
+    s: number,
+    tip = 0,
+  ): void {
+    // a red garden bucket worn upside down: wide rim down, narrow base up.
+    // `tip` tilts it back on the head, which opens the rim towards us.
     gg.save();
     gg.translate(x, y);
     gg.rotate(rot);
     const rw = s * 0.92; // rim half width (bottom)
     const tw = s * 0.7; // top half width
     const hh = s * 0.98;
+    const rimRy = s * (0.2 + 0.2 * tip);
     const body = gg.createLinearGradient(-rw, 0, rw, 0);
     body.addColorStop(0, 'rgb(150,44,40)');
     body.addColorStop(0.32, 'rgb(220,78,62)');
@@ -2282,9 +2299,19 @@ class Snowman implements Episode {
     gg.lineTo(-tw, -hh);
     gg.quadraticCurveTo(0, -hh - s * 0.16, tw, -hh);
     gg.lineTo(rw, 0);
-    gg.quadraticCurveTo(0, s * 0.22, -rw, 0);
+    gg.quadraticCurveTo(0, s * (0.22 + 0.24 * tip), -rw, 0);
     gg.closePath();
     gg.fill();
+    if (tip > 0.05) {
+      // tipped back: we can see up inside the bucket
+      const inner = gg.createLinearGradient(0, -rimRy, 0, rimRy);
+      inner.addColorStop(0, 'rgb(92,26,24)');
+      inner.addColorStop(1, 'rgb(140,42,38)');
+      gg.fillStyle = inner;
+      gg.beginPath();
+      gg.ellipse(0, 0, rw * 0.96, rimRy * 0.92, 0, Math.PI, Math.PI * 2);
+      gg.fill();
+    }
     // the base of the bucket, now the crown
     gg.fillStyle = 'rgb(246,140,112)';
     gg.beginPath();
@@ -2298,22 +2325,50 @@ class Snowman implements Episode {
     // rolled rim
     gg.fillStyle = 'rgb(186,58,48)';
     gg.beginPath();
-    gg.ellipse(0, 0, rw, s * 0.2, 0, 0, Math.PI);
+    gg.ellipse(0, 0, rw, rimRy, 0, 0, Math.PI);
     gg.fill();
     gg.strokeStyle = 'rgba(112,28,24,0.6)';
     gg.lineWidth = Math.max(1.2, s * 0.05);
     gg.beginPath();
-    gg.ellipse(0, 0, rw, s * 0.2, 0, 0, Math.PI * 2);
+    gg.ellipse(0, 0, rw, rimRy, 0, 0, Math.PI * 2);
     gg.stroke();
-    // wire handle, hanging off one side
-    gg.strokeStyle = 'rgb(150,154,164)';
-    gg.lineWidth = Math.max(1.6, s * 0.055);
-    gg.lineCap = 'round';
+    // wire handle: a real loop of bent metal, with weight and a shadow
     const sw = Math.sin(this.t * 2.2) * 0.08;
+    const h0x = -rw * 0.96;
+    const h0y = -hh * 0.42;
+    const h1x = -rw * 1.05;
+    const h1y = hh * 0.34;
+    const cxh = -rw * 1.52 + sw * s;
+    const cyh = -hh * 0.05;
+    gg.lineCap = 'round';
+    gg.strokeStyle = 'rgba(78,34,30,0.45)';
+    gg.lineWidth = Math.max(3.4, s * 0.125);
     gg.beginPath();
-    gg.moveTo(-rw * 0.96, -hh * 0.42);
-    gg.quadraticCurveTo(-rw * 1.5 + sw * s, -hh * 0.05, -rw * 1.05, hh * 0.34);
+    gg.moveTo(h0x + s * 0.03, h0y + s * 0.035);
+    gg.quadraticCurveTo(cxh + s * 0.03, cyh + s * 0.035, h1x + s * 0.03, h1y + s * 0.035);
     gg.stroke();
+    gg.strokeStyle = 'rgb(126,130,140)';
+    gg.lineWidth = Math.max(2.6, s * 0.095);
+    gg.beginPath();
+    gg.moveTo(h0x, h0y);
+    gg.quadraticCurveTo(cxh, cyh, h1x, h1y);
+    gg.stroke();
+    gg.strokeStyle = 'rgba(232,238,246,0.75)';
+    gg.lineWidth = Math.max(1, s * 0.032);
+    gg.beginPath();
+    gg.moveTo(h0x - s * 0.012, h0y);
+    gg.quadraticCurveTo(cxh - s * 0.02, cyh, h1x - s * 0.012, h1y);
+    gg.stroke();
+    // the lugs it hangs from
+    gg.fillStyle = 'rgb(150,44,40)';
+    for (const [lx, ly] of [
+      [h0x, h0y],
+      [h1x, h1y],
+    ]) {
+      gg.beginPath();
+      gg.ellipse(lx + s * 0.04, ly, s * 0.07, s * 0.055, 0, 0, Math.PI * 2);
+      gg.fill();
+    }
     // a band of white paint so it reads as a bucket, not a fez
     gg.fillStyle = 'rgba(255,244,236,0.85)';
     gg.beginPath();

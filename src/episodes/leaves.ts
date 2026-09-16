@@ -1603,6 +1603,36 @@ class Leaves implements Episode {
     }
   }
 
+  /** the outline of the gravel path — also used to keep shadows off the grass */
+  private pathShape(gg: CanvasRenderingContext2D): void {
+    const g = this.geo;
+    const gt = g.groundTop;
+    gg.beginPath();
+    if (g.o === 'portrait') {
+      const half = (t: number): number => lerp(g.w * 0.23, g.w * 0.52, t);
+      const N = 8;
+      gg.moveTo(g.w * 0.5 - half(0), gt);
+      for (let i = 1; i <= N; i++) {
+        const t = i / N;
+        const y = lerp(gt, g.h + 10, t);
+        gg.lineTo(g.w * 0.5 - half(t) + Math.sin(t * 5) * g.w * 0.012, y);
+      }
+      for (let i = N; i >= 0; i--) {
+        const t = i / N;
+        const y = lerp(gt, g.h + 10, t);
+        gg.lineTo(g.w * 0.5 + half(t) + Math.sin(t * 4 + 1) * g.w * 0.012, y);
+      }
+    } else {
+      const N = 8;
+      const topY = (t: number): number => gt + g.min * (0.1 + 0.02 * Math.sin(t * 5.2));
+      const botY = (t: number): number => g.h - g.min * (0.06 + 0.025 * Math.sin(t * 4.1 + 2));
+      gg.moveTo(-10, topY(0));
+      for (let i = 1; i <= N; i++) gg.lineTo(lerp(-10, g.w + 10, i / N), topY(i / N));
+      for (let i = N; i >= 0; i--) gg.lineTo(lerp(-10, g.w + 10, i / N), botY(i / N));
+    }
+    gg.closePath();
+  }
+
   private drawGround(gg: CanvasRenderingContext2D): void {
     const g = this.geo;
     const gt = g.groundTop;
@@ -1620,30 +1650,7 @@ class Leaves implements Episode {
     pth.addColorStop(0.4, 'rgb(212,184,142)');
     pth.addColorStop(1, 'rgb(198,168,128)');
     gg.fillStyle = pth;
-    gg.beginPath();
-    if (g.o === 'portrait') {
-      const half = (t: number) => lerp(g.w * 0.23, g.w * 0.52, t);
-      const N = 8;
-      gg.moveTo(g.w * 0.5 - half(0), gt);
-      for (let i = 1; i <= N; i++) {
-        const t = i / N;
-        const y = lerp(gt, g.h + 10, t);
-        gg.lineTo(g.w * 0.5 - half(t) + Math.sin(t * 5) * g.w * 0.012, y);
-      }
-      for (let i = N; i >= 0; i--) {
-        const t = i / N;
-        const y = lerp(gt, g.h + 10, t);
-        gg.lineTo(g.w * 0.5 + half(t) + Math.sin(t * 4 + 1) * g.w * 0.012, y);
-      }
-    } else {
-      const N = 8;
-      const topY = (t: number) => gt + g.min * (0.1 + 0.02 * Math.sin(t * 5.2));
-      const botY = (t: number) => g.h - g.min * (0.06 + 0.025 * Math.sin(t * 4.1 + 2));
-      gg.moveTo(-10, topY(0));
-      for (let i = 1; i <= N; i++) gg.lineTo(lerp(-10, g.w + 10, i / N), topY(i / N));
-      for (let i = N; i >= 0; i--) gg.lineTo(lerp(-10, g.w + 10, i / N), botY(i / N));
-    }
-    gg.closePath();
+    this.pathShape(gg);
     gg.fill();
 
     // gravel
@@ -1676,7 +1683,11 @@ class Leaves implements Episode {
     }
     gg.fill();
 
-    // the tree: trunk stripe + canopy blot, stretched away from the sun
+    // the tree: trunk stripe + canopy blot, stretched away from the sun.
+    // clipped to the path, so it never smears across the foreground grass.
+    gg.save();
+    this.pathShape(gg);
+    gg.clip();
     const bx = g.trunk.x;
     const by = g.trunk.base;
     const L = g.min * 1.05;
@@ -1691,21 +1702,30 @@ class Leaves implements Episode {
     gg.fill();
     const cx = bx + sh.x * L * 0.92 + swy;
     const cy = by + sh.y * L * 0.92;
-    gg.fillStyle = 'rgba(104,80,62,0.16)';
+    const rot = Math.atan2(sh.y, sh.x);
+    // a soft dappled blot rather than four hard ovals
     for (let i = 0; i < 4; i++) {
       const a = i * 1.7;
+      const ex = cx + Math.cos(a) * g.canopy.r * 0.3;
+      const ey = cy + Math.sin(a) * g.canopy.r * 0.08;
+      const rx = g.canopy.r * 0.44;
+      const ry = g.canopy.r * 0.13;
+      const bg = gg.createRadialGradient(ex, ey, 0, ex, ey, rx);
+      bg.addColorStop(0, 'rgba(104,80,62,0.15)');
+      bg.addColorStop(0.55, 'rgba(104,80,62,0.11)');
+      bg.addColorStop(1, 'rgba(104,80,62,0)');
+      gg.save();
+      gg.translate(ex, ey);
+      gg.rotate(rot);
+      gg.scale(1, ry / rx);
+      gg.translate(-ex, -ey);
+      gg.fillStyle = bg;
       gg.beginPath();
-      gg.ellipse(
-        cx + Math.cos(a) * g.canopy.r * 0.3,
-        cy + Math.sin(a) * g.canopy.r * 0.1,
-        g.canopy.r * 0.5,
-        g.canopy.r * 0.17,
-        Math.atan2(sh.y, sh.x),
-        0,
-        Math.PI * 2,
-      );
+      gg.arc(ex, ey, rx, 0, Math.PI * 2);
       gg.fill();
+      gg.restore();
     }
+    gg.restore();
     gg.restore();
   }
 
@@ -1919,17 +1939,20 @@ class Leaves implements Episode {
     const af = Math.max(0.12, Math.abs(face));
     const sy = l.y - l.z;
 
-    // cast shadow: it slides away from the leaf as the leaf rises
-    const off = l.z * 0.72 + l.size * 0.22;
-    const a = 0.17 * Math.exp(-l.z / (g.min * 0.42));
+    // cast shadow: as the leaf rises the shadow slides away, shrinks and fades
+    // (a big grey oval under a flying leaf just reads as a smudge)
+    const high = clamp(l.z / (g.min * 0.26), 0, 1);
+    const off = l.z * 0.8 + l.size * 0.2;
+    const a = 0.2 * (1 - high) ** 1.7;
     if (a > 0.012) {
+      const k = 1 - 0.6 * high;
       gg.fillStyle = `rgba(78,56,40,${a})`;
       gg.beginPath();
       gg.ellipse(
         l.x + g.shadow.x * off,
         l.y + g.shadow.y * off * 0.55,
-        l.size * (0.4 + 0.4 * af) + l.z * 0.015,
-        l.size * 0.3,
+        l.size * (0.3 + 0.34 * af) * k,
+        l.size * 0.22 * k,
         l.rot * 0.3,
         0,
         Math.PI * 2,
@@ -2412,6 +2435,49 @@ class Leaves implements Episode {
           this.ptX = nx;
           this.ptY = ny;
           for (const l of this.leaves) this.stepLeaf(l, 1 / 120);
+        }
+
+        // ---- pose the moment so a still frame reads as "being pushed NOW" ----
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        const dl = Math.hypot(dx, dy) || 1;
+        const ux = dx / dl;
+        const uy = dy / dl;
+        const nxv = -uy; // across the stroke
+        const nyv = ux;
+        const R = g.min * 0.3;
+        // a crescent of leaves bowed ahead of the finger, mid-tumble
+        const bow = this.leaves
+          .filter((l) => (l.state === 'ground' || l.state === 'air') && !loose.includes(l))
+          .slice(0, 15);
+        bow.forEach((l, i) => {
+          const s2 = (i / (bow.length - 1)) * 2 - 1; // -1..1 across the crescent
+          const ahead = R * (0.5 + 0.62 * (1 - s2 * s2)); // bowed forward in the middle
+          const side = s2 * R * 1.15;
+          l.state = 'air';
+          l.x = clamp(this.ptX + ux * ahead + nxv * side, g.min * 0.07, g.w - g.min * 0.07);
+          l.y = clamp(this.ptY + uy * ahead + nyv * side * 0.55, g.groundTop + g.min * 0.12, g.h - g.min * 0.08);
+          l.z = (0.3 + 0.7 * (1 - Math.abs(s2))) * g.min * 0.12 + this.rng.range(0, g.min * 0.03);
+          const kick = g.min * (0.5 + 0.5 * (1 - Math.abs(s2)));
+          l.vx = ux * kick + this.rng.range(-0.1, 0.1) * g.min;
+          l.vy = uy * kick * 0.6 + this.rng.range(-0.08, 0.08) * g.min;
+          l.vz = g.min * this.rng.range(0.15, 0.6) * (1 - Math.abs(s2) * 0.6);
+          l.spin = this.rng.range(-9, 9);
+          l.flipV = this.rng.range(-10, 10);
+          l.rot += this.rng.range(-1, 1);
+        });
+        // and a small puff of dust kicked up right at the finger
+        for (let i = 0; i < 14; i++) {
+          const sp = this.rng.range(0.1, 0.5);
+          this.puffs.push({
+            x: this.ptX + nxv * this.rng.range(-0.5, 0.5) * R * 0.7 - ux * R * 0.15,
+            y: this.ptY + nyv * this.rng.range(-0.5, 0.5) * R * 0.4,
+            vx: ux * g.min * sp + this.rng.range(-0.1, 0.1) * g.min,
+            vy: -this.rng.range(0.05, 0.3) * g.min,
+            life: this.rng.range(0.55, 0.95),
+            max: 1,
+            r: g.min * this.rng.range(0.03, 0.07),
+          });
         }
       },
     },

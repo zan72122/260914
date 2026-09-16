@@ -536,9 +536,10 @@ class HatWind implements Episode {
           ? -c.hr * 0.8
           : c.kind === 'dog'
             ? c.hr * 0.5
-            : c.hr * 0.85;
+            : // the duck wears it down over its eyes, so only the bill shows
+              -c.hr * 0.15;
     const dx =
-      (c.kind === 'dog' ? this.geo.unit * 0.055 : c.kind === 'duck' ? -this.geo.unit * 0.022 : 0) * sc;
+      (c.kind === 'dog' ? this.geo.unit * 0.055 : c.kind === 'duck' ? this.geo.unit * 0.022 : 0) * sc;
     return { x: c.x + c.walkX + dx, d: c.d + c.walkD, z: c.hz + off };
   }
 
@@ -2374,11 +2375,12 @@ class HatWind implements Episode {
     // --- kid
     const hp = this.headPos();
     const hr = hp.r;
-    const shoulderY = hp.y + hr * 1.05 - k.shrug * hr * 0.28;
+    const shoulderY = hp.y + hr * 1.4 - k.shrug * hr * 0.28;
     const hipY = seatY + u * 0.004;
     const lean = -k.lookWind * 0.14 - k.alarm * 0.06 + k.relief * 0.02;
     const shirt: RGB = [246, 176, 88];
     const shirtDark = mix(shirt, [140, 80, 40], 0.35);
+    const skin: RGB = [248, 210, 176];
 
     gg.save();
     gg.translate(bx, hipY);
@@ -2400,11 +2402,46 @@ class HatWind implements Episode {
     gg.strokeStyle = rgb(mix(shirtDark, [110, 60, 30], 0.4), 0.55);
     gg.lineWidth = Math.max(1, hr * 0.07);
     gg.stroke();
-    // collar
-    gg.fillStyle = rgb(mix(shirt, [255, 244, 220], 0.62));
+    // --- neck: the head sits on shoulders, it does not grow out of the shirt
+    const neckTop = hp.y + hr * 0.5;
+    gg.fillStyle = rgb(mix(skin, [206, 160, 128], 0.3));
     gg.beginPath();
-    gg.ellipse(bx, shoulderY - hr * 0.16, hr * 0.44, hr * 0.17, 0, 0, Math.PI * 2);
+    gg.moveTo(bx - hr * 0.27, neckTop);
+    gg.lineTo(bx + hr * 0.27, neckTop);
+    gg.lineTo(bx + hr * 0.33, shoulderY - hr * 0.06);
+    gg.lineTo(bx - hr * 0.33, shoulderY - hr * 0.06);
+    gg.closePath();
     gg.fill();
+    // the shadow the chin throws down the neck
+    const ng = gg.createLinearGradient(0, neckTop, 0, shoulderY - hr * 0.06);
+    ng.addColorStop(0, 'rgba(126,84,60,0.45)');
+    ng.addColorStop(0.75, 'rgba(126,84,60,0)');
+    gg.fillStyle = ng;
+    gg.fillRect(bx - hr * 0.34, neckTop, hr * 0.68, shoulderY - neckTop);
+
+    // --- collar: a band with two little points, sitting on the shoulders
+    const colY = shoulderY - hr * 0.14;
+    gg.fillStyle = rgb(mix(shirt, [255, 246, 226], 0.66));
+    gg.beginPath();
+    gg.ellipse(bx, colY, hr * 0.46, hr * 0.19, 0, 0, Math.PI * 2);
+    gg.fill();
+    gg.fillStyle = rgb(mix(shirt, [255, 250, 236], 0.8));
+    for (const sgn of [-1, 1]) {
+      gg.beginPath();
+      gg.moveTo(bx + sgn * hr * 0.06, colY - hr * 0.02);
+      gg.lineTo(bx + sgn * hr * 0.52, colY - hr * 0.04);
+      gg.lineTo(bx + sgn * hr * 0.22, colY + hr * 0.32);
+      gg.closePath();
+      gg.fill();
+    }
+    gg.strokeStyle = rgb(mix(shirtDark, [110, 60, 30], 0.35), 0.45);
+    gg.lineWidth = Math.max(0.8, hr * 0.05);
+    for (const sgn of [-1, 1]) {
+      gg.beginPath();
+      gg.moveTo(bx + sgn * hr * 0.06, colY - hr * 0.02);
+      gg.lineTo(bx + sgn * hr * 0.22, colY + hr * 0.32);
+      gg.stroke();
+    }
     // a shirt hem that flutters
     gg.strokeStyle = rgb(shirtDark, 0.7);
     gg.lineWidth = Math.max(1, hr * 0.09);
@@ -2419,7 +2456,6 @@ class HatWind implements Episode {
 
     // --- arms
     const armC = rgb(mix(shirt, [255, 226, 180], 0.1));
-    const skin: RGB = [248, 210, 176];
     const drawArm = (side: number, hx: number, hy: number, bendK: number): void => {
       const ax = bx + side * hr * 0.78;
       const ay = shoulderY + hr * 0.16;
@@ -2494,13 +2530,36 @@ class HatWind implements Episode {
     }
     drawArm(-1, rhx, rhy, -1);
 
+    // --- short sleeves, so the arms come out of a shirt instead of a block
+    for (const sgn of [-1, 1]) {
+      gg.save();
+      gg.translate(bx + sgn * hr * 0.62, shoulderY + hr * 0.08);
+      gg.rotate(sgn * 0.3);
+      gg.scale(sgn, 1);
+      const sg = gg.createLinearGradient(-hr * 0.36, 0, hr * 0.44, 0);
+      sg.addColorStop(0, rgb(mix(shirt, [255, 232, 190], 0.2)));
+      sg.addColorStop(1, rgb(shirtDark));
+      gg.fillStyle = sg;
+      gg.beginPath();
+      gg.moveTo(-hr * 0.36, -hr * 0.3);
+      gg.quadraticCurveTo(hr * 0.34, -hr * 0.36, hr * 0.42, hr * 0.12);
+      gg.quadraticCurveTo(hr * 0.12, hr * 0.42, -hr * 0.3, hr * 0.26);
+      gg.closePath();
+      gg.fill();
+      // the cuff of the sleeve
+      gg.strokeStyle = rgb(mix(shirtDark, [110, 60, 30], 0.45), 0.7);
+      gg.lineWidth = Math.max(1, hr * 0.07);
+      gg.beginPath();
+      gg.moveTo(hr * 0.42, hr * 0.12);
+      gg.quadraticCurveTo(hr * 0.12, hr * 0.42, -hr * 0.3, hr * 0.26);
+      gg.stroke();
+      gg.restore();
+    }
+
     // --- head
     gg.save();
     gg.translate(hp.x, hp.y);
     gg.rotate(-k.lookWind * 0.12 + k.relief * 0.04);
-    // neck
-    gg.fillStyle = rgb(mix(skin, [210, 168, 138], 0.25));
-    gg.fillRect(-hr * 0.22, hr * 0.6, hr * 0.44, hr * 0.5);
     // hair behind
     gg.fillStyle = 'rgb(86,62,48)';
     gg.beginPath();
@@ -3068,8 +3127,14 @@ class HatWind implements Episode {
     gg.save();
     gg.translate(-u * 0.022 - hr * 0.8 * face, hy + hr * 0.2);
     gg.beginPath();
-    gg.ellipse(-hr * 0.35 * face, 0, hr * 0.55, hr * 0.2, 0.06, 0, Math.PI * 2);
+    gg.ellipse(-hr * 0.42 * face, 0, hr * 0.68, hr * 0.22, 0.06, 0, Math.PI * 2);
     gg.fill();
+    gg.strokeStyle = 'rgba(176,104,34,0.5)';
+    gg.lineWidth = Math.max(0.8, hr * 0.06);
+    gg.beginPath();
+    gg.moveTo(-hr * 1.05 * face, 0);
+    gg.lineTo(hr * 0.2 * face, 0);
+    gg.stroke();
     if (open > 0) {
       gg.fillStyle = 'rgb(210,132,50)';
       gg.beginPath();

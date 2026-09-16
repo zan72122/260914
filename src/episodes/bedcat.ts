@@ -366,7 +366,7 @@ class BedCat implements Episode {
       g.win = { x: w * 0.055, y: h * 0.075, w: w * 0.33, h: h * 0.205 };
       g.basket = { x: w * 0.185, y: h * 0.925, rx: w * 0.145, ry: h * 0.033 };
       g.stool = { x: w * 0.845, y: h * 0.925, rx: w * 0.1, ry: h * 0.022 };
-      g.rug = { x: w * 0.5, y: h * 0.915, rx: w * 0.44, ry: h * 0.048 };
+      g.rug = { x: w * 0.5, y: h * 0.918, rx: w * 0.47, ry: h * 0.058 };
       g.doorInside = { x: w * 0.885, y: h * 0.4 };
       g.doorExit = { x: w * 0.875, y: h * 0.475 };
       g.runMid = { x: w * 1.03, y: h * 0.85 };
@@ -385,7 +385,7 @@ class BedCat implements Episode {
       g.win = { x: w * 0.175, y: h * 0.03, w: w * 0.135, h: h * 0.2 };
       g.basket = { x: w * 0.135, y: h * 0.87, rx: w * 0.075, ry: h * 0.042 };
       g.stool = { x: w * 0.055, y: h * 0.66, rx: w * 0.045, ry: h * 0.026 };
-      g.rug = { x: w * 0.2, y: h * 0.85, rx: w * 0.175, ry: h * 0.105 };
+      g.rug = { x: w * 0.21, y: h * 0.84, rx: w * 0.235, ry: h * 0.125 };
       g.doorInside = { x: w * 0.06, y: h * 0.335 };
       g.doorExit = { x: w * 0.135, y: h * 0.4 };
       g.runMid = { x: w * 0.04, y: h * 0.62 };
@@ -1376,10 +1376,10 @@ class BedCat implements Episode {
       case 'belly': {
         const k = clamp(c.mt / 0.7, 0, 1);
         targetBelly = 1;
-        targetCurl = 0.25;
+        targetCurl = 0.12;
         targetEye = c.mt > 1.4 ? 0.18 : 1;
         purr = clamp((c.mt - 0.8) / 1, 0, 1);
-        c.spin = smooth(k) * 0.24;
+        c.spin = smooth(k) * 0.1;
         if (c.mt > 0.6 && c.mt - dt <= 0.6) {
           this.crumpleAt(c.bedU, c.bedV, 0.55, 0.5);
           this.pushWave(c.bedU, c.bedV, 0.2, 0.5);
@@ -1860,10 +1860,23 @@ class BedCat implements Episode {
       g.lineTo(x, floorY);
       g.stroke();
     }
-    g.fillStyle = 'rgb(226,218,208)';
-    g.fillRect(-w, floorY - Math.max(6, h * 0.014), w * 3, Math.max(6, h * 0.014));
-    g.fillStyle = 'rgba(150,136,128,0.4)';
-    g.fillRect(-w, floorY - 1.5, w * 3, 2);
+    const sk = Math.max(7, h * 0.019);
+    const skg = g.createLinearGradient(0, floorY - sk, 0, floorY);
+    skg.addColorStop(0, 'rgb(242,236,228)');
+    skg.addColorStop(0.42, 'rgb(230,222,212)');
+    skg.addColorStop(1, 'rgb(202,190,180)');
+    g.fillStyle = skg;
+    g.fillRect(-w, floorY - sk, w * 3, sk);
+    // the moulded lip at the top of the skirting, and its shadow on the wall
+    g.fillStyle = 'rgba(255,252,246,0.75)';
+    g.fillRect(-w, floorY - sk, w * 3, Math.max(1.5, sk * 0.17));
+    g.fillStyle = 'rgba(126,110,100,0.22)';
+    g.fillRect(-w, floorY - sk - Math.max(1.5, sk * 0.12), w * 3, Math.max(1.5, sk * 0.12));
+    g.fillStyle = 'rgba(120,104,96,0.26)';
+    g.fillRect(-w, floorY - sk * 0.3, w * 3, Math.max(1.2, sk * 0.1));
+    // where the board meets the boards
+    g.fillStyle = 'rgba(66,48,36,0.38)';
+    g.fillRect(-w, floorY - 2, w * 3, 3);
 
     this.drawWindow(g);
     this.drawPicture(g);
@@ -1874,37 +1887,134 @@ class BedCat implements Episode {
     fl.addColorStop(1, rgb(mix([152, 118, 84], [176, 138, 96], warm)));
     g.fillStyle = fl;
     g.fillRect(-w, floorY, w * 3, h - floorY + 20);
-    // boards, converging slightly for depth
-    g.strokeStyle = 'rgba(96,70,46,0.28)';
-    g.lineWidth = 1.2;
+    // planks, converging slightly for depth, each one a slightly different board
     const nb = 9;
-    for (let i = 0; i <= nb; i++) {
+    const depth = h - floorY + 20;
+    const boardX = (i: number, t: number): number => {
       const f = i / nb;
+      return lerp(w * (0.08 + 0.84 * f), w * (-0.3 + 1.6 * f), t);
+    };
+    for (let i = 0; i < nb; i++) {
+      const tint = ((i * 37) % 7) / 7;
+      g.fillStyle = tint > 0.5 ? `rgba(118,86,54,${0.04 + tint * 0.05})` : `rgba(240,212,172,${0.04 + tint * 0.06})`;
       g.beginPath();
-      g.moveTo(w * (0.08 + 0.84 * f), floorY);
-      g.lineTo(w * (-0.3 + 1.6 * f), h + 10);
+      g.moveTo(boardX(i, 0), floorY);
+      g.lineTo(boardX(i + 1, 0), floorY);
+      g.lineTo(boardX(i + 1, 1), floorY + depth);
+      g.lineTo(boardX(i, 1), floorY + depth);
+      g.closePath();
+      g.fill();
+      // grain: long soft fibres running with the plank
+      g.lineWidth = 1;
+      for (let k = 1; k <= 3; k++) {
+        g.strokeStyle = `rgba(104,74,48,${0.06 + ((i + k) % 3) * 0.028})`;
+        const across = k / 4;
+        g.beginPath();
+        for (let j = 0; j <= 8; j++) {
+          const t = j / 8;
+          const wob = Math.sin(t * 5.1 + i * 2.3 + k * 1.7) * 0.05 + Math.sin(t * 11.3 + k * 3.1) * 0.022;
+          const s2 = clamp(across + wob, 0.08, 0.92);
+          const x = lerp(boardX(i, t), boardX(i + 1, t), s2);
+          const y = floorY + depth * t;
+          if (j === 0) g.moveTo(x, y);
+          else g.lineTo(x, y);
+        }
+        g.stroke();
+      }
+    }
+    // the seam between planks, with a waxed highlight on its lit side
+    for (let i = 0; i <= nb; i++) {
+      g.strokeStyle = 'rgba(88,62,40,0.3)';
+      g.lineWidth = 1.2;
+      g.beginPath();
+      g.moveTo(boardX(i, 0), floorY);
+      g.lineTo(boardX(i, 1), floorY + depth);
+      g.stroke();
+      g.strokeStyle = 'rgba(255,238,206,0.16)';
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(boardX(i, 0) + 1.6, floorY);
+      g.lineTo(boardX(i, 1) + 2.6, floorY + depth);
       g.stroke();
     }
+    // short butt joints where boards end
+    g.lineWidth = 1;
     for (let i = 1; i <= 4; i++) {
-      const y = floorY + (h - floorY) * (i / 4) ** 1.5;
-      g.strokeStyle = 'rgba(96,70,46,0.14)';
+      const t = (i / 4) ** 1.4;
+      const y = floorY + depth * t;
+      const a = i % 2 === 0 ? 1 : 4;
+      g.strokeStyle = 'rgba(96,70,46,0.17)';
       g.beginPath();
-      g.moveTo(-w, y);
-      g.lineTo(w * 2, y);
+      g.moveTo(boardX(a, t), y);
+      g.lineTo(boardX(a + 3, t), y);
       g.stroke();
     }
+    // the floor darkens a little into the corner with the wall
+    const ao = g.createLinearGradient(0, floorY, 0, floorY + depth * 0.24);
+    ao.addColorStop(0, 'rgba(70,50,34,0.3)');
+    ao.addColorStop(1, 'rgba(70,50,34,0)');
+    g.fillStyle = ao;
+    g.fillRect(-w, floorY, w * 3, depth * 0.24);
 
-    // rug under the bed
+    // the rug, sliding under the near corner of the bed
     const r = this.geo.rug;
-    g.fillStyle = 'rgba(196,172,166,0.4)';
+    g.save();
+    // fringe, before the pile so it reads as sticking out
+    g.strokeStyle = 'rgba(214,196,188,0.55)';
+    g.lineWidth = 1.6;
+    for (let i = 0; i < 40; i++) {
+      const a = (i / 40) * Math.PI * 2;
+      const cx = r.x + Math.cos(a) * r.rx;
+      const cy = r.y + Math.sin(a) * r.ry;
+      g.beginPath();
+      g.moveTo(cx, cy);
+      g.lineTo(cx + Math.cos(a) * r.rx * 0.035, cy + Math.sin(a) * r.ry * 0.12);
+      g.stroke();
+    }
+    // the shadow it casts, and the pile itself
+    g.fillStyle = 'rgba(48,34,28,0.14)';
+    g.beginPath();
+    g.ellipse(r.x + r.rx * 0.02, r.y + r.ry * 0.09, r.rx, r.ry, 0, 0, Math.PI * 2);
+    g.fill();
+    const rgg = g.createRadialGradient(r.x - r.rx * 0.22, r.y - r.ry * 0.34, r.ry * 0.1, r.x, r.y, r.rx);
+    rgg.addColorStop(0, 'rgba(230,212,204,0.88)');
+    rgg.addColorStop(0.72, 'rgba(206,184,178,0.82)');
+    rgg.addColorStop(1, 'rgba(178,152,146,0.78)');
+    g.fillStyle = rgg;
     g.beginPath();
     g.ellipse(r.x, r.y, r.rx, r.ry, 0, 0, Math.PI * 2);
     g.fill();
-    g.strokeStyle = 'rgba(226,210,204,0.35)';
-    g.lineWidth = 3;
+    // woven borders
+    g.strokeStyle = 'rgba(244,234,228,0.5)';
+    g.lineWidth = Math.max(2, r.ry * 0.1);
     g.beginPath();
-    g.ellipse(r.x, r.y, r.rx * 0.82, r.ry * 0.78, 0, 0, Math.PI * 2);
+    g.ellipse(r.x, r.y, r.rx * 0.88, r.ry * 0.84, 0, 0, Math.PI * 2);
     g.stroke();
+    g.strokeStyle = 'rgba(172,138,132,0.4)';
+    g.lineWidth = Math.max(1.5, r.ry * 0.06);
+    g.beginPath();
+    g.ellipse(r.x, r.y, r.rx * 0.72, r.ry * 0.64, 0, 0, Math.PI * 2);
+    g.stroke();
+    g.beginPath();
+    g.ellipse(r.x, r.y, r.rx * 0.34, r.ry * 0.3, 0, 0, Math.PI * 2);
+    g.stroke();
+    // pile texture
+    g.beginPath();
+    g.ellipse(r.x, r.y, r.rx, r.ry, 0, 0, Math.PI * 2);
+    g.clip();
+    g.strokeStyle = 'rgba(158,128,122,0.16)';
+    g.lineWidth = 1;
+    for (let i = 0; i < 34; i++) {
+      const a = (i / 34) * Math.PI * 2 + 0.4;
+      const rr = 0.25 + ((i * 17) % 11) / 14;
+      const cx = r.x + Math.cos(a) * r.rx * rr;
+      const cy = r.y + Math.sin(a) * r.ry * rr;
+      g.beginPath();
+      g.moveTo(cx - r.rx * 0.035, cy);
+      g.lineTo(cx + r.rx * 0.035, cy);
+      g.stroke();
+    }
+    g.restore();
   }
 
   /** a small framed picture: a bit of life on the empty wall */
@@ -2169,6 +2279,82 @@ class BedCat implements Episode {
     rg.addColorStop(1, 'rgba(255,246,222,0)');
     g.fillStyle = rg;
     g.fillRect(-geo.w, geo.hl.y - 30, geo.w * 3, geo.h);
+
+    // a long satin sheen down the quilt, so the white reads as cloth not card
+    const s0 = this.surf(0.02, 0.2);
+    const s1 = this.surf(1.0, 0.72);
+    const sh = g.createLinearGradient(s0.x, s0.y, s1.x, s1.y);
+    sh.addColorStop(0, 'rgba(150,150,170,0.1)');
+    sh.addColorStop(0.28, `rgba(255,253,246,${0.14 + this.warm * 0.08})`);
+    sh.addColorStop(0.46, 'rgba(255,255,255,0)');
+    sh.addColorStop(0.74, 'rgba(146,146,168,0.09)');
+    sh.addColorStop(1, 'rgba(132,132,154,0.2)');
+    g.fillStyle = sh;
+    g.fillRect(-geo.w, geo.hl.y - 40, geo.w * 3, geo.h);
+
+    // soft ambient darkening around the whole mattress edge
+    const m = this.surf(0.5, 0.5);
+    const half = Math.abs(this.surf(1, 0.5).x - this.surf(0, 0.5).x) * 0.5;
+    const vg = g.createRadialGradient(m.x, m.y, half * 0.45, m.x, m.y, half * 1.12);
+    vg.addColorStop(0, 'rgba(112,110,128,0)');
+    vg.addColorStop(1, 'rgba(112,110,128,0.26)');
+    g.fillStyle = vg;
+    g.fillRect(-geo.w, geo.hl.y - 40, geo.w * 3, geo.h);
+
+    // the turned-down hem: a band of doubled cloth folded over the quilt
+    const tuck = this.tuck;
+    if (tuck > 0.04) {
+      const wob = (u: number): number => Math.sin(u * Math.PI) * 0.008 * tuck + (1 - tuck) * Math.sin(u * 7.3) * 0.012;
+      const edge = (v: number, path: Path2D | CanvasRenderingContext2D, first: boolean): void => {
+        for (let i = 0; i <= 16; i++) {
+          const u = i / 16;
+          const p = this.surf(u, v + wob(u));
+          if (i === 0 && first) path.moveTo(p.x, p.y);
+          else path.lineTo(p.x, p.y);
+        }
+      };
+      const v0 = 0.285;
+      const v1 = 0.4;
+      const band = new Path2D();
+      edge(v0, band, true);
+      for (let i = 16; i >= 0; i--) {
+        const u = i / 16;
+        const p = this.surf(u, v1 + wob(u) * 0.6);
+        band.lineTo(p.x, p.y);
+      }
+      band.closePath();
+      const a0 = this.surf(0.5, v0);
+      const a1 = this.surf(0.5, v1);
+      const bg = g.createLinearGradient(a0.x, a0.y, a1.x, a1.y);
+      bg.addColorStop(0, `rgba(255,254,250,${0.55 * tuck})`);
+      bg.addColorStop(0.6, `rgba(246,244,241,${0.32 * tuck})`);
+      bg.addColorStop(1, `rgba(150,148,166,${0.26 * tuck})`);
+      g.fillStyle = bg;
+      g.fill(band);
+      // the crisp fold along the top of the hem, lit from above
+      g.lineWidth = 1.4;
+      g.strokeStyle = `rgba(255,255,255,${0.62 * tuck})`;
+      g.beginPath();
+      edge(v0 - 0.004, g, true);
+      g.stroke();
+      g.strokeStyle = `rgba(158,156,176,${0.4 * tuck})`;
+      g.beginPath();
+      edge(v0 + 0.006, g, true);
+      g.stroke();
+      // and the faint stitch line along the bottom of the turn-down
+      g.strokeStyle = `rgba(160,158,178,${0.3 * tuck})`;
+      g.lineWidth = 1;
+      g.setLineDash([5, 5]);
+      g.beginPath();
+      for (let i = 0; i <= 16; i++) {
+        const u = i / 16;
+        const p = this.surf(u, v1 - 0.012 + wob(u) * 0.6);
+        if (i === 0) g.moveTo(p.x, p.y);
+        else g.lineTo(p.x, p.y);
+      }
+      g.stroke();
+      g.setLineDash([]);
+    }
 
     // a made bed keeps two long, calm creases: the memory of being folded
     const calm = this.tuck * 0.5;
@@ -2546,12 +2732,12 @@ class BedCat implements Episode {
     const bodyOffY = lerp(lerp(0.82, 0.66, curl), -0.62, limp);
     const cx = x;
     const cy = y - u * bodyOffY - u * c.crouch * -0.04;
-    const rx = u * lerp(lerp(1.02, 0.86, curl), 0.56, limp) * c.sx * (1 + belly * 0.24);
-    const ry = u * lerp(lerp(0.56, 0.78, curl), 1.18, limp) * c.sy * (1 - belly * 0.16);
+    const rx = u * lerp(lerp(1.02, 0.86, curl), 0.56, limp) * c.sx * (1 + belly * 0.34);
+    const ry = u * lerp(lerp(0.56, 0.78, curl), 1.18, limp) * c.sy * (1 - belly * 0.3);
 
     g.save();
     g.translate(cx, cy);
-    g.rotate(c.spin + (belly > 0.05 ? belly * 0.12 * f : 0));
+    g.rotate(c.spin + (belly > 0.05 ? belly * 0.06 * f : 0));
 
     // ---- back legs ------------------------------------------------------
     const legVis = (1 - curl * 0.75) * (1 - limp * 0.15);
@@ -2566,31 +2752,43 @@ class BedCat implements Episode {
       let py2 = hy + legLen + (c.speed > 5 ? Math.abs(ph) * u * 0.18 : 0);
       let bend = 0.62;
       if (belly > 0.05) {
-        // rolled over: four paws folded in the air
-        const wob = Math.sin(this.t * 2.6 + hx * 0.12 + (front ? 0 : 1.9)) * u * 0.05;
-        const bx2 = hx * 0.82 + f * u * 0.06 + wob;
-        const by2 = -ry * 1.05 - u * 0.16 + wob * 0.6;
+        // rolled over: all four paws up in the air, splayed and slack
+        const wob = Math.sin(this.t * 2.4 + hx * 0.1 + (front ? 0 : 1.9)) * u * 0.055;
+        const spread = hx > 0 === f > 0 ? 1 : -1; // front pair leans one way, back pair the other
+        const bx2 = hx * 0.9 + spread * u * 0.2 + wob;
+        const by2 = -ry - u * (front ? 0.78 : 0.66) + wob * 0.7;
         px2 = lerp(px2, bx2, belly);
         py2 = lerp(py2, by2, belly);
-        bend = lerp(bend, -0.5, belly);
+        bend = lerp(bend, 0.16, belly);
       }
       if (c.knead > 0.05 && front && curl > 0.4) {
         py2 += Math.sin(this.t * 7.5 + (hx > 0 ? 0 : 1.6)) * u * 0.07 * c.knead;
       }
-      g.strokeStyle = rgb(mix(FUR, FUR_DARK, front ? 0.05 : 0.3));
-      g.lineWidth = u * 0.3;
+      g.strokeStyle = rgb(mix(FUR, FUR_DARK, front ? 0.05 : 0.3 + belly * 0.16));
+      g.lineWidth = u * (0.3 - belly * 0.06);
       g.lineCap = 'round';
       g.beginPath();
       g.moveTo(hx, hy);
-      g.quadraticCurveTo(hx + (px2 - hx) * 0.25 + f * u * 0.16 * belly, hy + (py2 - hy) * bend, px2, py2);
+      g.quadraticCurveTo(hx + (px2 - hx) * 0.2 - f * u * 0.24 * belly, hy + (py2 - hy) * bend, px2, py2);
       g.stroke();
-      // paw
+      // paw — bigger and pink-padded in the air, where it is the whole joke
       g.fillStyle = rgb(FUR_LIGHT);
       g.beginPath();
-      g.ellipse(px2, py2, u * 0.17, u * 0.13, 0, 0, Math.PI * 2);
+      g.ellipse(px2, py2, u * (0.17 + belly * 0.05), u * (0.13 + belly * 0.05), 0, 0, Math.PI * 2);
       g.fill();
+      if (belly > 0.4 && !ghost) {
+        g.fillStyle = `rgba(238,164,166,${0.85 * belly})`;
+        g.beginPath();
+        g.ellipse(px2, py2 + u * 0.03, u * 0.09, u * 0.07, 0, 0, Math.PI * 2);
+        g.fill();
+        for (let k = -1; k <= 1; k++) {
+          g.beginPath();
+          g.ellipse(px2 + k * u * 0.075, py2 - u * 0.05, u * 0.032, u * 0.028, 0, 0, Math.PI * 2);
+          g.fill();
+        }
+      }
     };
-    const hipY = lerp(ry * 0.3, -ry * 0.18, belly);
+    const hipY = lerp(ry * 0.3, -ry * 0.42, belly);
     const backLegs = (): void => {
       drawLeg(-f * rx * 0.62, hipY, step, false);
       drawLeg(-f * rx * 0.28, hipY + ry * 0.04, step2, false);
@@ -2621,7 +2819,7 @@ class BedCat implements Episode {
     g.clip(body);
     // tabby stripes
     if (!ghost) {
-      g.strokeStyle = rgb(FUR_DARK, 0.55);
+      g.strokeStyle = rgb(FUR_DARK, 0.55 * (1 - belly * 0.8));
       g.lineWidth = u * 0.13;
       g.lineCap = 'round';
       for (let i = 0; i < 4; i++) {
@@ -2630,6 +2828,28 @@ class BedCat implements Episode {
         g.moveTo(rx * t0 * f, -ry * 1.1);
         g.quadraticCurveTo(rx * (t0 + 0.1) * f, 0, rx * (t0 - 0.02) * f, ry * 0.55);
         g.stroke();
+      }
+      if (belly > 0.05) {
+        // rolled over: the whole pale underside faces the camera
+        g.fillStyle = rgb(FUR_LIGHT, 0.95 * belly);
+        g.beginPath();
+        g.ellipse(-f * rx * 0.05, ry * 0.06, rx * 0.84, ry * 0.9, 0, 0, Math.PI * 2);
+        g.fill();
+        // ribs / the soft fold of a relaxed tummy
+        g.strokeStyle = `rgba(214,168,124,${0.3 * belly})`;
+        g.lineWidth = u * 0.045;
+        for (let i = -1; i <= 1; i++) {
+          g.beginPath();
+          g.moveTo(-f * rx * 0.34 + i * rx * 0.24, -ry * 0.2);
+          g.quadraticCurveTo(-f * rx * 0.3 + i * rx * 0.24, ry * 0.2, -f * rx * 0.38 + i * rx * 0.24, ry * 0.52);
+          g.stroke();
+        }
+        // the darker back of the cat, still showing along the far edge
+        const bk = g.createLinearGradient(0, ry * 0.2, 0, ry * 1.05);
+        bk.addColorStop(0, rgb(FUR_DARK, 0));
+        bk.addColorStop(1, rgb(FUR_DARK, 0.5 * belly));
+        g.fillStyle = bk;
+        g.fillRect(-rx * 1.1, ry * 0.2, rx * 2.2, ry);
       }
       // belly / chest cream
       const cy2 = lerp(ry * 0.42, -ry * 0.1, belly);
@@ -2672,10 +2892,10 @@ class BedCat implements Episode {
     let hx = f * rx * lerp(lerp(0.78, 0.62, curl), 0.05, limp);
     let hy = -ry * lerp(lerp(0.72, 0.28, curl), 0.92, limp);
     if (belly > 0.05) {
-      hx = lerp(hx, f * rx * 0.86, belly);
-      hy = lerp(hy, ry * 0.12, belly);
+      hx = lerp(hx, f * rx * 0.88, belly);
+      hy = lerp(hy, ry * 0.3, belly);
     }
-    const headTilt = f * 0.62 * belly + (limp > 0.1 ? -f * 0.2 * limp : 0) + (curl > 0.5 ? f * 0.2 * curl : 0);
+    const headTilt = f * 1.35 * belly + (limp > 0.1 ? -f * 0.2 * limp : 0) + (curl > 0.5 ? f * 0.2 * curl : 0);
     this.drawHead(g, hx, hy, headR, headTilt, ghost);
 
     g.restore();
