@@ -49,7 +49,7 @@ export class SandScene extends Scene {
       this.exitCam = { x: 0, y: this._p(0.5, 1.12).y, zoom: this.scale * 1.02, tilt: 0.42 };
     } else {
       // width: a wide doorway on the left, the step and the hall on the right
-      this.startPointer = { x: 0.12, y: 0.80 };
+      this.startPointer = { x: 0.20, y: 0.82 };
       rect = { x0: -vw * 1.1, y0: -vh * 1.1, x1: vw * 1.35, y1: vh * 1.1 };
       mat = this._p(0.545, 0.50);
       door = { x: this._p(0.155, 0.5).x, y: 0, w: Math.min(340, vh * 0.92), h: 128, spill: 330, axis: 'x' };
@@ -71,8 +71,11 @@ export class SandScene extends Scene {
     // ---- the pile -------------------------------------------------------
     const pr = { x0: mat.x - 190, y0: mat.y - 165, x1: mat.x + 190, y1: mat.y + 175 };
     const pile = new SandPile(pr, rng);
-    // one big heap sitting on the mat, with lobes and a tongue spilling off it
-    pile.heap(mat.x - 6, mat.y - 6, 100, 25);
+    // one big heap sitting on the mat, with lobes and a tongue spilling off it.
+    // Landscape gets a wider, deeper heap: the screen is short, the hall is seen
+    // more from above, and a shallow pile there gives a crater you cannot read.
+    const HR = portrait ? 100 : 114, HH = portrait ? 25 : 28;
+    pile.heap(mat.x - 6, mat.y - 6, HR, HH);
     pile.heap(mat.x + 52, mat.y + 34, 58, 11);
     pile.heap(mat.x - 58, mat.y + 30, 50, 8);
     const tx = gritFrom.x - mat.x, ty = gritFrom.y - mat.y;
