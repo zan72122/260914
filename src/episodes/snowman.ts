@@ -730,6 +730,8 @@ class Snowman implements Episode {
     ph.intervening = name === 'trouble';
     switch (name) {
       case 'foreshadow':
+        // a replayed lap is a lap like any other: let settle end it by itself
+        this.replayArmed = false;
         this.lidTarget = 0.08;
         this.sunUpTarget = 1;
         this.ctx.audio.whoosh(0.45, 1.8);
