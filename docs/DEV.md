@@ -1,4 +1,4 @@
-# 開発・検証の手引き（M0 / M1 / M2 / M4）
+# 開発・検証の手引き（M0 / M1 / M2 / M3 / M4）
 
 『ほんとうの火』の局所再現・観測・再検証の使い方。設計の根拠は [PLAN.md](PLAN.md) §5。
 
@@ -41,7 +41,7 @@ __fire.clock.step(16)                 // 本番と同じ update を 16ms 刻み�
 __fire.clock.timeMs()
 __fire.rng.seed(n)                    // 次の loadScenario から効く。既定はシナリオの seed
 __fire.speech.captured()              // dev では実発話せず、発話予定テキストを記録する
-__fire.dump('materials'|'jobs'|'flame'|'layout'|'audio')
+__fire.dump('materials'|'jobs'|'flame'|'prism'|'layout'|'audio')
 __fire.points()                       // 実ポインタを当てるための世界座標（状態の代入はできない）
 __fire.flameRect()                    // 根元の外炎の領域（CSS px）。スクリーンショットの色判定に使う
 ```
@@ -55,8 +55,10 @@ flame       { element | null, intensityPct }
 jobs        [{ id, element, status, calledAt }]
             status: 'waiting'|'called'|'job_running'|'done'|'cooldown'
             jobs は wiring(銅) / flare(ストロンチウム) / battery(リチウム) の 3 つ
-materials   [{ id, element, at: 'bench'|'held'|'site:<jobId>' }]
-prism       { at: 'bench'|'held', projecting: element | null }   // projecting は M3 で入る
+materials   [{ id, element, at: 'bench'|'held'|'ring'|'site:<jobId>' }]
+            'ring' は炎の中に張り出した金属の輪の上（置いたままにできる）
+prism       { at: 'bench'|'held', projecting: element | null }
+            projecting はプリズムが炎の前にあるときの炎の元素。素の炎なら null
 input       { accepting, rejectReason? }
 waitingFor  'job_animation' | 'next_trouble_timer' | null
 ```
@@ -73,7 +75,7 @@ waitingFor  'job_animation' | 'next_trouble_timer' | null
 | `flare_called` | 20250916 | 沖の船が手を振り、桟橋の人が「ストロンチウム〜」を呼んだ直後 |
 | `battery_called` | 20250917 | リモコンの電池室が空、机の人が「リチウム〜」を呼んだ直後 |
 | `wrong_delivery` | 20250918 | `copper_called` と同じで、手にリチウムを持って配線の上にいる直前 |
-| `two_reds_on_bench` | 20250919 | 困りなし。ストロンチウムとリチウムが台の中央に並ぶ（M3 用） |
+| `two_reds_on_bench` | 20250919 | 困りなし。ストロンチウムとリチウムが台の中央に並ぶ（プリズム用） |
 
 `wrong_delivery` はシナリオが材料の位置と保持状態だけを置く。届け判定そのものは
 通常の入力経路（指を離す）を通るので、成功状態の代入で合格することはない。
@@ -167,6 +169,7 @@ hex は書き写しではない。`src/flame/color.ts` が発光線を CIE 1931 
 | `e2e/battery.spec.ts` | `battery_called`。受け口 → 装置 → 電池が出る → リモコン → ランプの順 |
 | `e2e/wrong_delivery.spec.ts` | 不一致では何も起きず、拾い直して正しく届けられる |
 | `e2e/landscape.spec.ts` | 横画面（iPad の viewport）で `copper_called` を一本 |
+| `e2e/prism.spec.ts` | `two_reds_on_bench`。輪に置く → プリズム → 縞で赤2種を見分ける |
 
 `copper_called` の手順は以下（iPhone 13 の viewport 390×844）。
 
@@ -194,6 +197,8 @@ hex は書き写しではない。`src/flame/color.ts` が発光線を CIE 1931 
   発光線は `src/flame/spectra.ts`。算出の手法と限界は `src/flame/README.md`。
 - 余熱発光: `src/flame/afterglow.ts`。約 3 秒でちょうど 0 になる指数減衰（純関数）。
   `AFTERGLOW_MS` もここから導く。
+- 縞: `src/flame/prism.ts`。発光線 → 波長軸上の帯（位置・幅・明るさ・色）。純関数。
+  描画（`WorldView.updatePrism`）も検査（`e2e/prism.spec.ts`）もこのモジュールを通る。
 - 仕事と困り: `src/game/world.ts` の `JOB_DEFS` / `dropAt` / `updateTroubles`。
   受け口の場所は `World.siteOf`、絵は `WorldView.updateWiring` / `updateFlare` / `updateBattery`。
 - 画面の配置: `src/game/layout.ts` の `computeLayout` だけが座標を決める。
@@ -234,6 +239,70 @@ __fire.dump('flame')
 （`sync`＝`gl.finish()` まで待った値）、描画命令を積む CPU 時間は 0.02〜0.03 ms。
 ただしこの環境の WebGL は ANGLE 越しの SwiftShader（ソフトウェア）で、
 `EXT_disjoint_timer_query_webgl2` を持たない。実機の GPU での時間は未計測。
+
+## 7.2 金属の輪とプリズム（M3）
+
+一本指なので、材料とプリズムを同時には持てない。縞を見るには、材料を炎に
+差し入れたまま手を空ける道が要る。台の「材料をすくう金属の輪」（PLAN §3.1）を
+炎の中へ張り出した形にして、置き場所にした。
+
+| 規則 | 中身 |
+|---|---|
+| 置く | 輪の上で指を離すと `at: 'ring'`。置いてある間、炎はその元素の色を保つ |
+| 色 | 余熱ではなく炎そのものの色。時間が経っても褪せない |
+| 拾う | 輪から拾えば炎は素の青に戻る |
+| 二つ目 | 輪に置けるのは 1 つ。塞がっていればバーナーの手前へ転がり落ちて拾い直せる |
+| 優先 | 手に持って炎に入れている材料の色が、輪の材料より優先される |
+| 影響しないもの | 届け先の判定、困りの循環、回転での置き直し |
+
+炎の色は `World.recomputeFlame()` 一箇所が
+「手に持って入れているもの → 輪のもの → 素の青」の順で決める。
+
+プリズムを炎の前（`World.prismInFrontOfFlame()`）まで引きずると、
+炎の後ろの壁（`layout.spectrumWall`）に縞が映る。映るのは**いまの炎の色**だけで、
+余熱の色は映さない。離せば台に戻る。
+
+```js
+__fire.dump('prism')
+// { at, pos, inFront, projecting, wall, ring, ringMaterial }
+__fire.points().ring    // 金属の輪の位置（実タッチを当てるため）
+```
+
+### 縞の作り（`src/flame/prism.ts`、純関数）
+
+波長も強度も `spectra.ts`、色は `color.ts` が算出する。この中に色リテラルは無い。
+
+| 項目 | 決め方 |
+|---|---|
+| 位置 | `spectrumU(nm)` が 380–720nm を 0..1 に写す。描画も検査もこの一つを通る |
+| 幅 | 分子バンド `MOLECULAR_WIDTH_NM` = 14nm、原子線 `ATOMIC_WIDTH_NM` = 6nm |
+| 明るさ | 放射パワー × 視感効率 V(λ) を線形光として置き、sRGB 伝達関数を通す |
+| 色 | その波長の単色光が sRGB で出せる最も明るい色（`color.ts`）× 明るさ |
+| 可視域の外 | 映らない（Cu I 324.8 / 327.4nm の紫外線） |
+
+幅について: 炎で光っているものの多くは原子線ではなく分子バンドで、本来 1 本の線ではなく
+数 nm〜数十 nm の幅を持つ。`spectra.ts` はそれを代表波長に離散化しているので、ここで戻す。
+原子線の 6nm は自然幅（1e-3nm 級）ではなく、分光器のスリットの像の幅にあたる。
+
+明るさについて: 目の感度が低い波長の線は暗く映る。だから
+Sr の 460.7nm（相対強度 0.03）は「弱いが確かに見える青の線」になり、
+Li の 460.3nm（0.0005）は事実上見えない。実際の見え方の差がそのまま出ており、
+見栄えで足したり引いたりはしていない。
+
+### 縞の実測（iPhone 13 viewport、実描画）
+
+プリズムを炎の前に置いた時と置いていない時の、壁の同じ場所の画素差で測る
+（壁は一様ではないので、前後差だけが縞の証拠になる）。
+帯が出るはずの位置は `spectra.ts` の発光線と `spectrumU()` から出し、描画側の値は読まない。
+
+| 元素 | 青の線の Δ青（460nm 付近） | 赤の連続幅 | 赤の Δ赤の山 |
+|---|---|---|---|
+| ストロンチウム | **19.0**（仕様: 8 以上） | **27nm**（仕様: 14nm 以上＝帯） | 218.5 |
+| リチウム | **1.0**（仕様: 3 以下＝無い） | **7nm**（仕様: 10nm 以下＝一本） | 218.5 |
+
+赤の連続幅は「Δ赤が山の 25% を超える波長が続く最大の幅」。
+Sr は SrCl / SrOH の分子バンドが重なって帯になり、Li は 670.8nm の原子線一本だけになる。
+色相では 3.5° しか違わない二つの赤が、縞では誰の目にも違う。
 
 ## 8. 音（M4）
 
