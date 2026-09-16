@@ -240,7 +240,11 @@ export class Game {
           element: this.world.flameElement,
           intensityPct: this.world.flameIntensityPct,
           rect: this.layout.flame,
+          core: this.flameRect(),
           timeMs: this.clock.timeMs,
+          // 炎ひとつ分の描画の覗き窓（FBO 解像度と 1 フレームの描画時間）。
+          // 常設の表示は作らない。ここからだけ読める。
+          render: this.view.flameStats(),
         };
       case 'audio':
         return this.audio.captured();
@@ -288,16 +292,26 @@ export class Game {
 
   /**
    * 炎の芯の領域（画面座標, CSS px）。スクリーンショットの色判定に使う。
-   * 材料を持つ手より下の、層が重なって不透明になる根元を見るので、
-   * 材料の地の色が混ざらない。
+   *
+   * 取るのは**根元の外炎**（層が重なって不透明になる所）で、軸の真上は外す。
+   * 軸の上には内炎（還元炎）の円錐があり、これは外炎とは別の発光をしている
+   * （C2 Swan 帯が強く、素のガス炎では外炎より緑寄りの青緑になる。
+   * 実際、覗いてみると軸上は 193°、外炎は 212° と別の色が出る）。
+   * 「炎の色」として仕様が定めているのは外炎の色なので、そこを見る。
+   *
+   * 揺らぎは上へ行くほど大きく、根元はバーナーの口に固定されてほとんど動かない。
+   * ここが「層が重なって不透明になる」かつ「静かな」場所である。
+   * 材料を持つ手は炎の半分の高さに来るので、材料の地の色も混ざらない。
+   *
+   * 大きさは炎の高さ基準で決める（横幅基準にすると縦横比で意味が変わるため）。
    */
   flameRect(): { x: number; y: number; width: number; height: number } {
     const f = this.layout.flame;
     return {
-      x: f.x - f.w * 0.12,
-      y: f.y - f.h * 0.22,
-      width: f.w * 0.24,
-      height: f.h * 0.17,
+      x: f.x + f.h * 0.095,
+      y: f.y - f.h * 0.24,
+      width: f.h * 0.09,
+      height: f.h * 0.16,
     };
   }
 }

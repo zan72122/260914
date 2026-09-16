@@ -4,9 +4,14 @@ import type { EventLog } from '../core/EventLog';
 import type { Rng } from '../core/Rng';
 import type { JobId, Layout, MaterialId, Point } from './layout';
 import { MATERIAL_ELEMENT, MATERIAL_IDS } from './layout';
+import { AFTERGLOW_DURATION_SECONDS } from '../flame/afterglow';
 
-/** 材料が炎から出た後も色を保つ時間（運搬中に色を見せるための意図的な乖離）。 */
-export const AFTERGLOW_MS = 3000;
+/**
+ * 余熱発光の長さ。現実には材料が炎から離れれば数十 ms で消えるが、
+ * 運搬中に色を見せるための意図的な乖離（PLAN §3.3 / §7、承認済み）。
+ * 長さの定義は src/flame/afterglow.ts に一箇所だけ置く。
+ */
+export const AFTERGLOW_MS = AFTERGLOW_DURATION_SECONDS * 1000;
 /** 直った状態を保つ時間。この後、材料が台に戻り、次の困りを待つ。 */
 export const DONE_HOLD_MS = 3000;
 /** 次の困りが起きるまでの幅（数十秒）。 */

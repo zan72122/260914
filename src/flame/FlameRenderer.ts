@@ -1,6 +1,7 @@
 import { Container, Graphics } from 'pixi.js';
 import type { ElementId } from './elements';
 import { flameColorOf } from './elementColors';
+import { GlslFlameRenderer } from './GlslFlameRenderer';
 
 /** 炎の描画に必要な情報。時間は必ず GameClock 由来（壁時計を使わない）。 */
 export interface FlameState {
@@ -17,6 +18,28 @@ export interface FlameState {
  * 別クラスを `createFlameRenderer` から返すだけで差し替わる。
  * 世界側（WorldView / World）はこの型しか知らない。
  */
+/**
+ * 検証・性能観察のための覗き窓。画面には何も出さない。
+ * __fire.dump('flame') からのみ読める（PLAN §5.1）。
+ */
+export interface FlameStats {
+  /** 元素色がどこまで支配しているか 0..1 */
+  mix: number;
+  element: ElementId | null;
+  /** FBO の解像度倍率（1 未満なら落として描いて拡大している。PLAN §7） */
+  fboScale: number;
+  fboWidth: number;
+  fboHeight: number;
+  /** 1 フレームの炎描画時間 [ms] */
+  frameMs: number;
+  /** その値が GPU のタイマクエリ由来か、命令を積む CPU 時間か */
+  frameMsSource: 'gpu' | 'sync' | 'cpu';
+  cpuMs: number;
+  gpuMs: number | null;
+  /** gl.finish() まで待って測った値 [ms]。タイマクエリが無いときの実測 */
+  syncMs?: number | null;
+}
+
 export interface FlameRenderer {
   /** 世界のシーンに足すための表示オブジェクト */
   readonly view: Container;
@@ -24,6 +47,8 @@ export interface FlameRenderer {
   layout(x: number, y: number, width: number, height: number): void;
   /** 毎 update 呼ばれる。状態から見た目を決める */
   update(state: FlameState): void;
+  /** 実装が持っていれば、検証用の覗き窓を返す。 */
+  stats?(): FlameStats;
   destroy(): void;
 }
 
@@ -38,6 +63,7 @@ function noise(t: number, phase: number): number {
 
 /**
  * M0 の仮の炎。単色の層を重ねて揺らすだけ。色は elementColors 一箇所から取る。
+ * GLSL が使えない場面のための控えとして残す。
  */
 export class PlaceholderFlameRenderer implements FlameRenderer {
   readonly view = new Container();
@@ -91,8 +117,9 @@ export class PlaceholderFlameRenderer implements FlameRenderer {
 }
 
 /**
- * 炎の実装を選ぶ唯一の場所。M1 はここの戻り値を差し替える。
+ * 炎の実装を選ぶ唯一の場所。M1 の物理ベース GLSL 炎を返す。
+ * 世界側（WorldView / World）はこの関数と FlameState しか知らない。
  */
 export function createFlameRenderer(): FlameRenderer {
-  return new PlaceholderFlameRenderer();
+  return new GlslFlameRenderer();
 }

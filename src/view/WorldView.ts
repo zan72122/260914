@@ -1,10 +1,11 @@
 import { Container, Graphics } from 'pixi.js';
-import type { FlameRenderer } from '../flame/FlameRenderer';
+import type { FlameRenderer, FlameStats } from '../flame/FlameRenderer';
 import { createFlameRenderer } from '../flame/FlameRenderer';
 import { ELEMENT_FLAME_COLORS, flameColorOf } from '../flame/elementColors';
 import { BENCH_SURFACE, type Layout, type MaterialId } from '../game/layout';
 import type { World } from '../game/world';
 import { AFTERGLOW_MS } from '../game/world';
+import { afterglowIntensity } from '../flame/afterglow';
 import type { Rng } from '../core/Rng';
 
 const SKY_TOP = 0x1a1f3a;
@@ -302,6 +303,11 @@ export class WorldView {
       .stroke({ width: Math.max(1.5, r * 0.1), color: 0xeaf7ff, alpha: 0.8 });
   }
 
+  /** 炎の描画の覗き窓（解像度・1 フレームの描画時間）。画面には何も出さない。 */
+  flameStats(): FlameStats | null {
+    return this.flameRenderer.stats ? this.flameRenderer.stats() : null;
+  }
+
   update(world: World, timeMs: number): void {
     const l = this.l;
     if (!l) return;
@@ -532,7 +538,11 @@ export class WorldView {
       g.position.set(m.x, m.y);
       glow.position.set(m.x, m.y);
       glow.clear();
-      const k = m.inFlame ? 1 : m.afterglowMs / AFTERGLOW_MS;
+      // 炎の中は満光。出た後はニュートン冷却に倣った指数減衰で、
+      // 3 秒でちょうど 0 になる（src/flame/afterglow.ts）。
+      const k = m.inFlame
+        ? 1
+        : afterglowIntensity((AFTERGLOW_MS - m.afterglowMs) / 1000);
       if (k > 0) {
         const c = flameColorOf(m.element);
         const rr = l.touchRadius * (0.8 + 0.2 * wave(timeMs, 640));

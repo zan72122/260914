@@ -24,6 +24,13 @@
 //   uIntensity     0..   炎全体の強さ。1 が基準。
 //   uResolution    px    炎矩形のピクセルサイズ。縦横比の補正に使う。
 //   uSeed                シナリオ既定 seed 由来の定数（PLAN §5.5）。
+//   uInputSize / uOutputFrame   PixiJS の Filter 実行系が埋める。
+//                        vTextureCoord は入力テクスチャ基準なので、これで 0..1 に直す。
+//
+// 出力について:
+//   層は「色 × 覆っている割合」の加重平均で混ぜ、飽和で色相が曲がらないようにする。
+//   明るさは alpha（＝炎の濃さ）が持つ。最後に sRGB 伝達関数を掛けて表示値にし、
+//   PixiJS の規約に合わせて alpha を先に掛けた（premultiplied）形で出す。
 
 precision highp float;
 
@@ -41,6 +48,16 @@ uniform float uMix;
 uniform float uIntensity;
 uniform vec2 uResolution;
 uniform float uSeed;
+
+// PixiJS の Filter 実行系が埋める。vTextureCoord を炎の矩形の 0..1 に直すために使う。
+uniform vec4 uInputSize;
+uniform vec4 uOutputFrame;
+
+// 線形光 → 表示 sRGB。色を作る操作ではなく、表示装置の伝達関数を掛けるだけ。
+float encodeSRGB(float c) {
+    float v = clamp(c, 0.0, 1.0);
+    return v <= 0.0031308 ? 12.92 * v : 1.055 * pow(v, 1.0 / 2.4) - 0.055;
+}
 
 // ---------------------------------------------------------------------------
 // ノイズ
@@ -97,7 +114,9 @@ float innerWidth(float y) {
 }
 
 void main(void) {
-    vec2 uv = vTextureCoord;
+    // vTextureCoord は入力テクスチャ基準（Pixi の FBO は要求より大きいことがある）。
+    // 出力フレームの大きさで割って、炎の矩形そのものの 0..1 に直す。
+    vec2 uv = vTextureCoord * uInputSize.xy / max(uOutputFrame.zw, vec2(1.0));
 
     float y = 1.0 - uv.y;                 // 下から上へ
     float aspect = max(0.001, uResolution.x / max(1.0, uResolution.y));
@@ -154,21 +173,30 @@ void main(void) {
     float mixAmount = clamp(uMix, 0.0, 1.0);
 
     vec3 outerColor = mix(uBaseColor, uElementColor, mixAmount);
-    // 内炎は還元炎で元素の励起が弱く、素の色が残りやすい。染まり方を 0.6 倍に。
-    vec3 innerColor = mix(uInnerColor, uElementColor, mixAmount * 0.6);
-
-    vec3 col = vec3(0.0);
-    col += outerColor * outer;
-    col += innerColor * inner * 1.15;
-    col += uSootColor * spark * 1.4;
+    // 材料が入れば炎全体がその色になる（PLAN §3.3）。内炎も同じだけ染まる。
+    // 何も入っていないとき（mixAmount = 0）だけ、内炎は自分の色を保つ。
+    vec3 innerColor = mix(uInnerColor, uElementColor, mixAmount);
 
     // 根元の淡い光（口まわりの散乱）。色は外炎と同じものを使う。
     float glow = exp(-abs(xw) * 6.0) * exp(-y * 3.2) * 0.22;
-    col += outerColor * glow;
 
-    col *= max(0.0, uIntensity);
+    // 各層の「覆っている割合」。色はこれを重みにした加重平均で決める。
+    // 足し込みだと重なった所で成分が 1 を超えて切り落とされ、色相が曲がる。
+    float wOuter = outer;
+    float wInner = inner * 0.9;
+    float wSpark = spark * 1.4;
+    float wGlow = glow;
+    float wSum = wOuter + wInner + wSpark + wGlow;
 
-    // 加算合成で重ねる前提。アルファは炎の濃さをそのまま出す。
-    float alpha = clamp(outer + inner + spark + glow, 0.0, 1.0);
-    finalColor = vec4(col, alpha);
+    vec3 col = vec3(0.0);
+    if (wSum > 0.0) {
+        col = (outerColor * (wOuter + wGlow) + innerColor * wInner + uSootColor * wSpark) / wSum;
+    }
+
+    // 明るさは炎の濃さ（alpha）が持つ。芯では 1 になり、縁でなめらかに消える。
+    float alpha = clamp(wSum * max(0.0, uIntensity), 0.0, 1.0);
+
+    // 表示 sRGB へ。PixiJS の合成規約に合わせて alpha を先に掛ける。
+    vec3 shown = vec3(encodeSRGB(col.r), encodeSRGB(col.g), encodeSRGB(col.b));
+    finalColor = vec4(shown * alpha, alpha);
 }
