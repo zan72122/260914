@@ -3,6 +3,7 @@ import { State } from '../debris/base.js';
 import { Strand } from '../debris/strand.js';
 import { makeWoodFloor } from '../floors/wood.js';
 import { Prop, resolveProps } from '../props/prop.js';
+import { bakeRugEdge, bakeRoomLight } from '../props/room.js';
 import { TAU, clamp, smoothstep, lerp } from '../core/math.js';
 
 /**
@@ -254,6 +255,22 @@ export class ThreadScene extends Scene {
       : { x0: -w * 0.95, y0: this.wallY - h * 1.04, x1: w * 0.98, y1: h * 0.58 };
     const g = this.floor.growBase(r);
     if (portrait) this._drawCorridor(g); else this._drawBaseboard(g);
+    if (!portrait) {
+      // Landscape is the wide pose and the near half of it was bare boards.
+      // The room's own rug comes in along the bottom, and the light from the
+      // doorway the mat is in throws the chair's shadow back down the run — so
+      // the width has a near edge, a far edge and something between them.
+      const ry = h * 0.335;
+      bakeRugEdge(g, {
+        x0: w * 0.10, x1: r.x1, y: ry, depth: r.y1 - ry, side: -1,
+        color: '#c6bba6', light: '#ded4c2', dark: '#9d9080',
+        fringe: 'rgba(240,233,218,0.85)',
+      });
+      bakeRoomLight(g, {
+        x: this.mat.x, y: this.mat.y, r: w * 0.62,
+        shadows: [{ x: this.chair.x, y: this.chair.y + 34, len: w * 0.30, w: 44 }],
+      });
+    }
     this._drawMat(g);
     this._drawChair(g, true);
     g.restore();

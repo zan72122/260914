@@ -13,6 +13,7 @@ import {
   drawSofa, drawSlot, makeLeg, makeToy, makeCarpet, drawCarpetImage,
   makeSofaImage, makeBackWallImage, drawBackWallImage,
 } from '../props/sofa.js';
+import { makeFloorLamp, makeCushion, bakeRoomLight, bakeRugEdge } from '../props/room.js';
 import { clamp, lerp, smoothstep, TAU, noise1 } from '../core/math.js';
 
 const TMPF = { fx: 0, fy: 0, strength: 0, inCapture: false, dist: 0 };
@@ -169,6 +170,7 @@ export class SofaScene extends Scene {
     }
     this.toy = makeToy(toyAt.x * this.vw, toyAt.y * this.vh, rng);
     this.props.push(this.toy);
+    if (!portrait) this._furnishRoom();
 
     this.carpetImg = makeCarpet(this.carpet, this.carpetEdge);
     this.sofaImg = makeSofaImage(s);
@@ -181,6 +183,39 @@ export class SofaScene extends Scene {
       const d = this.debris[i];
       if (typeof d.hx === 'number') { d.hx = d.x; d.hy = d.y; }
     }
+  }
+
+  /**
+   * Landscape is the WIDE pose, and it was a band of sofa over an empty floor.
+   * So the near half of the room gets furnished — all of it scenery, none of it
+   * gameplay: the corner of the room's rug running off the bottom of the frame,
+   * a standing lamp at the right that is solid (in this pose you go AROUND
+   * things, like the sofa's own legs), the warm pool it throws over the boards,
+   * and a cushion that has fallen off the sofa and can be shoved about.
+   *
+   * The rug, the pool and the lamp's long shadow are painted once into the
+   * floor's own base canvas, so all of it costs nothing per frame.
+   */
+  _furnishRoom() {
+    const vw = this.vw, vh = this.vh;
+    const f = this.floor;
+    const rugY = vh * 0.34;
+    const lamp = { x: vw * 0.395, y: vh * 0.27 };
+    const g = f.bctx;
+    g.save();
+    g.translate(-f.baseRect.x0, -f.baseRect.y0);
+    bakeRugEdge(g, { x0: f.baseRect.x0, x1: f.baseRect.x1, y: rugY, depth: f.baseRect.y1 - rugY });
+    bakeRoomLight(g, {
+      x: lamp.x, y: lamp.y, r: vw * 0.54,
+      // the sofa's front edge stands between the lamp and the far corner, so
+      // the boards over there lie in its shadow
+      shadows: [{ x: lamp.x - vw * 0.26, y: this.sofa.yEdge + 30, len: vw * 0.40, w: 34 }],
+    });
+    g.restore();
+    this.lamp = makeFloorLamp(lamp.x, lamp.y, 17);
+    this.props.push(this.lamp);
+    this.cushion = makeCushion(vw * 0.10, vh * 0.30, 122, 88, -0.18);
+    this.props.push(this.cushion);
   }
 
   /**
@@ -472,7 +507,7 @@ export class SofaScene extends Scene {
     drawBackWallImage(ctx, this.wallImg, s);
     for (let i = 0; i < this.props.length; i++) {
       const p = this.props[i];
-      if (p.data && p.data.leg) p.draw(ctx);
+      if (p.data && (p.data.leg || p.data.room)) p.draw(ctx);
     }
     this.toy.draw(ctx);
     ctx.restore();

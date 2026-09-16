@@ -314,3 +314,4 @@ function drawCarpet(ctx, rect, edge) {
   }
   ctx.restore();
 }
+
