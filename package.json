@@ -8,7 +8,8 @@
     "serve": "node dev/serve.mjs",
     "shot": "node dev/shot.mjs",
     "sheets": "node dev/sheets.mjs",
-    "play": "node dev/playthrough.mjs"
+    "play": "node dev/playthrough.mjs",
+    "test": "node dev/core-tests.mjs"
   },
   "devDependencies": {
     "playwright": "^1.63.0"

@@ -51,6 +51,7 @@ export class HallScene extends Scene {
     this.returnFrom = null;   // room id we have just come back from
     this.bin = null;
     this._glow = null;
+    this._haze = null;
   }
 
   // --------------------------------------------------------------- layout
@@ -83,15 +84,18 @@ export class HallScene extends Scene {
         const y = this.yNear - 210 - i * this.DS;
         this.doors.push(this._door(DOOR_IDS[i], side * this.W, y, side, 0, y));
       }
-      this.binPos = { x: this.W - 30, y: this.yNear - 66 };
+      // Far enough from the parked machine that walking out of the front door
+      // does not empty the cup by accident, near enough to be the first thing
+      // in the hallway. (92px of reach plus the mouth offset is 114.)
+      this.binPos = { x: -(this.W - 34), y: this.yNear + 28 };
     } else {
       // ---- one long wall of doors, the camera tracking sideways ----
-      this.wallY = -vh * 0.30;
+      this.wallY = -vh * 0.24;
       this.DS = 212;
       this.xNear = -vw * 0.30;
       this.xFar = this.xNear + (DOOR_IDS.length - 1) * this.DS + 260;
       this.startPointer = { x: 0.20, y: 0.80 };
-      this.rest = { x: this.xNear + vw * 0.18, y: 0, zoom: this.scale, tilt: 0.14 };
+      this.rest = { x: this.xNear + vw * 0.18, y: -vh * 0.05, zoom: this.scale, tilt: 0.14 };
       this.floor = makeWoodFloor(
         { x0: this.xNear - vw * 0.95, y0: this.wallY - 30, x1: this.xFar + vw * 0.95, y1: vh * 0.80 },
         this.rng, { plankW: 86, horizontal: true });
@@ -99,7 +103,7 @@ export class HallScene extends Scene {
         const x = this.xNear + i * this.DS;
         this.doors.push(this._door(DOOR_IDS[i], x, this.wallY, 0, x, this.wallY + 60));
       }
-      this.binPos = { x: this.xNear - 138, y: vh * 0.10 };
+      this.binPos = { x: this.xNear + 84, y: vh * 0.10 };
     }
 
     this._paintWalls();
@@ -146,6 +150,9 @@ export class HallScene extends Scene {
 
     this.allClean = this.doors.every((d) => d.clean);
     if (this.allClean && !this.fin) this.fin = { phase: 'brighten', t: 0 };
+    // the celebration pours the cup itself, in its own time: the bin must not
+    // quietly empty it first as the child walks in through the last door
+    this.bin.armed = !this.allClean;
   }
 
   _door(id, x, y, side, fx, fy) {
@@ -214,7 +221,7 @@ export class HallScene extends Scene {
       const s = d.side;
       x = s < 0 ? -this.W - 90 : this.W; y = d.y - 66; w = 90; h = 132;
     } else {
-      x = d.x - 60; y = this.wallY - 156; w = 120; h = 156;
+      x = d.x - 60; y = this.wallY - 132; w = 120; h = 132;
     }
     g.fillStyle = '#7a6444';
     g.fillRect(x, y, w, h);
@@ -322,7 +329,7 @@ export class HallScene extends Scene {
       A.x = 0;
       A.y = clamp(n.y, this.yFar + this.vh * 0.26, this.yNear - this.vh * 0.26);
     } else {
-      A.y = 0;
+      A.y = -this.vh * 0.05;
       A.x = clamp(n.x, this.xNear - this.vw * 0.10, this.xFar - this.vw * 0.20);
     }
     if (this.enter) {
@@ -373,6 +380,7 @@ export class HallScene extends Scene {
     }
     if (house) house.opened = true;
     this.allClean = false;
+    this.bin.armed = true;
     if (ctx.audio) ctx.audio.pop('whoosh', 0.6);
   }
 
@@ -434,6 +442,21 @@ export class HallScene extends Scene {
   }
 
   drawOver(ctx, cam) {
+    // Portrait: the corridor runs AWAY from the viewer, and the only honest
+    // way to say so on a top-down canvas is that the far end is dimmer. One
+    // cached gradient over the top third — no per-frame gradient, no filter,
+    // and it costs nothing in landscape, where there is no depth to sell.
+    if (this.pose === 'portrait') {
+      if (!this._haze || this._hazeH !== cam.h) {
+        const gr = ctx.createLinearGradient(0, 0, 0, cam.h * 0.42);
+        gr.addColorStop(0, 'rgba(42,30,18,0.38)');
+        gr.addColorStop(0.55, 'rgba(42,30,18,0.13)');
+        gr.addColorStop(1, 'rgba(42,30,18,0)');
+        this._haze = gr; this._hazeH = cam.h;
+      }
+      ctx.fillStyle = this._haze;
+      ctx.fillRect(0, 0, cam.w, cam.h * 0.42);
+    }
     if (this.bright > 0.005) {
       // the whole house warming up: one flat fill, the cheapest pass there is
       ctx.fillStyle = 'rgba(255,224,158,' + (this.bright * 0.22).toFixed(3) + ')';
@@ -505,13 +528,13 @@ export class HallScene extends Scene {
         hx = d.x - 54; hy = this.wallY;
         dx = ct; dy = st;
         px = st; py = -ct;
-        L = 108;
+        L = 106;
         ctx.save();
         ctx.globalAlpha = clamp(open * 3, 0, 1);
         ctx.fillStyle = '#31241a';
-        ctx.fillRect(d.x - 53, this.wallY - 141, 106, 141);
+        ctx.fillRect(d.x - 53, this.wallY - 118, 106, 118);
         ctx.fillStyle = 'rgba(255,208,128,0.30)';
-        ctx.fillRect(d.x - 53, this.wallY - 44, 106, 44);
+        ctx.fillRect(d.x - 53, this.wallY - 38, 106, 38);
         ctx.restore();
       }
       const T = 9 + 30 * st;
