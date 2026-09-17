@@ -1,6 +1,5 @@
 import { Scene } from './scene.js';
 import { makeWoodFloor } from '../floors/wood.js';
-import { Bin } from '../props/bin.js';
 
 /**
  * A placeholder room.
@@ -26,29 +25,24 @@ export class StubScene extends Scene {
   layout(pose, w, h) {
     super.layout(pose, w, h);
     const vw = this.vw, vh = this.vh;
-    this.t = 0;
-    this.done = false;
+    // an orientation change rebuilds the room, and must not un-finish it
+    this.t = this.persist.t || 0;
+    this.done = !!this.persist.done;
     this.rest = { x: 0, y: 0, zoom: this.scale, tilt: pose === 'portrait' ? 0.10 : 0.05 };
     this.startPointer = pose === 'portrait' ? { x: 0.5, y: 0.80 } : { x: 0.18, y: 0.82 };
     this.floor = makeWoodFloor(
       { x0: -vw * 0.7, y0: -vh * 0.7, x1: vw * 0.7, y1: vh * 0.7 },
       this.rng, { plankW: 80, horizontal: pose !== 'portrait' });
-    // every room has a bin by its entrance, placeholders included: a Phase B
-    // agent inherits the rule rather than remembering it
-    const b = this.binSpot(pose);
-    this.bin = new Bin({ x: b.x, y: b.y, rng: this.rng });
-  }
-
-  /** Where a room's bin goes: near where you came in, out of the debris. */
-  binSpot(pose) {
-    return pose === 'portrait'
-      ? { x: this.vw * 0.33, y: this.vh * 0.28 }
-      : { x: -this.vw * 0.40, y: -this.vh * 0.22 };
+    // every room has a bin, placeholders included, so a Phase B agent inherits
+    // the rule rather than having to remember it
+    this.placeBin();
   }
 
   update(dt, ctx) {
     this.t += dt;
     if (this.t > 1.1) this.done = true;
+    this.persist.t = this.t;
+    this.persist.done = this.done;
     if (this.bin) this.bin.update(dt, ctx);
   }
 
