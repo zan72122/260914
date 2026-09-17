@@ -264,3 +264,66 @@ floor, not darkest) and it throws a soft pool of light onto the boards.
   it while it moves; it is only hard to see while it is still.
 * This review covers `intro kitchen paper toy sand carpet` on the two iPhone
   poses. `thread` and `sofa`, and the two iPad poses, were not part of it.
+
+---
+
+# Phase A — the two new wordless chains
+
+The hub and the cup limit are not debris, but they are the two places where the
+game now has to explain something without words, so they are held to the same
+five questions.
+
+## Going through a door
+
+Sheets: `dev/out/hall-p`, `dev/out/hall-clean-p`, `dev/out/hall-clean-l`,
+`dev/out/hall-enter-p` (`--path="0.5,0.78;@bunny,5000"`),
+`dev/out/hall-return-p` (`--scene=intro --complete`).
+
+* **(a)** One door down the hallway is open a crack and a dust bunny has drifted
+  out underneath it. It is already swaying before the child touches anything.
+  They drive the head at it, it strains, and as it goes in they are in the room.
+* **(b)** Yes — it is a real `DustBunny`, so it is the same continuous lean →
+  strain → shed → snap it has everywhere else, and the door itself swings a
+  little further open as the airflow reaches it.
+* **(c)** Yes, and the capture and the room change are the same beat: the
+  transition starts on the frame the fluff reaches the mouth (`hall-enter-p`
+  state: `pulled` at 1.32 s, `enter=intro` at 1.57 s, veil at 2.32 s).
+* **(d)** The bunny is 24 design px of body plus fibres, sitting on a warm patch
+  of light spilling under the door; the door is 116 px tall. Both read.
+* **(e)** strong. The return reads too: the head walks out of the doorway it
+  went in at, the door swings shut behind it, its frame lights up and the floor
+  in front of it is polished — and on the first return the other twelve doors
+  creak open one after another in front of the child.
+
+## The cup is full
+
+Sheets: `dev/out/cupfull-kitchen-p` (46 items forced into the cup, then a slow
+approach onto the rice), `dev/out/pour-kitchen-p` (the same, then driven to the
+bin), `dev/out/cupzoom` (the cup itself at 3.2x).
+
+* **(a)** The rice crowds up against the mouth in a ring and will not go in. The
+  cup is packed to the lid with fluff poking out of the seam, the motor is
+  labouring, and the only open thing in the room is the bin.
+* **(b)** Yes, and it is gradual before it is absolute: the whole field fades
+  from 0.8 (x0.91 at 0.85, x0.72 at 0.90), so the room gets sluggish before
+  anything actually refuses.
+* **(c)** Yes — the refusal has its own beat: the air drags a grain to the
+  intake and puffs it back out, over and over, which is a "no" a four-year-old
+  has seen before. Then the pour: the cup's bottom swings open, the whole lot
+  arcs across in one rush, the lid claps, and the rice starts streaming in again
+  on the very next frame.
+* **(d)** The bin is 74x82 design px with a black open top and a rim that
+  brightens and pulses as the cup fills.
+* **(e)** strong, with one reservation: driving the head all the way onto the
+  bin puts the machine on top of it, which muddles the pour. The trigger was
+  pushed out to 92 px so the head is usually beside it, but a child who keeps
+  pushing will still overlap it.
+
+## Left alone (Phase A)
+
+* The hallway is a corridor with parallel walls plus a depth haze, not a
+  perspective one. It reads as "away" with the tilt, but it is not drawn in
+  perspective and doors do not shrink into the distance.
+* The five placeholder rooms finish after a beat with nothing to do in them.
+  They exist so the hub and the harness are exercisable; they are not a feel
+  claim of any kind.
