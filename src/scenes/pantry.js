@@ -156,7 +156,7 @@ export class PantryScene extends Scene {
     const spill = new FlourSpill(prect, rng, { cols: this.cols, rows: this.rows, pool: 300, target: 0.92 });
     // the whole floor between the shelves has a haze of flour on it; the fan
     // out of the bag is the thick part lying on top of that
-    const haloA = portrait ? 44 : 56, haloB = portrait ? 62 : 80;
+    const haloA = portrait ? 40 : 50, haloB = portrait ? 54 : 70;
     const ax = src.x, ay = src.y;
     const bx = src.x + dir.x * flen, by = src.y + dir.y * flen;
     for (let y = safe.y0 + 10; y < safe.y1; y += 24) {
@@ -169,12 +169,12 @@ export class PantryScene extends Scene {
         // the first frame. The raggedness only ever makes the tongue WIDER —
         // nothing may thin the flour over the motif into a bald patch.
         const edge = (haloA + haloB * u) + Math.abs(Math.sin(y * 0.031 + x * 0.017)) * 30 + rng.range(0, 18);
-        const a = 0.30 * (1 - smoothstep(edge * 0.50, edge, dd));
+        const a = 0.26 * (1 - smoothstep(edge * 0.50, edge, dd));
         if (a < 0.04) continue;
         spill.drift(x + rng.range(-7, 7), y + rng.range(-7, 7), 26, a);
       }
     }
-    spill.fan(src.x, src.y, dir.x, dir.y, flen, fwide, 0.085, rng);
+    spill.fan(src.x, src.y, dir.x, dir.y, flen, fwide, 0.070, rng);
     // a tongue still spilling out of the bag's neck, thick at the lip
     spill.drift(src.x, src.y, 46, 0.55);
     spill.drift(src.x + dir.x * 46, src.y + dir.y * 46, 40, 0.40);

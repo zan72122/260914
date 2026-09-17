@@ -1,19 +1,21 @@
 import { Debris, State } from './base.js';
 import { Powder } from '../core/powder.js';
 import { Airborne } from '../core/airborne.js';
-import { clamp } from '../core/math.js';
+import { clamp, TAU } from '../core/math.js';
 import { makeCanvas } from '../floors/floor.js';
 
 const F = { fx: 0, fy: 0, strength: 0, inCapture: false, dist: 0 };
 const AIM = { x: 0, y: 0 };
 
 /** How many cup deposits a whole spill is worth; `batch` is derived from it. */
-const DEPOSITS = 85;
+const DEPOSITS = 70;
 /** Head speed (design px/s) at which a pass starts to throw flour up. */
 const GUST_LO = 360;
 const GUST_HI = 980;
 /** Resolution of the progress map kept across an orientation change. */
 const EU = 26, EV = 18;
+/** Visible flow lines: how many at most, and how long each one may run. */
+const MAXS = 25, STEPS = 26;
 
 /**
  * The flour spill: the one debris in the game that shows you the AIR.
@@ -63,6 +65,14 @@ export class FlourSpill extends Debris {
     this.dig = 0;                     // 0..1, how long the hold has been digging
     this.frac = 0;                    // cleanFrac, cached
     this.reject = 0;                  // cup-full puff-back, for the scene's fx
+    this.flow = 0;                    // 0..1 how much is going in RIGHT NOW
+    this._suckR = 30;
+    this._vac = null;
+    // the visible flow lines: seed points on the film, retraced every frame
+    this._seed = new Float32Array(MAXS * 2);
+    this._nSeed = 0;
+    this._seedT = 0;
+    this._line = new Float32Array(STEPS * 2);
     this._aim = { x: this.x, y: this.y };
     this._aimT = 0;
     this._fracT = 0;
@@ -160,6 +170,7 @@ export class FlourSpill extends Debris {
     const rs = 13;
     this._settleNorm = Math.max(0.2, (Math.PI * rs * rs * 0.5) / (this.pw.cw * this.pw.ch));
     this._settleR = rs;
+    this._rimNorm = Math.max(0.2, (Math.PI * 16 * 16 * 0.5) / (this.pw.cw * this.pw.ch));
     this.frac = this.pw.cleanFrac();
     return this.total0;
   }
@@ -195,6 +206,7 @@ export class FlourSpill extends Debris {
 
   update(dt, vac, world) {
     this.t += dt;
+    this._vac = vac;              // draw() needs the flow to trace the streaks
 
     // ---- the air made visible: the film streaks toward the mouth ---------
     const swirl = 0.62;
@@ -213,9 +225,28 @@ export class FlourSpill extends Debris {
     let got = 0;
     if (!vac.cupFull && s > 0.05 && this._fade <= 0) {
       const r = 29 + 16 * vac.powerN + 20 * this.dig;
-      got = this.pw.suck(vac.mouthX, vac.mouthY, r, 4.0 * dt * s);
+      got = this.pw.suck(vac.mouthX, vac.mouthY, r, 7.5 * dt * s);
       this.cupDebt += got;
+      // Not all of it goes up the tube: a sixth of it is shouldered aside and
+      // banks up in a ring just outside the hole. That bright rim around dark
+      // tile is what makes a hold read as DIGGING rather than as erasing.
+      if (got > 0.002) {
+        const back = got * 0.12;
+        this.cupDebt -= back;
+        const rr = r * 1.02;
+        const each = back / 6 / this._rimNorm;
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * TAU + this.t * 0.6;
+          const bx = vac.mouthX + Math.cos(a) * rr, by = vac.mouthY + Math.sin(a) * rr;
+          // only where there is already flour to bank it against, or the head
+          // would smear a trail of powder across the tile it has just cleaned
+          if (this.pw.get(bx, by) < 0.07) { this.cupDebt += back / 6; continue; }
+          this.pw.blob(bx, by, 16, each);
+        }
+      }
+      this._suckR = r;
     }
+    this.flow += (clamp(got / (dt * 0.9 + 1e-6), 0, 1) - this.flow) * (1 - Math.exp(-8 * dt));
     while (this.cupDebt >= this.batch) {
       this.cupDebt -= this.batch;
       this.deposited++;
@@ -234,10 +265,17 @@ export class FlourSpill extends Debris {
       if (m > 0.02) this._spawnCloud(m, vac.mouthX, vac.mouthY, pr, g, vac);
     }
 
+    // ---- the flow lines the child actually watches -------------------------
+    this._seedT -= dt;
+    if (this._seedT <= 0) { this._seedT = 0.14; this._reseed(vac, s); }
+
     // ---- the far edge: single specks creep off the surface -----------------
     this._driftT -= dt;
-    if (this._driftT <= 0 && this._fade <= 0 && this.air.n < 95) {
-      this._driftT = 0.17;
+    if (this._driftT <= 0 && this._fade <= 0 && this.air.n < 70) {
+      // The flow lines carry the "you can see the air" job now, so the loose
+      // drifters are a garnish again — and every one of them that gets
+      // swallowed costs the cup a blob it cannot charge less than.
+      this._driftT = 0.24;
       this._drift(vac);
     }
 
@@ -331,14 +369,65 @@ export class FlourSpill extends Debris {
       }
     }
     // Semi-Lagrangian sampling leaks mass at the leading edge of the film, and
-    // that leak is invisible cleaning: flour would disappear without going up
-    // the tube, which would make the room shorter the harder the air blows.
-    // Give the leak back to the cells the air is actually touching, so the
-    // flour GATHERS where the flow is instead of evaporating.
+    // that leak is INVISIBLE CLEANING: flour disappearing without going up the
+    // tube, so the room gets shorter the harder the air blows. Give all of it
+    // back to the cells the air is touching, and the flour gathers in the flow
+    // instead of evaporating. `was / now` is exactly what this pass lost, so
+    // restoring it is mass-neutral; the cap is only a guard against `now`
+    // collapsing to nothing. Capping it at 1.06 was not enough — under a
+    // sustained hold the room finished in a sixth of the time with a third of
+    // the flour in the cup.
     if (nt && now > 1e-6 && was > now) {
-      const k = Math.min(1.06, was / now);
+      const k = Math.min(4, was / now);
       for (let i = 0; i < nt; i++) d[touch[i]] *= k;
     }
+  }
+
+  /**
+   * Pick the points the visible flow lines start from: cells that still have
+   * flour in them AND are in the part of the flow that is moving but has not
+   * yet arrived. More of them, further out, the harder the air blows.
+   */
+  _reseed(vac, s) {
+    const pw = this.pw;
+    const want = clamp(Math.round(4 + 26 * s), 0, MAXS);
+    let n = 0;
+    for (let k = 0; k < 220 && n < want; k++) {
+      const cx = this.rng.int(0, pw.cols - 1), cy = this.rng.int(0, pw.rows - 1);
+      if (pw.d[cy * pw.cols + cx] < 0.10) continue;
+      const wx = pw.worldX(cx), wy = pw.worldY(cy);
+      const f = vac.field(wx, wy, F);
+      if (f.strength < 0.055 || f.strength > 1.35) continue;
+      this._seed[n * 2] = wx + this.rng.range(-4, 4);
+      this._seed[n * 2 + 1] = wy + this.rng.range(-4, 4);
+      n++;
+    }
+    this._nSeed = n;
+  }
+
+  /**
+   * Follow the airflow from a point, with the same curl the film is advected
+   * with, and write the polyline into `_line`. This is the ONLY place the game
+   * draws the air, and it draws it as what the flour is doing, not as arrows:
+   * every vertex is a step the powder at that point actually takes.
+   */
+  _trace(vac, sx, sy) {
+    const out = this._line;
+    let x = sx, y = sy, n = 0;
+    for (let k = 0; k < STEPS; k++) {
+      const f = vac.field(x, y, F);
+      if (f.strength < 0.025) break;
+      const a = 0.62 / (1 + f.strength * 3.4);
+      const ca = Math.cos(a), sa = Math.sin(a);
+      const fx = f.fx * ca - f.fy * sa;
+      const fy = f.fx * sa + f.fy * ca;
+      const l = Math.hypot(fx, fy) || 1;
+      const step = 4 + 9 * clamp(f.strength, 0, 1.4);
+      x += (fx / l) * step; y += (fy / l) * step;
+      out[n * 2] = x; out[n * 2 + 1] = y; n++;
+      if (f.dist < 16) break;
+    }
+    return n;
   }
 
   _spawnCloud(m, x, y, r, g, vac) {
@@ -395,16 +484,29 @@ export class FlourSpill extends Debris {
     }
   }
 
-  /** The thickest square of film left: what the harness and the child aim at. */
+  /**
+   * Where the work still is: the thickest square of film, but biased AWAY from
+   * the mouth. Without the bias the ring of flour the head banks up around its
+   * own hole is always the thickest thing on the floor, and both the child's
+   * eye and the harness get pinned to the spot they are already standing on
+   * instead of being led to the rest of the spill.
+   */
   _findAim() {
     const pw = this.pw;
+    const vac = this._vac;
+    const mx = vac ? vac.mouthX : this.x, my = vac ? vac.mouthY : this.y;
     let best = -1, bx = this.x, by = this.y;
     for (let cy = 1; cy < pw.rows - 1; cy++) {
+      const wy = pw.worldY(cy);
       for (let cx = 1; cx < pw.cols - 1; cx++) {
         const i = cy * pw.cols + cx;
         if (!pw.mask[i]) continue;
         const v = pw.d[i] + pw.d[i - 1] + pw.d[i + 1] + pw.d[i - pw.cols] + pw.d[i + pw.cols];
-        if (v > best) { best = v; bx = pw.worldX(cx); by = pw.worldY(cy); }
+        if (v <= 0.05) continue;
+        const wx = pw.worldX(cx);
+        const dd = Math.hypot(wx - mx, wy - my);
+        const score = v * Math.min(1, 0.25 + dd / 120);
+        if (score > best) { best = score; bx = wx; by = wy; }
       }
     }
     this._aim.x = bx; this._aim.y = by;
@@ -430,41 +532,40 @@ export class FlourSpill extends Debris {
       this._can = makeCanvas(C, R);
       this._ictx = this._can.getContext('2d');
       this._img = this._ictx.createImageData(C, R);
-      this._blur = new Float32Array(C * R);
       const px = this._img.data;
       const r = parseInt(this.color.slice(1, 3), 16);
       const g = parseInt(this.color.slice(3, 5), 16);
       const b = parseInt(this.color.slice(5, 7), 16);
       for (let i = 0; i < C * R; i++) { px[i * 4] = r; px[i * 4 + 1] = g; px[i * 4 + 2] = b; }
     }
-    // One low-resolution bitmap, blown up with the bilinear filter: flour is
-    // the one thing in the game that SHOULD be soft, and this is a single
-    // filtered blit of the spill's own rectangle instead of five thousand
-    // little alpha rects.
+    // The body of the film is one low-resolution bitmap blown up with the
+    // bilinear filter: a single filtered blit of the spill's own rectangle
+    // instead of five thousand alpha rects. The opacity curve is STEEP, so the
+    // film goes from bare tile to solid flour across about one cell — that
+    // hard shoulder is the "cut" the child has just made with the nozzle, and
+    // a softer curve turns the whole spill into steam.
     const px = this._img.data;
+    if (!this._blur) this._blur = new Float32Array(C * R);
     const bl = this._blur;
-    // a 1-2-1 blur before the blit: it is three cheap passes over a 56x48
-    // bitmap, and it is the difference between flour and a mosaic
+    // a 1-4-1 smear first: just enough to take the cell steps off the rim,
+    // not enough to turn the shoulder back into fog
     for (let cy = 0; cy < R; cy++) {
       const o = cy * C;
       for (let cx = 0; cx < C; cx++) {
         const l = cx > 0 ? d[o + cx - 1] : d[o + cx];
         const r2 = cx < C - 1 ? d[o + cx + 1] : d[o + cx];
-        bl[o + cx] = (l + d[o + cx] * 2 + r2) * 0.25;
+        bl[o + cx] = (l + d[o + cx] * 4 + r2) / 6;
       }
     }
     let any = 0;
-    // opacity saturates: a haze is see-through and anything like a real
-    // covering of flour hides the floor completely, so the motif only appears
-    // where the film has actually been taken away
     for (let cy = 0; cy < R; cy++) {
       const o = cy * C;
       for (let cx = 0; cx < C; cx++) {
         const i = o + cx;
         const u = cy > 0 ? bl[i - C] : bl[i];
         const w = cy < R - 1 ? bl[i + C] : bl[i];
-        const dv = (u + bl[i] * 2 + w) * 0.25;
-        const v = dv <= 0.010 ? 0 : (253 - 253 * Math.exp(-4.4 * dv)) | 0;
+        const dv = (u + bl[i] * 4 + w) / 6;
+        const v = dv <= 0.012 ? 0 : (253 - 253 * Math.exp(-6.2 * dv)) | 0;
         px[i * 4 + 3] = v;
         any += v;
       }
@@ -472,24 +573,114 @@ export class FlourSpill extends Debris {
     if (!any) return;
     this._ictx.putImageData(this._img, 0, 0);
     const rc = pw.rect;
+    const cw = pw.cw, ch = pw.ch;
     ctx.save();
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(this._can, rc.x0, rc.y0, rc.x1 - rc.x0, rc.y1 - rc.y0);
-    // and a crumb pass on the THICK cells only, so a deep drift has grain in
-    // it and does not read as poured paint
+
+    // Grain. Two passes over the cells, both of them tiny dots placed from a
+    // per-cell hash so they never crawl: a speckled fringe where the film runs
+    // out (flour on tile is a scatter of grains, not an airbrushed edge) and a
+    // brighter mottle inside the thick drifts.
     ctx.fillStyle = '#ffffff';
-    const cw = pw.cw, ch = pw.ch;
     for (let cy = 0; cy < R; cy++) {
       for (let cx = 0; cx < C; cx++) {
-        const v = d[cy * C + cx];
-        if (v <= 0.62) continue;
-        ctx.globalAlpha = clamp((v - 0.62) * 0.55, 0, 0.35);
-        ctx.fillRect(rc.x0 + cx * cw, rc.y0 + cy * ch, cw, ch);
+        const i = cy * C + cx;
+        const v = d[i];
+        if (v <= 0.02) continue;
+        const h = Math.imul(i + 0x9e37, 2654435761) >>> 0;
+        const ox = ((h & 255) / 255) * cw, oy = (((h >> 8) & 255) / 255) * ch;
+        const bx = rc.x0 + cx * cw, by = rc.y0 + cy * ch;
+        if (v < 0.34) {
+          // the fringe: loose grains, brightest where the film is thinnest
+          const a = clamp(v * 1.5, 0, 0.62);
+          ctx.globalAlpha = a;
+          ctx.fillRect(bx + ox, by + oy, 1.9, 1.9);
+          if ((h & 0x30000) === 0x10000) {
+            ctx.globalAlpha = a * 0.7;
+            ctx.fillRect(bx + (((h >> 16) & 255) / 255) * cw, by + (((h >> 20) & 15) / 15) * ch, 1.4, 1.4);
+          }
+        } else {
+          // inside: a mottle, so a deep drift has surface instead of being paint
+          ctx.globalAlpha = clamp((v - 0.34) * 0.62, 0, 0.42);
+          ctx.fillRect(bx + ox, by + oy, 2.6, 2.6);
+          if (h & 0x40000) {
+            ctx.globalAlpha = clamp((v - 0.34) * 0.4, 0, 0.26);
+            ctx.fillRect(bx + ox * 0.4, by + oy * 0.4, 1.8, 1.8);
+          }
+        }
       }
     }
     ctx.globalAlpha = 1;
     ctx.restore();
+
+    if (this._vac) this._drawFlow(ctx, this._vac);
   }
+
+  /**
+   * The air, drawn as the only thing that can honestly show it: the powder
+   * running along it. Ten to twenty-five thin bright streaks are traced live
+   * down the flow from points that still have flour in them, curving into the
+   * mouth; each carries a brighter bead that slides along it, and while
+   * anything is actually going in, a pale neck of mist joins the film to the
+   * intake. No arrows, no radius — every line is a path a grain is taking.
+   */
+  _drawFlow(ctx, vac) {
+    const n = this._nSeed;
+    const mx = vac.mouthX, my = vac.mouthY;
+    ctx.save();
+    ctx.lineCap = 'round';
+
+    // the mist neck: the column of air between the film and the intake
+    if (this.flow > 0.02) {
+      ctx.fillStyle = '#fdfaf3';
+      for (let i = 1; i <= 5; i++) {
+        const t = i / 5;
+        const bx = mx + vac.dirX * 30 * t, by = my + vac.dirY * 30 * t;
+        ctx.globalAlpha = 0.13 * this.flow * (1 - t * 0.5);
+        ctx.beginPath();
+        ctx.ellipse(bx, by, 9 + 16 * t, 9 + 16 * t, 0, 0, TAU);
+        ctx.fill();
+      }
+    }
+
+    if (!n) { ctx.restore(); return; }
+    const line = this._line;
+    const phase = (this.t * 2.6) % 1;
+    for (let k = 0; k < n; k++) {
+      const m = this._trace(vac, this._seed[k * 2], this._seed[k * 2 + 1]);
+      if (m < 3) continue;
+      // Two strokes, not one per segment: the whole line faint, then its last
+      // third bright and thicker. A stroked segment costs a path each, and at
+      // twenty-five streaks that is six hundred paths a frame for a difference
+      // nobody can see.
+      ctx.strokeStyle = '#fffdf6';
+      ctx.globalAlpha = 0.24;
+      ctx.lineWidth = 1.0;
+      ctx.beginPath();
+      ctx.moveTo(line[0], line[1]);
+      for (let i = 1; i < m; i++) ctx.lineTo(line[i * 2], line[i * 2 + 1]);
+      ctx.stroke();
+      const h0 = Math.max(0, m - 1 - Math.ceil(m * 0.45));
+      ctx.globalAlpha = 0.78;
+      ctx.lineWidth = 2.1;
+      ctx.beginPath();
+      ctx.moveTo(line[h0 * 2], line[h0 * 2 + 1]);
+      for (let i = h0 + 1; i < m; i++) ctx.lineTo(line[i * 2], line[i * 2 + 1]);
+      ctx.stroke();
+      // a bead of flour sliding down it, so the line is a MOVEMENT not a mark
+      const u = (phase + k * 0.137) % 1;
+      const j = Math.min(m - 1, (u * (m - 1)) | 0);
+      ctx.globalAlpha = 0.55 + 0.45 * (j / Math.max(1, m - 1));
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(line[j * 2], line[j * 2 + 1], 1.5 + 1.6 * (j / Math.max(1, m - 1)), 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
   /**
    * The cloud, drawn in FRONT of the machine: it is in the air, not on the
    * floor. Drawn here rather than by `Airborne.draw` so a speck can look like
