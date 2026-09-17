@@ -162,8 +162,8 @@ and its reset. It runs in real time and records per scene:
 * `dev/out/playthrough-<device>/000.png …` at every hand-over, plus `contact.png`
 * `result.json` per device, `dev/out/playthrough.json` for all of them
 
-It knows exactly one thing about the machine: when the cup is over 90% full
-nothing more will go in, so it drives the head to the room's bin and lets it
+It knows exactly one thing about the machine: when the cup is over 85% full the
+airflow has started to fade, so it drives the head to the room's bin and lets it
 pour. That is the same causal chain the child has to find on their own, so a run
 that gets stuck on a full cup is telling you the teaching does not work.
 
@@ -188,6 +188,7 @@ on a give-up the report lists the ids, positions and states of what is left.
 | `--clean` | — | mark these rooms done before the run starts |
 | `--chain` | off | play the historical linear ring instead of the hub |
 | `--shots` | 30 | maximum screenshots per device |
+| `--trace` | off | log every target change, give-up and bin trip into `result.json` |
 
 ---
 
