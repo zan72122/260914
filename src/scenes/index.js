@@ -7,7 +7,12 @@ import { ToyScene } from './toy.js';
 import { SofaScene } from './sofa.js';
 import { ThreadScene } from './thread.js';
 import { CarpetScene } from './carpet.js';
+import { PantryScene } from './pantry.js';
+import { VerandaScene } from './veranda.js';
+import { StairsScene } from './stairs.js';
 import { StubScene } from './stub.js';
+import { WindowScene } from './window.js';
+import { BedroomScene } from './bedroom.js';
 
 /**
  * Scene registry.
@@ -34,11 +39,11 @@ export const SCENES = [
   { id: 'sand', make: (rng) => new SandScene(rng) },
   { id: 'sofa', make: (rng) => new SofaScene(rng) },
   { id: 'carpet', make: (rng) => new CarpetScene(rng) },
-  { id: 'pantry', make: (rng) => new StubScene('pantry', rng), stub: true },
-  { id: 'stairs', make: (rng) => new StubScene('stairs', rng), stub: true },
-  { id: 'window', make: (rng) => new StubScene('window', rng), stub: true },
-  { id: 'veranda', make: (rng) => new StubScene('veranda', rng), stub: true },
-  { id: 'bedroom', make: (rng) => new StubScene('bedroom', rng), stub: true },
+  { id: 'pantry', make: (rng) => new PantryScene(rng) },
+  { id: 'stairs', make: (rng) => new StairsScene(rng) },
+  { id: 'window', make: (rng) => new WindowScene(rng) },
+  { id: 'veranda', make: (rng) => new VerandaScene(rng) },
+  { id: 'bedroom', make: (rng) => new BedroomScene(rng) },
 ];
 
 /** The historical linear ring, kept for `?chain=1`. */
