@@ -5,17 +5,21 @@ import { Camera } from './core/camera.js';
 import { Audio } from './core/audio.js';
 import { Vacuum } from './vacuum/vacuum.js';
 import { State } from './debris/base.js';
-import { makeScene, sceneIds, findScene } from './scenes/index.js';
+import { makeScene, sceneIds, roomIds, findScene } from './scenes/index.js';
 import { clamp, lerp, smoothstep } from './core/math.js';
 
 const params = new URLSearchParams(location.search);
 const P = {
-  scene: params.get('scene') || 'intro',
+  scene: params.get('scene') || '',
   seed: parseInt(params.get('seed') || '1337', 10) || 1337,
   dev: params.get('dev') === '1',
   speed: parseFloat(params.get('speed') || '1') || 1,
   pose: params.get('pose') || null,
   mute: params.get('mute') === '1',
+  /** `?chain=1` plays the old linear ring instead of the hub. */
+  chain: params.get('chain') === '1',
+  /** `?clean=intro,kitchen` — door states for reproducing a hall moment. */
+  clean: params.get('clean') || '',
 };
 
 class Game {
@@ -37,6 +41,7 @@ class Game {
     this.completeHold = 0;
     this.scene = null;
     this.dev = P.dev;
+    this.house = this._makeHouse();
     this.worldCtx = {
       vacuum: this.vacuum, camera: this.camera, input: this.input,
       rng: this.rng, audio: this.audio,
@@ -55,9 +60,33 @@ class Game {
     this.loop.speed = P.speed;
 
     this.resize(true);
-    this.setScene(findScene(P.scene) ? P.scene : 'intro');
+    const first = findScene(P.scene) ? P.scene : (P.chain ? 'intro' : 'hall');
+    this.setScene(first);
     this.loop.start();
   }
+
+  /**
+   * The house, in memory only.
+   *
+   * Which rooms are clean, whether the hall has already thrown its other doors
+   * open, and each room's own `persist` bag. The owner chose "fresh every
+   * time", so none of it is stored between page loads — when the last room is
+   * done the hall resets it itself.
+   *
+   * `?clean=intro,kitchen` sets the door states up front, which is how you
+   * reproduce one hall moment without playing the eight rooms in front of it.
+   */
+  _makeHouse() {
+    const h = { rooms: {}, opened: false, returnedFrom: null };
+    for (const id of roomIds()) h.rooms[id] = { clean: false, persist: {} };
+    const pre = P.clean.split(',').map((s) => s.trim()).filter(Boolean);
+    for (const id of pre) if (h.rooms[id]) h.rooms[id].clean = true;
+    if (pre.length) h.opened = true;
+    return h;
+  }
+
+  /** Every room is clean: used by the hall to decide it is time to celebrate. */
+  houseClean() { return roomIds().every((id) => this.house.rooms[id].clean); }
 
   // -------------------------------------------------------------- lifecycle
 
@@ -165,6 +194,15 @@ class Game {
   setScene(id, keepCup) {
     this.rng.reset(P.seed);
     const sc = makeScene(id, this.rng);
+    // the hub and the rooms both need to know where they stand in the house;
+    // `persist` is handed back so a room looks the way the child left it
+    sc.house = this.house;
+    if (id === 'hall') {
+      sc.returnFrom = this.house.returnedFrom;
+      this.house.returnedFrom = null;
+    } else if (this.house.rooms[id]) {
+      sc.persist = this.house.rooms[id].persist || {};
+    }
     sc.layout(this.pose, this.w, this.h);
     this.scene = sc;
     this.worldCtx.world.scene = sc;
@@ -177,8 +215,24 @@ class Game {
 
   _placeStart(sc, resetVacuum) {
     const sp = sc.startPointer;
-    if (!this.input.everDown) this.input.pointer(sp.x, sp.y, false);
     this.camera.set(sc.rest.x, sc.rest.y, sc.rest.zoom, sc.rest.tilt);
+    /**
+     * A scene may ask for the machine to start at a specific WORLD point — the
+     * hall does, so that coming back out of a room puts the head in the
+     * doorway it came out of. The finger has to be moved with it, or the head
+     * springs straight back across the room to wherever it was left.
+     */
+    if (sc.startWorld) {
+      const q = { x: 0, y: 0 };
+      this.camera.toScreen(sc.startWorld.x, sc.startWorld.y, q);
+      this.input.pointer(
+        clamp(q.x / this.w, 0.06, 0.94),
+        clamp((q.y + this.vacuum.leadUp) / this.h, 0.1, 0.94),
+        this.input.down);
+      if (resetVacuum) this.vacuum.reset(sc.startWorld.x, sc.startWorld.y);
+      return;
+    }
+    if (!this.input.everDown) this.input.pointer(sp.x, sp.y, false);
     if (resetVacuum) {
       const p = { x: 0, y: 0 };
       this.camera.toWorld(sp.x * this.w, sp.y * this.h - this.vacuum.leadUp, p);
@@ -198,6 +252,10 @@ class Game {
     this.input.update(dt);
     this.vacuum.update(dt, this.input, this.camera);
     this.scene.update(dt, this.worldCtx);
+    // Every room has a bin by its door, and the scene only has to PLACE it:
+    // `scene.bin` is ticked and drawn here so the pour, the cup flap and the
+    // lid behave identically in all thirteen rooms and in the hall.
+    if (this.scene.bin && !this.scene.ownsBin) this.scene.bin.update(dt, this.worldCtx);
     this.camera.update(dt);
 
     if (this.transition) {
@@ -210,11 +268,27 @@ class Game {
     }
   }
 
+  /**
+   * A finished room always hands back to the hall — the scenes themselves do
+   * not have to know that, because a room's job is its own floor and the hub
+   * is the thing that knows about the house. `?chain=1` restores the old
+   * linear ring by simply honouring whatever `exit().next` says.
+   */
   _startTransition() {
     const ex = this.scene.exit();
+    let next = ex.next;
+    if (!P.chain && this.scene.id !== 'hall') {
+      const room = this.house.rooms[this.scene.id];
+      if (room) {
+        room.clean = true;
+        room.persist = this.scene.persist || {};
+      }
+      this.house.returnedFrom = this.scene.id;
+      next = 'hall';
+    }
     this.transition = {
-      phase: 'out', t: 0, dur: ex.dur || 1.3, next: ex.next,
-      from: this.camera.snapshot(), to: ex.to, veil: !!ex.next,
+      phase: 'out', t: 0, dur: ex.dur || 1.3, next,
+      from: this.camera.snapshot(), to: ex.to, veil: !!next,
     };
   }
 
@@ -249,7 +323,10 @@ class Game {
     ctx.fillStyle = '#1d1712';
     ctx.fillRect(0, 0, this.w, this.h);
     this.scene.draw(ctx, this.camera);
+    const bin = this.scene.ownsBin ? null : this.scene.bin;
+    if (bin) { ctx.save(); this.camera.apply(ctx); bin.draw(ctx); ctx.restore(); }
     this.vacuum.draw(ctx, this.camera);
+    if (bin) { ctx.save(); this.camera.apply(ctx); bin.drawOver(ctx); ctx.restore(); }
     this.scene.drawOver(ctx, this.camera);
     const L = this.scene.light;
     if (L) {
@@ -304,10 +381,13 @@ class Game {
       'noz ' + v.nozzle.x.toFixed(0) + ',' + v.nozzle.y.toFixed(0) + ' pow ' + v.power.toFixed(2) + ' r ' + v.radius.toFixed(0),
       'ptr ' + this.input.x.toFixed(0) + ',' + this.input.y.toFixed(0) + (this.input.down ? ' DOWN' : '') +
         ' held ' + this.input.heldDuration.toFixed(2) + ' rub ' + this.input.rub.toFixed(2) + ' cir ' + this.input.circle.toFixed(2),
-      'cup ' + v.cup.length + ' transit ' + v.transits.length + (this.transition ? ' TRANS:' + this.transition.phase : ''),
+      'cup ' + v.cup.length + ' fill ' + v.cupFill.toFixed(2) + ' vol ' + Math.round(v.cupVol)
+        + ' transit ' + v.transits.length + (this.transition ? ' TRANS:' + this.transition.phase : ''),
+      'house ' + roomIds().map((id) => (this.house.rooms[id].clean ? '+' : '-')).join('')
+        + (this.house.opened ? ' opened' : ''),
     ];
     ctx.fillStyle = 'rgba(0,0,0,0.55)';
-    ctx.fillRect(4, 4, 260, 12 * lines.length + 8);
+    ctx.fillRect(4, 4, 300, 12 * lines.length + 8);
     ctx.fillStyle = '#9ff';
     for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], 8, 8 + i * 12);
     ctx.restore();
@@ -340,6 +420,8 @@ class Game {
       input: this.input.snapshot(),
       vacuum: this.vacuum.snapshot(),
       scene: this._sceneSnapshot(),
+      house: { opened: this.house.opened, clean: roomIds().filter((id) => this.house.rooms[id].clean) },
+      chain: P.chain,
       transition: this.transition ? { phase: this.transition.phase, t: +this.transition.t.toFixed(2) } : null,
       scenes: sceneIds(),
     };
@@ -359,7 +441,12 @@ window.game = {
   pause: () => { game.loop.paused = true; },
   resume: () => { game.loop.paused = false; },
   step: (dt) => game.loop.step(dt === undefined ? STEP : dt),
-  goto: (id) => { game.transition = null; game.setScene(id); },
+  goto: (id, keepCup) => { game.transition = null; game.setScene(id, keepCup); },
+  house: () => game.house,
+  setClean: (ids) => {
+    for (const id of Object.keys(game.house.rooms)) game.house.rooms[id].clean = ids.indexOf(id) >= 0;
+    game.house.opened = true;
+  },
   setSpeed: (s) => { game.loop.speed = s; },
   dev: (on) => { game.dev = !!on; },
 };
