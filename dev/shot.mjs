@@ -67,6 +67,10 @@ async function main() {
   const target = a.target || 'auto';
   const dev = a.devoverlay ? 1 : 0;
   const skip = parseInt(a.skip || '0', 10);   // ms of simulated time before the first frame
+  // `?clean=intro,kitchen` sets the hall's door states; `?chain=1` plays the
+  // historical linear ring instead of the hub
+  const clean = a.clean ? '&clean=' + encodeURIComponent(a.clean) : '';
+  const chain = a.chain ? '&chain=1' : '';
   const dim = DEVICES[deviceName];
   if (!dim) throw new Error('unknown device: ' + deviceName + ' (' + Object.keys(DEVICES).join(', ') + ')');
   if (!a.path && !gestureNames().includes(gestureName)) {
@@ -90,7 +94,7 @@ async function main() {
   page.on('pageerror', (e) => console.error('PAGE ERROR:', e.message));
   page.on('console', (m) => { if (m.type() === 'error') console.error('CONSOLE:', m.text()); });
 
-  await page.goto(`${url}/index.html?scene=${sceneId}&seed=${seed}&dev=${dev}&mute=1`, { waitUntil: 'load' });
+  await page.goto(`${url}/index.html?scene=${sceneId}&seed=${seed}&dev=${dev}&mute=1${clean}${chain}`, { waitUntil: 'load' });
   await page.waitForFunction(() => !!window.game);
   // settle one frame, then take control of time
   await page.evaluate(() => { window.game.pause(); window.game.step(0.25); });

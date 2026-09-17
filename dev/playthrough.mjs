@@ -4,6 +4,15 @@
  *   node dev/playthrough.mjs                       # all four devices
  *   node dev/playthrough.mjs --device=ipad-portrait
  *   node dev/playthrough.mjs --devices=iphone-portrait,ipad-landscape --seed=7
+ *   node dev/playthrough.mjs --chain                # the old linear ring
+ *
+ * It drives the HUB: from the hall it hunts the nearest door's dust bunny,
+ * which is what opens that door, plays the room, comes back out, and goes
+ * round again until every door is clean — then it waits for the hall's
+ * celebration and its reset. It also knows one thing about the machine: when
+ * the dust cup is full, nothing more will go in, so it takes the head to the
+ * room's bin and lets it pour. That is the same causal chain the child has to
+ * find, so if the autopilot gets stuck on a full cup, so would a child.
  *
  * An autopilot is injected into the page and drives `window.game.input.pointer`
  * on every animation frame — nothing else. It is a closed loop on the MOUTH:
@@ -34,8 +43,11 @@ import { launch, DEVICES } from './shot.mjs';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OUT = join(ROOT, 'dev', 'out');
 
-/** The chain, in order. The run is done when carpet has handed back to intro. */
+/** The historical linear ring, still playable with `--chain`. */
 const CHAIN = ['intro', 'kitchen', 'paper', 'toy', 'thread', 'sand', 'sofa', 'carpet'];
+/** The doors in the hall, in the order they run down the hallway. */
+const ROOMS = ['intro', 'kitchen', 'paper', 'toy', 'thread', 'sand', 'sofa', 'carpet',
+  'pantry', 'stairs', 'window', 'veranda', 'bedroom'];
 
 function args() {
   const a = {};
@@ -52,8 +64,10 @@ const deviceNames = A.device ? [A.device]
 const SEED = A.seed || '1337';
 const BUDGET = parseInt(A.budget || '150', 10);        // seconds per scene before giving up
 const MAX_SHOTS = parseInt(A.shots || '30', 10);
-const FROM = A.from || 'intro';          // start mid-chain while debugging
+const HUB = !A.chain;                    // `--chain` plays the old linear ring
+const FROM = A.from || (HUB ? 'hall' : 'intro');
 const TRACE = !!A.trace;                 // log every target change into result.json
+const PRECLEAN = A.clean || '';          // `--clean=intro,kitchen` to skip rooms
 
 // --------------------------------------------------------------- autopilot
 
@@ -102,6 +116,7 @@ function AUTOPILOT(cfg) {
     cur = {
       id: g.scene.id, t0: now(), t: null, fps: [], errors0: R.errors.length,
       startLeft: g.scene.remaining(),
+      vol0: g.vacuum.cupVolTotal, pours: 0,
     };
     R.scenes.push(cur);
     R.scene = cur.id;
@@ -176,13 +191,20 @@ function AUTOPILOT(cfg) {
     last = t;
 
     if (g.loop && g.loop.fps) cur.fps.push(g.loop.fps);
+    // what this room actually put in the cup, and how often it had to be
+    // emptied: the numbers the cup capacity is calibrated against
+    cur.cupVol = Math.round(g.vacuum.cupVolTotal - cur.vol0);
+    cur.cupFill = +g.vacuum.cupFill.toFixed(2);
+    const pouring = !!(g.scene.bin && g.scene.bin.pouring);
+    if (pouring && !R._wasPouring) cur.pours = (cur.pours || 0) + 1;
+    R._wasPouring = pouring;
 
     // ---- scene changes / transitions -----------------------------------
     if (g.scene.id !== cur.id) {
       cur.t = (t - cur.t0) / 1000;
       cur.errors = R.errors.length - cur.errors0;
-      if (CHAIN.indexOf(g.scene.id) <= CHAIN.indexOf(cur.id) || R.scenes.length >= CHAIN.length) {
-        // carpet handed back to intro: the chain is closed
+      if (!cfg.hub && (CHAIN.indexOf(g.scene.id) <= CHAIN.indexOf(cur.id) || R.scenes.length >= CHAIN.length)) {
+        // carpet handed back to intro: the ring is closed
         R.done = true;
         R.loopedTo = g.scene.id;
         window.game.input.pointer(F.x, F.y, false);
@@ -190,6 +212,23 @@ function AUTOPILOT(cfg) {
       }
       beginScene();
       return;
+    }
+
+    // ---- the hub: every door clean, then the hall resets the house ------
+    if (cfg.hub && g.scene.id === 'hall') {
+      const house = window.game._g.house;
+      const all = cfg.rooms.every((id) => house.rooms[id] && house.rooms[id].clean);
+      if (all && !R.allCleanAt) { R.allCleanAt = t; R.note = 'house clean, waiting for the reset'; }
+      if (R.allCleanAt && !all) {
+        // the hall has put the dust back and thrown the doors open again
+        cur.t = (t - cur.t0) / 1000;
+        cur.errors = R.errors.length - cur.errors0;
+        R.done = true;
+        R.reset = true;
+        R.celebration = +((t - R.allCleanAt) / 1000).toFixed(1);
+        window.game.input.pointer(F.x, F.y, false);
+        return;
+      }
     }
     if ((t - cur.t0) / 1000 > cfg.budget) {
       cur.t = (t - cur.t0) / 1000;
@@ -209,8 +248,22 @@ function AUTOPILOT(cfg) {
     const mx = P.x, my = P.y;
     let tx, ty, rub = 0, wdist = -1;
 
-    const pick = pickTarget(g, mx, my);
-    if (pick) {
+    // ---- a full cup takes nothing: go and empty it ----------------------
+    // The one thing the driver knows about the machine. It is also the exact
+    // chain the child has to find on their own, so a driver that gets stuck
+    // here is telling us the teaching does not work.
+    const needBin = !!(sc.bin && !sc.bin.pouring && g.vacuum.cupFill > 0.9);
+    const pick = needBin ? null : pickTarget(g, mx, my);
+    if (needBin) {
+      g.camera.toScreen(sc.bin.x, sc.bin.y, P);
+      tx = P.x / g.w; ty = P.y / g.h;
+      wdist = Math.hypot(sc.bin.x - g.vacuum.mouthX, sc.bin.y - g.vacuum.mouthY);
+      if (targetId !== 'bin') {
+        targetId = 'bin'; bestErr = 1e9; stall = 0; held = null;
+        if (cfg.trace) R.trace.push(Math.round(t - cur.t0) + ' -> BIN fill=' + g.vacuum.cupFill.toFixed(2));
+      }
+      inFlow = false;
+    } else if (pick) {
       if (pick.d.id !== targetId) {
         targetId = pick.d.id; sinceTarget = 0; bestErr = 1e9; stall = 0;
         if (cfg.trace) R.trace.push(Math.round(t - cur.t0) + ' -> ' + targetId + ' wd=' + Math.round(pick.wd)
@@ -333,9 +386,11 @@ async function runDevice(url, browser, name) {
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
 
   await page.addInitScript({
-    content: '(' + AUTOPILOT.toString() + ')(' + JSON.stringify({ chain: CHAIN, budget: BUDGET, trace: TRACE }) + ');',
+    content: '(' + AUTOPILOT.toString() + ')('
+      + JSON.stringify({ chain: CHAIN, rooms: ROOMS, hub: HUB, budget: BUDGET, trace: TRACE }) + ');',
   });
-  await page.goto(`${url}/index.html?scene=${FROM}&seed=${SEED}&mute=1`, { waitUntil: 'load' });
+  const extra = (HUB ? '' : '&chain=1') + (PRECLEAN ? '&clean=' + encodeURIComponent(PRECLEAN) : '');
+  await page.goto(`${url}/index.html?scene=${FROM}&seed=${SEED}&mute=1${extra}`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__pt && window.__pt.started > 0, null, { timeout: 30000 });
 
   // poll: grab a frame whenever the scene is handing over, and watch for the end
@@ -374,7 +429,7 @@ async function runDevice(url, browser, name) {
       }
       break;
     }
-    if (Date.now() - t0 > (BUDGET * CHAIN.length + 120) * 1000) break;
+    if (Date.now() - t0 > (BUDGET * (HUB ? ROOMS.length : CHAIN.length) + 180) * 1000) break;
     await page.waitForTimeout(220);
   }
 
@@ -387,6 +442,7 @@ async function runDevice(url, browser, name) {
     };
     return {
       done: R.done, failed: R.failed, loopedTo: R.loopedTo, trace: R.trace,
+      reset: !!R.reset, celebration: R.celebration || null,
       total: +((performance.now() - R.started) / 1000).toFixed(1),
       scenes: R.scenes.map((s) => ({
         id: s.id,
@@ -394,6 +450,9 @@ async function runDevice(url, browser, name) {
         left: s.left === undefined ? 0 : s.left,
         stuckOn: s.stuckOn || undefined,
         errors: s.errors || 0,
+        cupFill: s.cupFill === undefined ? null : s.cupFill,
+        cupVol: s.cupVol === undefined ? null : s.cupVol,
+        pours: s.pours || 0,
         fps: stat(s.fps),
       })),
       pageErrors: R.errors,
@@ -450,20 +509,31 @@ server.close();
 await writeFile(join(OUT, 'playthrough.json'), JSON.stringify(results, null, 1));
 
 // the table
+const COLS = HUB ? ROOMS : CHAIN;
 const rows = [];
-rows.push('| device | ' + CHAIN.join(' | ') + ' | total | fps min/med | errors |');
-rows.push('|' + '---|'.repeat(CHAIN.length + 4));
+rows.push('| device | ' + COLS.join(' | ') + ' | hall | total | fps min/med | errors |');
+rows.push('|' + '---|'.repeat(COLS.length + 5));
 for (const r of results) {
   const by = {};
-  for (const s of r.scenes) by[s.id] = s;
+  let hall = 0, halls = 0;
+  for (const s of r.scenes) {
+    if (s.id === 'hall') { hall += s.t || 0; halls++; continue; }
+    by[s.id] = s;
+  }
   const allf = r.scenes.filter((s) => s.fps.n);
   const fmin = allf.length ? Math.min(...allf.map((s) => s.fps.min)) : 0;
   const fmed = allf.length ? median(allf.map((s) => s.fps.median)) : 0;
   rows.push('| ' + r.device + ' | '
-    + CHAIN.map((id) => (by[id] && by[id].t !== null ? by[id].t + 's' : (by[id] ? 'STUCK' : '—'))).join(' | ')
+    + COLS.map((id) => (by[id] && by[id].t !== null ? by[id].t + 's' : (by[id] ? 'STUCK' : '—'))).join(' | ')
+    + ' | ' + (+hall.toFixed(1)) + 's/' + halls
     + ' | ' + r.total + 's | ' + fmin + ' / ' + fmed + ' | ' + r.errors.length + ' |');
 }
 console.log('\n' + rows.join('\n') + '\n');
+for (const r of results) {
+  if (r.celebration !== null && r.celebration !== undefined) {
+    console.log(r.device + ': house cleaned, celebration + reset took ' + r.celebration + 's');
+  }
+}
 for (const r of results) for (const e of r.errors.slice(0, 5)) console.log(r.device + ' ERROR: ' + e);
 
 function median(a) { const s = a.slice().sort((x, y) => x - y); return s[(s.length / 2) | 0]; }
