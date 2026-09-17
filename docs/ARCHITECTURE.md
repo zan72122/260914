@@ -480,8 +480,9 @@ The chain the child follows, in order, with no words at any step:
    pitch drops and it labours.
 2. **Above 0.8 the world stops responding as much.** `fillPower` scales the
    whole field down to 45% at 1.0, so every debris type leans less. The fade is
-   `smoothstep(0.8, 1, fill)`, which is first visible at about **0.85** and
-   unmistakable by **0.92**.
+   `smoothstep(0.8, 1, fill)`: x0.91 of the airflow at **0.85** (first visible),
+   x0.72 at **0.90** (unmistakable — a dust bunny that let go a moment ago now
+   only strains), x0.45 at 1.0.
 3. **At 1.0 nothing goes in.** `field()` reports `inCapture: false` and reverses
    the pull within 46px of the mouth, so the air drags a crumb up to the intake
    and spits it back out with a puff. The thing visibly does not fit.

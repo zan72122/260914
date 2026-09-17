@@ -81,10 +81,12 @@ layout(pose, w, h) {
 }
 ```
 
-`Scene.placeBin()` puts it in the corner the child came in at, inside
-`reachRect()` so the mouth can always get to it. Override the spot only if that
-default lands on your set, and keep the replacement **near the entrance, out of
-the debris, and inside `reachRect`**:
+`Scene.placeBin()` scores the four corners the nozzle can reach and takes the
+best: never under the parked machine, not standing on the debris, and otherwise
+as near the end of the room the child comes in at as possible. Check where it
+landed (`game.state().scene.bin`, or just look) and override only if it lands on
+your set — and keep the replacement **out of the debris and inside
+`reachRect`**, or a child with a full cup is stranded:
 
 ```js
 this.placeBin({ x: someWorldX, y: someWorldY });
@@ -218,11 +220,11 @@ node dev/shot.mjs --scene=hall --clean=intro --device=iphone-portrait \
      --path="0.5,0.78;@bunny,5000" --seg=1600 --frames=16 --every=250 --contact
 
 # what your room feels like with the cup nearly full (the weakened vacuum)
-node dev/shot.mjs --scene=<id> --exec="vac.cupVol = 2100; vac.cupFill = 0.91" \
+node dev/shot.mjs --scene=<id> --exec="vac.cupVol = 1820; vac.cupFill = 0.91" \
      --gesture=approach-slow --frames=16 --every=120 --contact
 
 # ...and completely full: things must visibly bounce off the mouth
-node dev/shot.mjs --scene=<id> --exec="vac.cupVol = 2300; vac.cupFill = 1" \
+node dev/shot.mjs --scene=<id> --exec="vac.cupVol = 2000; vac.cupFill = 1" \
      --path="@auto,3000" --frames=14 --every=150 --contact
 
 # the pour, without playing the room
