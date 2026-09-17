@@ -173,6 +173,8 @@ export class SandScene extends Scene {
       for (let i = 1; i <= 3 && n > 0; i++) { this.debris[i].state = 'in-cup'; n--; }
     }
     if (this.persist.revealed) { this.revealT = 1; pile.state = 'in-cup'; }
+
+    this.placeBin();
   }
 
   /**

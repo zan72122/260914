@@ -159,6 +159,7 @@ export class KitchenScene extends Scene {
     }
 
     this.clearStartZone(245);
+    this.placeBin();
 
     // orientation change: replay whatever was already wiped clean
     const rev = this.persist.reveals;

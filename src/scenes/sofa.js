@@ -179,6 +179,7 @@ export class SofaScene extends Scene {
     this._replayClean();
     this._buildMotes();
     this.clearStartZone(215);
+    this.placeBin();
     for (let i = 0; i < this.debris.length; i++) {
       const d = this.debris[i];
       if (typeof d.hx === 'number') { d.hx = d.x; d.hy = d.y; }

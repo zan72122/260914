@@ -22,6 +22,16 @@ export const MOUTH_OFFSET = 22;
 
 const TUBE_SAMPLES = 34;
 
+/**
+ * Dust cup capacity, in the same units `_land()` measures blobs in (r^2).
+ * Calibrated against the playthrough: a typical room deposits ~900-1100, so
+ * this is a bit over two rooms' worth — long enough that the cup is a reward
+ * for a while, short enough that every child meets the bin.
+ */
+export const CUP_CAPACITY = 2300;
+/** Above this fraction the motor audibly labours and the flow starts to fade. */
+export const FILL_SOFT = 0.8;
+
 export class Vacuum {
   constructor(rng) {
     this.rng = rng;
@@ -64,6 +74,27 @@ export class Vacuum {
     this.cupCenter = { x: 0, y: 0 };
     this.bodyAngle = 0;
 
+    /**
+     * How full the dust cup is. `cupVol` is the summed volume of everything in
+     * it (a grain is worth almost nothing, a whole dust bunny a lot); `cupFill`
+     * is that over CUP_CAPACITY, clamped to 1. Above FILL_SOFT the airflow
+     * itself weakens — see `fillPower` — and at 1 nothing new fits at all.
+     */
+    this.cupVol = 0;
+    this.cupFill = 0;
+    /** Everything ever collected, across pours. Calibration reads this. */
+    this.cupVolTotal = 0;
+    this.lidPress = 0;         // 0..1 contents pressing on the lid (visual)
+    this.cupOpen = 0;          // 0..1 the cup bottom hinged open for a pour
+    this._rejectHot = 0;       // >0: something just bounced off a full mouth
+    this._rejectT = 0;
+    this.puffs = [];
+    for (let i = 0; i < 14; i++) this.puffs.push({ x: 0, y: 0, vx: 0, vy: 0, life: 0, r: 2 });
+
+    /** Nozzle morph: 'wide' is the plain floor head, 'crevice' the thin one. */
+    this.toolKind = 'wide';
+    this.toolT = 0;
+
     this.motes = [];
     for (let i = 0; i < 26; i++) this.motes.push({ x: 0, y: 0, vx: 0, vy: 0, life: 0, r: 1 });
     this._moteT = 0;
@@ -96,7 +127,28 @@ export class Vacuum {
     this.power = 1; this.powerN = 0; this.gulpAmount = 0; this.clog = 0;
   }
 
-  clearCup() { this.cup.length = 0; this.cupCols.fill(0); }
+  clearCup() {
+    this.cup.length = 0; this.cupCols.fill(0);
+    this.cupVol = 0; this.cupFill = 0; this.lidPress = 0;
+  }
+
+  /**
+   * Nozzle morph. Scenes call this from `update()` based on world geometry —
+   * entering a gap between a shelf and a wall, say — and the head, the capture
+   * ellipse AND the airflow cone all follow:
+   *
+   *   vac.setTool('crevice', smoothstep(60, 10, distanceIntoTheGap));
+   *   vac.setTool('wide', 0);          // back to the plain floor head
+   *
+   * `t` is how far into that shape to morph (0..1), so it can be driven
+   * continuously and the change is something the child watches happen.
+   */
+  setTool(kind, t) {
+    this.toolKind = kind === 'crevice' ? 'crevice' : 'wide';
+    this.toolT = clamp(t === undefined ? 1 : t, 0, 1);
+  }
+  /** 0 = plain floor head, 1 = fully morphed into the crevice tool. */
+  get crevice() { return this.toolKind === 'crevice' ? this.toolT : 0; }
 
   // ---------------------------------------------------------------- update
 
@@ -211,17 +263,35 @@ export class Vacuum {
     }
     this.load = clamp(load / 3, 0, 1);
 
-    this.cupPhase = this.time * (7 + this.powerN * 7);
+    // a fuller cup shakes harder: the contents have nowhere left to go
+    this.cupPhase = this.time * (7 + this.powerN * 7 + this.cupFill * 9);
+    this.lidPress += (smoothstep(0.55, 1, this.cupFill) - this.lidPress) * (1 - Math.exp(-4 * dt));
+    this._rejectHot = Math.max(0, this._rejectHot - dt);
+    this._updatePuffs(dt);
     this._updateMotes(dt, cam);
 
-    if (this.audio) this.audio.setMotor(this.power, this.load, this.clog);
+    if (this.audio) {
+      // a labouring motor: a full cup drags it down the same way a clog does,
+      // but steadily, so the pitch sags for as long as the cup stays full
+      const strain = smoothstep(FILL_SOFT - 0.25, 1, this.cupFill);
+      this.audio.setMotor(this.power, clamp(this.load + strain * 0.7, 0, 1),
+        clamp(this.clog + strain * 0.45, 0, 1));
+    }
   }
 
   get mouthX() { return this.nozzle.x + this.dirX * MOUTH_OFFSET; }
   get mouthY() { return this.nozzle.y + this.dirY * MOUTH_OFFSET; }
-  get radius() { return 138 * (0.8 + 0.3 * this.powerN); }
+  get radius() { return 138 * (0.8 + 0.3 * this.powerN) * (1 + 0.28 * this.crevice); }
   /** A blocked intake moves less air. 1 = clear, 0.25 = fully plugged. */
   get flowScale() { return 1 - 0.75 * this.clog; }
+  /**
+   * A full cup is a weak vacuum. Nothing above FILL_SOFT, then a smooth fade
+   * to 45% of the airflow at completely full — so every debris type in the game
+   * leans less without knowing anything about it.
+   */
+  get fillPower() { return 1 - 0.55 * smoothstep(FILL_SOFT, 1, this.cupFill); }
+  /** Nothing more fits: the mouth pulls things in and spits them back out. */
+  get cupFull() { return this.cupFill >= 1; }
 
   /** Current mouth position and facing, for debris that feeds itself in. */
   mouth() {
@@ -244,22 +314,41 @@ export class Vacuum {
     if (d < 1e-4) d = 1e-4;
     const ux = dx / d, uy = dy / d;
     const align = -(ux * this.dirX + uy * this.dirY);
-    const cone = 0.1 + 0.9 * smoothstep(-0.35, 0.8, align);
+    const cv = this.crevice;
+    // the crevice tool trades width for reach: a much narrower cone, but far
+    // more of the air going down the axis
+    const cone = cv > 0
+      ? lerp(0.1 + 0.9 * smoothstep(-0.35, 0.8, align),
+             0.02 + 1.55 * smoothstep(0.45, 0.97, align), cv)
+      : 0.1 + 0.9 * smoothstep(-0.35, 0.8, align);
     const r = this.radius;
     const dd = d / r;
     // squared inverse-square: the flow is strongly local, so getting CLOSER is
     // what changes the world, not hovering vaguely nearby
     const q = 1 + dd * dd;
     const falloff = 1 / (q * q);
-    const s = this.power * this.flowScale * falloff * cone;
+    const s = this.power * this.flowScale * this.fillPower * falloff * cone;
     out.strength = s;
     out.fx = ux * s;
     out.fy = uy * s;
     out.dist = d;
     const lx = -(dx * this.dirX + dy * this.dirY);
     const ly = -(dx * -this.dirY + dy * this.dirX);
-    const a = 22, b = 30;
+    const a = lerp(22, 34, cv), b = lerp(30, 11, cv);
     out.inCapture = (lx * lx) / (a * a) + (ly * ly) / (b * b) <= 1;
+    // A FULL cup cannot take anything: whatever the flow drags to the mouth is
+    // blown back out with a puff. No text, no counter — the thing visibly
+    // does not fit, and the bin is the only thing in the room that is open.
+    if (this.cupFill >= 1) {
+      out.inCapture = false;
+      if (d < 46) {
+        this._rejectHot = 0.18;
+        const push = -0.9 * (1 - d / 46);
+        out.fx = ux * s * push;
+        out.fy = uy * s * push;
+        out.strength = s * 0.25;
+      }
+    }
     return out;
   }
 
@@ -363,6 +452,22 @@ export class Vacuum {
     return out;
   }
 
+  /**
+   * Tip the whole cup into an open bin.
+   *
+   * The vacuum opens its own bottom (`cupOpen` swings the flap), hands the
+   * contents over already in world coordinates, and comes back empty — so the
+   * airflow is restored the instant the last blob is gone. The BIN owns the
+   * arcs, the heap and the lid clap (see `src/props/bin.js`); this is the half
+   * that belongs to the machine.
+   *
+   *   if (bin.inReach(vac)) vac.pourInto(bin, ctx);
+   */
+  pourInto(bin, ctx) {
+    if (!bin || !bin.beginPour) return null;
+    return bin.beginPour(this, ctx);
+  }
+
   /** Cup-local point -> world. The finale pour needs this every frame. */
   cupToWorld(lx, ly, out) {
     const a = this.bodyAngle + Math.PI / 2;
@@ -389,7 +494,62 @@ export class Vacuum {
       x, y, r, kind: it.kind === 'strand' ? 'coil' : it.kind, color: it.color, seed: it.seed,
       rot: (this.rng ? this.rng.next() : Math.random()) * TAU,
     });
+    // volume goes as the blob's area, so a grain of grit is worth almost
+    // nothing next to a whole dust bunny and the cup fills at a believable rate
+    this.cupVol += r * r;
+    this.cupVolTotal += r * r;
+    this.cupFill = clamp(this.cupVol / CUP_CAPACITY, 0, 1);
     if (this.cup.length > 200) this.cup.shift();
+  }
+
+  // ---------------------------------------------------------------- puffs
+
+  /**
+   * The "it will not fit" beat. While the cup is full, anything the flow drags
+   * up to the mouth is blown straight back out, and these are the puffs of air
+   * that do it — short, sideways, right at the intake.
+   */
+  _updatePuffs(dt) {
+    if (this._rejectHot > 0) {
+      this._rejectT -= dt;
+      if (this._rejectT <= 0) {
+        this._rejectT = 0.09;
+        const mx = this.mouthX, my = this.mouthY;
+        for (let k = 0; k < 3; k++) {
+          for (let i = 0; i < this.puffs.length; i++) {
+            const pu = this.puffs[i];
+            if (pu.life > 0) continue;
+            const spread = (this.rng ? this.rng.range(-1, 1) : Math.random() * 2 - 1) * 0.9;
+            const ux = this.dirX * Math.cos(spread) - this.dirY * Math.sin(spread);
+            const uy = this.dirX * Math.sin(spread) + this.dirY * Math.cos(spread);
+            pu.x = mx + ux * 6; pu.y = my + uy * 6;
+            pu.vx = ux * 150; pu.vy = uy * 150;
+            pu.life = 1; pu.r = 3 + Math.random() * 4;
+            break;
+          }
+        }
+        this.gulp(0.5);
+      }
+    }
+    for (let i = 0; i < this.puffs.length; i++) {
+      const pu = this.puffs[i];
+      if (pu.life <= 0) continue;
+      pu.x += pu.vx * dt; pu.y += pu.vy * dt;
+      pu.vx *= 0.9; pu.vy *= 0.9;
+      pu.r += dt * 26;
+      pu.life -= dt * 2.6;
+    }
+  }
+
+  _drawPuffs(ctx) {
+    for (let i = 0; i < this.puffs.length; i++) {
+      const pu = this.puffs[i];
+      if (pu.life <= 0) continue;
+      ctx.globalAlpha = clamp(pu.life, 0, 1) * 0.38;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(pu.x, pu.y, pu.r, 0, TAU); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
 
   // ---------------------------------------------------------------- motes
@@ -431,6 +591,7 @@ export class Vacuum {
     ctx.save();
     cam.apply(ctx);
     this._drawMotes(ctx);
+    this._drawPuffs(ctx);
     this._drawShadow(ctx);
     this._drawHose(ctx);
     this._drawBody(ctx);
@@ -549,10 +710,10 @@ export class Vacuum {
     ctx.clip();
     ctx.fillStyle = 'rgba(220,240,255,0.30)';
     ctx.fillRect(-27, -15, 54, 48);
-    const jig = Math.sin(this.cupPhase) * (0.5 + this.powerN * 1.2);
+    const jig = Math.sin(this.cupPhase) * (0.5 + this.powerN * 1.2 + this.cupFill * 2.2);
     for (let i = 0; i < this.cup.length; i++) {
       const c = this.cup[i];
-      const wob = Math.sin(this.cupPhase * 0.8 + c.seed) * (0.4 + this.powerN * 1.0);
+      const wob = Math.sin(this.cupPhase * 0.8 + c.seed) * (0.4 + this.powerN * 1.0 + this.cupFill * 1.8);
       ctx.save();
       ctx.translate(c.x + wob * 0.6, c.y + jig * 0.5);
       ctx.rotate(c.rot);
@@ -579,6 +740,7 @@ export class Vacuum {
       ctx.restore();
     }
     ctx.restore();
+    this._drawCupSeam(ctx);
     ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 2.5;
     roundRect(ctx, -27, -15, 54, 48, 13); ctx.stroke();
     ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 4;
@@ -587,13 +749,59 @@ export class Vacuum {
     ctx.restore();
   }
 
+  /**
+   * A cup that is nearly full says so without a number: the contents press up
+   * against the lid, the lid bows, and tufts of fluff poke out of the seam.
+   * When the bottom is open for a pour, the flap hangs down.
+   */
+  _drawCupSeam(ctx) {
+    const press = this.lidPress;
+    if (press > 0.02) {
+      // the lid bows outward under what is pressing on it
+      const bow = press * 3.2;
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(-26, -14);
+      ctx.quadraticCurveTo(0, -14 - bow, 26, -14);
+      ctx.stroke();
+      // tufts squeezing out of the seam, each one breathing with the jiggle
+      const n = Math.round(1 + press * 4);
+      for (let i = 0; i < n; i++) {
+        const t = (i + 0.5) / n;
+        const x = -21 + t * 42;
+        const w = Math.sin(this.cupPhase * 0.7 + i * 2.1) * 1.4;
+        const L = (2.6 + press * 5.4) * (0.7 + 0.3 * Math.sin(this.cupPhase * 0.9 + i));
+        ctx.strokeStyle = 'rgba(214,206,193,0.95)';
+        ctx.lineWidth = 2.6; ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(x, -14);
+        ctx.quadraticCurveTo(x + w, -14 - L * 0.6, x + w * 2.1, -15 - L);
+        ctx.stroke();
+      }
+    }
+    if (this.cupOpen > 0.01) {
+      // the bottom flap, hinged at the far side
+      ctx.save();
+      ctx.translate(-26, 33);
+      ctx.rotate(this.cupOpen * 1.5);
+      ctx.fillStyle = 'rgba(232,84,124,0.95)';
+      roundRect(ctx, 0, 0, 52, 9, 4); ctx.fill();
+      ctx.restore();
+    }
+  }
+
   _drawHead(ctx) {
     const ang = Math.atan2(this.dirY, this.dirX);
     const g = this.gulpAmount;
+    const cv = this.crevice;
     ctx.save();
     ctx.translate(this.nozzle.x + this._shakeX, this.nozzle.y + this._shakeY);
     ctx.rotate(ang);
     ctx.scale(1 + 0.12 * g, 1 - 0.1 * g);      // the mouth gulps when it swallows
+    // the crevice tool: the same head drawn long and thin. One scale is enough
+    // because every shape below is built around the axis.
+    if (cv > 0) ctx.scale(1 + 0.42 * cv, 1 - 0.62 * cv);
     // neck
     ctx.fillStyle = '#5d6b8c';
     roundRect(ctx, -26, -11, 32, 22, 8); ctx.fill();
@@ -636,6 +844,9 @@ export class Vacuum {
       power: +this.power.toFixed(3), radius: Math.round(this.radius),
       rub: +this.rub.toFixed(2), circle: +this.circle.toFixed(2), scrub: +this.scrub.toFixed(2),
       transits: this.transits.length, cup: this.cup.length,
+      cupVol: Math.round(this.cupVol), cupFill: +this.cupFill.toFixed(3),
+      cupVolTotal: Math.round(this.cupVolTotal),
+      tool: this.toolKind, toolT: +this.toolT.toFixed(2),
       clog: +this.clog.toFixed(2), gulp: +this.gulpAmount.toFixed(2),
     };
   }

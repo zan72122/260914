@@ -79,6 +79,7 @@ export class IntroScene extends Scene {
       shadow: false, draw: () => {},
     }));
     this.clearStartZone(138);
+    this.placeBin();
     this.rollIn.dormant = true;
     this.peeker.dormant = true;
     this.debris.push(this.rollIn, this.peeker);

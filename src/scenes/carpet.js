@@ -6,6 +6,7 @@ import { CarpetFloor } from '../floors/carpet.js';
 import { BuriedItem } from '../debris/buriedItem.js';
 import { GlitterPatch, BeadPile } from '../debris/glitter.js';
 import { Prop, resolveProps } from '../props/prop.js';
+import { Bin } from '../props/bin.js';
 import { TAU, clamp, lerp, smoothstep } from '../core/math.js';
 
 const TMPF = { fx: 0, fy: 0, strength: 0, inCapture: false, dist: 0 };
@@ -138,6 +139,9 @@ export class CarpetScene extends Scene {
     // shoving something out of the parked nozzle's reach is one core call
     this.clearStartZone(215);
     for (const b of this.surface) { b._homeX = b.x; b._homeY = b.y; }
+    // the same bin every room has. The finale simply walks it over to the
+    // machine instead of conjuring a second one.
+    this.placeBin();
 
     this.exitCam = { x: 0, y: 0, zoom: this.scale * 0.82, tilt: 0 };
   }
@@ -179,12 +183,11 @@ export class CarpetScene extends Scene {
     this._saveT = (this._saveT || 0) - dt;
     if (this._saveT <= 0) { this._saveT = 0.6; this.persist.comb = this.floor.save(); }
 
-    if (ctx.audio) {
-      // combing mass out of the pile, and then the whole cup draining into the
-      // bin, are both a wide noise bed rather than a pop per piece
-      const pour = this.fin && this.fin.phase === 'pour'
-        ? clamp(1 - (this.fin.t / Math.max(0.2, this.fin.pourEnd)), 0, 1) : 0;
-      ctx.audio.setStream(Math.max(clamp((this.combPower || 0) * 0.75, 0, 1), pour));
+    // combing mass out of the pile is a wide noise bed rather than a pop per
+    // piece. The pour's own "zazaa" belongs to the bin, which is ticked after
+    // this and sets the same stream itself.
+    if (ctx.audio && !(this.bin && this.bin.pouring)) {
+      ctx.audio.setStream(clamp((this.combPower || 0) * 0.75, 0, 1));
     }
 
     if (!this.fin && this._roomClean()) this._beginFinale(ctx);
@@ -289,11 +292,7 @@ export class CarpetScene extends Scene {
   // --------------------------------------------------------------- finale
 
   _beginFinale(ctx) {
-    const vac = ctx.vacuum;
-    this.fin = {
-      phase: 'settle', t: 0, items: [], heap: [], lid: 0, pour: 0,
-      bin: null, glow: 0, shine: 0, cam: null, done: false,
-    };
+    this.fin = { phase: 'settle', t: 0, glow: 0, shine: 0, done: false };
     if (ctx.audio) ctx.audio.pop('whoosh', 0.5);
   }
 
@@ -313,14 +312,15 @@ export class CarpetScene extends Scene {
         F.phase = 'toBin'; F.t = 0; this._placeBin(vac, cam);
       }
     } else if (F.phase === 'toBin') {
-      F.lid = clamp(F.t / 0.7, 0, 1);
-      if (F.t > 1.15) { F.phase = 'pour'; F.t = 0; this._loadCup(vac, ctx); }
+      // the bin slides up beside the machine
+      this.bin._appear = clamp(F.t / 0.5, 0, 1);
+      if (F.t > 1.15) {
+        F.phase = 'pour'; F.t = 0;
+        // a single room's worth would be a trickle; the whole run is a rush
+        this.bin.beginPour(vac, ctx, { pad: 34 });
+      }
     } else if (F.phase === 'pour') {
-      this._pour(dt, vac, ctx);
-      if (F.pourDone && F.t > F.pourEnd + 0.35) { F.phase = 'close'; F.t = 0; if (ctx.audio) ctx.audio.pop('pop', 0.8); }
-    } else if (F.phase === 'close') {
-      F.lid = 1 - clamp(F.t / 0.32, 0, 1);
-      if (F.t > 0.45) {
+      if (!this.bin.pouring) {
         F.phase = 'shine'; F.t = 0;
         cam.kick(5);
         if (ctx.audio) ctx.audio.pop('tick', 0.9);
@@ -338,9 +338,9 @@ export class CarpetScene extends Scene {
     const k = 1 - Math.exp(-2.0 * dt);
     cam.zoom += (tz - cam.zoom) * k;
     cam.tilt += (0 - cam.tilt) * k;
-    if (F.bin) {
-      F.bin.x = vac.cupCenter.x + F.binOff.x;
-      F.bin.y = vac.cupCenter.y + F.binOff.y;
+    if (F.binOff) {
+      this.bin.x = vac.cupCenter.x + F.binOff.x;
+      this.bin.y = vac.cupCenter.y + F.binOff.y;
     }
   }
 
@@ -364,76 +364,10 @@ export class CarpetScene extends Scene {
       D -= 16;
     }
     this.fin.binOff = { x: dx * D, y: dy * D };
-    this.fin.bin = { x: vac.cupCenter.x + dx * D, y: vac.cupCenter.y + dy * D, w: 74, h: 82 };
-  }
-
-  /** Take everything out of the cup; from now on WE draw it. */
-  _loadCup(vac, ctx) {
-    const F = this.fin;
-    // emptyCup() hands back the contents already placed in world coordinates
-    const src = vac.emptyCup();
-    // a single scene's worth would be a trickle; a whole run is a rush
-    const pad = 34 - src.length;
-    for (let i = 0; i < pad; i++) {
-      src.push({
-        x: this.rng.range(-18, 18), y: this.rng.range(-14, 16), r: this.rng.range(2.2, 5),
-        kind: this.rng.next() < 0.4 ? 'crumb' : 'fluff',
-        color: this.rng.pick(['#b7ada0', '#cfc6b8', '#d7a866', '#e8dcc6', '#a9a094']),
-        seed: this.rng.range(0, 100), rot: this.rng.range(0, TAU),
-      });
-    }
-    const p = { x: 0, y: 0 };
-    for (let i = 0; i < src.length; i++) {
-      const c = src[i];
-      if (c.wx === undefined) vac.cupToWorld(c.x, c.y, p);
-      else { p.x = c.wx; p.y = c.wy; }
-      F.items.push({
-        lx: c.x, ly: c.y, x: p.x, y: p.y, r: c.r, kind: c.kind, color: c.color, rot: c.rot || 0,
-        t0: i * 0.012, t: 0, dur: 0.50 + this.rng.range(0, 0.12), spin: this.rng.range(-9, 9),
-        tx: 0, ty: 0, ox: 0, oy: 0, landed: false, sx: 0, sy: 0, started: false,
-      });
-    }
-    F.pourEnd = src.length * 0.012 + 0.62;
-    F.pourDone = false;
-    if (ctx.audio) ctx.audio.pop('whoosh', 1);
-  }
-
-  _pour(dt, vac, ctx) {
-    const F = this.fin;
-    const bin = F.bin;
-    const p = { x: 0, y: 0 };
-    let flying = 0;
-    for (let i = 0; i < F.items.length; i++) {
-      const it = F.items[i];
-      if (it.landed) continue;
-      if (F.t < it.t0) {
-        // still in the cup: ride along with the body until it is its turn
-        vac.cupToWorld(it.lx, it.ly, p);
-        it.x = p.x; it.y = p.y;
-        flying++;
-        continue;
-      }
-      if (!it.started) {
-        it.started = true;
-        vac.cupToWorld(it.lx, it.ly, p);
-        it.sx = p.x; it.sy = p.y;
-        it.ox = this.rng.range(-bin.w * 0.28, bin.w * 0.28);
-        it.oy = this.rng.range(-bin.h * 0.10, bin.h * 0.14);
-      }
-      it.t += dt / it.dur;
-      const u = clamp(it.t, 0, 1);
-      it.tx = bin.x + it.ox; it.ty = bin.y + it.oy;
-      it.x = lerp(it.sx, it.tx, u);
-      it.y = lerp(it.sy, it.ty, u) - Math.sin(u * Math.PI) * 52;
-      it.rot += it.spin * dt;
-      flying++;
-      if (u >= 1) {
-        it.landed = true;
-        F.heap.push({ x: it.ox, y: it.oy, r: it.r, color: it.color, kind: it.kind, rot: it.rot });
-        if (ctx.audio && (i % 5) === 0) ctx.audio.pop('tick', 0.22);
-      }
-    }
-    if (flying === 0) F.pourDone = true;
+    this.bin.x = vac.cupCenter.x + dx * D;
+    this.bin.y = vac.cupCenter.y + dy * D;
+    this.bin._appear = 0;
+    this.bin.armed = false;          // the finale drives this pour itself
   }
 
   /** Dev hook: jump straight to the finale (used by dev/carpet-finale.mjs). */
@@ -471,7 +405,6 @@ export class CarpetScene extends Scene {
     ctx.save();
     cam.apply(ctx);
     if (this._vac) this.floor.drawPile(ctx, this._vac, this.t0 || 0);
-    if (this.fin) this._drawBinBack(ctx);
     this._drawLegs(ctx);
     ctx.restore();
 
@@ -486,14 +419,14 @@ export class CarpetScene extends Scene {
   }
 
   /**
-   * The pour happens BETWEEN the cup and the bin, so it has to be in front of
-   * the machine — that is what the core `drawOver` hook is for.
+   * The bin, the arcing contents and the lid are the shared prop now (main.js
+   * draws them around the vacuum); what is left here is the scene's own
+   * sparkle on the empty cup, which has to be in FRONT of the machine.
    */
   drawOver(ctx, cam) {
     if (!this.fin) return;
     ctx.save();
     cam.apply(ctx);
-    this._drawPour(ctx);
     this._drawShine(ctx);
     ctx.restore();
   }
@@ -626,83 +559,6 @@ export class CarpetScene extends Scene {
   }
 
   // ---- finale drawing --------------------------------------------------
-
-  _drawBinBack(ctx) {
-    const F = this.fin;
-    const b = F.bin;
-    if (!b) return;
-    const app = clamp(F.phase === 'toBin' ? F.t / 0.5 : 1, 0, 1);
-    ctx.save();
-    ctx.translate(b.x, b.y + (1 - app) * 40);
-    ctx.globalAlpha = app;
-    // shadow + body
-    ctx.fillStyle = 'rgba(30,20,8,0.28)';
-    ctx.beginPath(); ctx.ellipse(4, b.h * 0.46, b.w * 0.62, b.h * 0.18, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#4a6f8c';
-    this._round(ctx, -b.w / 2, -b.h / 2, b.w, b.h, 12); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.14)';
-    this._round(ctx, -b.w / 2 + 6, -b.h / 2 + 8, 12, b.h - 22, 6); ctx.fill();
-    // mouth
-    ctx.fillStyle = '#20262e';
-    ctx.beginPath(); ctx.ellipse(0, -b.h * 0.34, b.w * 0.42, b.h * 0.19, 0, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#6d94b4'; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.ellipse(0, -b.h * 0.34, b.w * 0.42, b.h * 0.19, 0, 0, TAU); ctx.stroke();
-    // what has landed so far
-    ctx.save();
-    ctx.beginPath(); ctx.ellipse(0, -b.h * 0.34, b.w * 0.40, b.h * 0.18, 0, 0, TAU); ctx.clip();
-    for (let i = 0; i < F.heap.length; i++) {
-      const c = F.heap[i];
-      ctx.save();
-      ctx.translate(clamp(c.x, -b.w * 0.36, b.w * 0.36), -b.h * 0.34 + clamp(c.y * 0.2, -6, 6));
-      ctx.rotate(c.rot);
-      ctx.fillStyle = c.color;
-      if (c.kind === 'crumb') ctx.fillRect(-c.r, -c.r * 0.7, c.r * 2, c.r * 1.4);
-      else { ctx.beginPath(); ctx.ellipse(0, 0, c.r * 1.1, c.r, 0, 0, TAU); ctx.fill(); }
-      ctx.restore();
-    }
-    ctx.restore();
-    ctx.restore();
-  }
-
-  _drawPour(ctx) {
-    const F = this.fin;
-    const b = F.bin;
-    if (!b) return;
-    // items in the air
-    if (F.phase === 'pour' || F.phase === 'close') {
-      ctx.save();
-      for (let i = 0; i < F.items.length; i++) {
-        const it = F.items[i];
-        if (it.landed) continue;
-        ctx.save();
-        ctx.translate(it.x, it.y);
-        ctx.rotate(it.rot);
-        ctx.scale(1.35, 1.35);
-        ctx.fillStyle = it.color;
-        if (it.kind === 'crumb') ctx.fillRect(-it.r, -it.r * 0.7, it.r * 2, it.r * 1.4);
-        else { ctx.beginPath(); ctx.ellipse(0, 0, it.r * 1.15, it.r, 0, 0, TAU); ctx.fill(); }
-        ctx.fillStyle = 'rgba(255,255,255,0.45)';
-        ctx.beginPath(); ctx.ellipse(-it.r * 0.25, -it.r * 0.3, it.r * 0.4, it.r * 0.3, 0, 0, TAU); ctx.fill();
-        ctx.restore();
-      }
-      ctx.restore();
-    }
-    // lid, hinged at the far edge
-    const app = clamp(F.phase === 'toBin' ? F.t / 0.5 : 1, 0, 1);
-    ctx.save();
-    ctx.translate(b.x, b.y + (1 - app) * 40 - b.h * 0.34);
-    ctx.globalAlpha = app;
-    const open = F.lid;
-    ctx.save();
-    ctx.translate(0, -b.h * 0.17);
-    ctx.rotate(-open * 1.45);
-    ctx.fillStyle = '#5b86a6';
-    this._round(ctx, -b.w * 0.46, -b.h * 0.16, b.w * 0.92, b.h * 0.2, 7); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.2)';
-    this._round(ctx, -b.w * 0.40, -b.h * 0.13, b.w * 0.8, b.h * 0.06, 3); ctx.fill();
-    ctx.restore();
-    ctx.restore();
-  }
 
   _drawShine(ctx) {
     const F = this.fin;

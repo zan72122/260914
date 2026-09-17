@@ -111,6 +111,7 @@ export class ThreadScene extends Scene {
     // Debris.translate()/aim() let the core do this now: a strand is measured
     // and moved by its TIP, and the tied ribbon is left alone.
     this.clearStartZone(140);
+    this.placeBin();
   }
 
   _layoutPortrait(w, h, rng) {

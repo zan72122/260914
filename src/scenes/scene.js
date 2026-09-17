@@ -1,5 +1,6 @@
 import { State } from '../debris/base.js';
 import { LEAD } from '../vacuum/vacuum.js';
+import { Bin } from '../props/bin.js';
 
 /**
  * Scene contract (this is all a new scene has to implement).
@@ -27,6 +28,7 @@ import { LEAD } from '../vacuum/vacuum.js';
  * be modified to add a scene.
  */
 const CSZ_R = { x0: 0, y0: 0, x1: 0, y1: 0 };
+const BIN_R = { x0: 0, y0: 0, x1: 0, y1: 0 };
 
 export class Scene {
   constructor(id, rng) {
@@ -42,6 +44,11 @@ export class Scene {
     this.done = false;
     /** Survives relayout() (orientation change). Put anything you want kept here. */
     this.persist = {};
+    /** The room's bin (see placeBin). main.js ticks and draws it. */
+    this.bin = null;
+    this.ownsBin = false;
+    /** Optional: a world point to start the machine at instead of startPointer. */
+    this.startWorld = null;
     /** Optional: set to a LightLayer to make the scene dark. */
     this.light = null;
     /** Optional: props array; call resolveProps(vac, this.props, dt) from update(). */
@@ -135,6 +142,29 @@ export class Scene {
       }
       d.translate(bx - a.x, by - a.y);
     }
+  }
+
+  /**
+   * Put the room's bin down.
+   *
+   * EVERY room has one, near the entrance and out of the way of the debris,
+   * because the cup-capacity mechanic only teaches itself if the answer is
+   * always already in the room. The default corner is the one the child comes
+   * in at (the side `startPointer` is on, at the near edge) and it is chosen
+   * inside `reachRect`, so the mouth can always get to it.
+   *
+   * Call it at the end of `layout()`, after `rest` and `startPointer` are set.
+   * `main.js` ticks and draws `this.bin`; a scene that wants to drive the pour
+   * itself (the carpet finale) sets `this.ownsBin = true` as well.
+   */
+  placeBin(opts) {
+    const o = opts || {};
+    const R = this.reachRect(BIN_R, 30);
+    const left = o.side ? o.side === 'left' : this.startPointer.x < 0.5;
+    const x = o.x !== undefined ? o.x : (left ? R.x0 + 48 : R.x1 - 48);
+    const y = o.y !== undefined ? o.y : R.y1 - 44;
+    this.bin = new Bin({ x, y, rng: this.rng });
+    return this.bin;
   }
 
   /**

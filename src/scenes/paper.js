@@ -136,6 +136,7 @@ export class PaperScene extends Scene {
     paintFloorHaze(this.floor, this.doodle.x, this.doodle.y, this.doodle.r * 1.12, rng, this.doodle.sx);
 
     this.clearStartZone(195);
+    this.placeBin();
     for (let i = 0; i < this.debris.length; i++) {
       const d = this.debris[i];
       d.hx = d.x; d.hy = d.y;

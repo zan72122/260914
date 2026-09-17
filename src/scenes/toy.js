@@ -110,6 +110,7 @@ export class ToyScene extends Scene {
     // the hint for the NEXT room: a long hair lying in the corridor
     this.thread = this._makeThread(portrait);
 
+    this.placeBin();
     this._restoreProgress();
   }
 
