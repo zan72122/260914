@@ -25,23 +25,66 @@ src/props/prop.js       pushable / blocking rigid props + resolveProps()
 src/props/room.js       furniture no one scene owns: lamp, cushion, rug edge, lamp pool
 src/core/light.js       darkness overlay: cut-out lights + warm glow, one composite
 src/core/heightfield.js grid of heights with angle-of-repose relaxation (sand, pile)
+src/core/airborne.js    pooled specks with a HEIGHT: flour, leaf bits, boss fibres
+src/core/powder.js      density film: streaks along the flow, clean tracks
+src/core/cloth.js       spring grid that bulges toward the mouth (cushions, hems)
+src/props/bin.js        the bin, and the shared cup pour
 src/scenes/scene.js     Scene base (the contract below)
-src/scenes/index.js     ordered registry — the ONLY core file a new scene touches
-src/scenes/*.js         the eight scenes, in chain order
+src/scenes/index.js     registry — the ONLY core file a new scene touches
+src/scenes/hall.js      the hub: thirteen doors, door states, the house reset
+src/scenes/stub.js      placeholder room for an id whose scene is not written yet
+src/scenes/*.js         the rooms
 manifest.webmanifest    name/colour/icon so it can be added to the home screen
 ```
 
-## The chain
+## The hub
+
+There is no chain any more. The game opens in `hall`, a hallway with thirteen
+doors, and every room hands back to it.
 
 ```
-intro → kitchen → paper → toy → thread → sand → sofa → carpet → intro
+hall ⇄ intro | kitchen | paper | toy | thread | sand | sofa | carpet
+     ⇄ pantry | stairs | window | veranda | bedroom      (Phase B)
 ```
 
-The order in `SCENES` (`src/scenes/index.js`) IS the chain, and every scene's
-`exit().next` names the one after it. `carpet` closes the loop: its finale
-empties the dust cup into a bin and hands back to `intro`. `dev/playthrough.mjs`
-drives the whole ring with synthetic one-finger input on all four devices; if
-you change the order, change both places and re-run it.
+**The door handle is a dust bunny.** A room that is still dirty has its door
+ajar with a real `DustBunny` sitting in the gap under it, swaying in the idle
+airflow like any other invitation in the game. Driving the head at it is how you
+go in: the room starts as the fluff reaches the mouth. A room that is done has
+its door shut, its frame glowing and the floor in front of it polished.
+
+The trigger is "the fluff **reached** the mouth", not "was swallowed" — because
+a full dust cup swallows nothing, and a full cup must never be able to lock a
+child out of a room.
+
+**First launch** offers one door. Coming back out of it makes the other twelve
+creak open one after another, staggered, in front of the child. After that the
+order is theirs.
+
+**The house** lives in `main.js`:
+
+```js
+game.house = {
+  rooms: { intro: { clean: false, persist: {} }, ... },
+  opened: false,          // has the hall thrown the other doors open yet
+  returnedFrom: null,     // which door the hall should animate walking out of
+};
+```
+
+It is in memory only — the owner chose a fresh house every time, so nothing is
+stored between page loads. When the last room is finished the hall brightens the
+whole house, pours the cup into the hall bin, and then puts the dust back and
+opens all thirteen doors again.
+
+`main.js` routes a finished room back to the hall **generically**: it marks the
+room clean, stores its `persist`, and overrides `exit().next` with `'hall'`. A
+room therefore never needs to know the house exists; `next: 'hall'` in a room's
+`exit()` is documentation. `?chain=1` honours `exit().next` instead and plays
+the historical linear ring (`CHAIN` in `src/scenes/index.js`), which is what
+`dev/playthrough.mjs --chain` drives.
+
+`main.js` also ticks and draws `scene.bin` (body behind the machine, pour and
+lid in front), so a room only has to place the prop.
 
 ## The one coupling: `vacuum.field(x, y, out)`
 
@@ -54,10 +97,14 @@ const f = vac.field(worldX, worldY, myScratchObject);
 ```
 
 * The flow is a **cone in front of the mouth**: `strength = power * flowScale *
-  cone(align) / (1 + (d/r)^2)^2`, where `power` is 1.0 at idle and ramps to 2.2
+  fillPower * cone(align) / (1 + (d/r)^2)^2`, where `power` is 1.0 at idle and ramps to 2.2
   over ~0.3s while the finger is down **and not sweeping** (that is what "press
   and hold" means on a touch screen), and `r` is ~84 at idle, ~105 at full power.
-  `flowScale` is `1 - 0.75 * vac.clog` — a blocked intake moves less air.
+  `flowScale` is `1 - 0.75 * vac.clog` — a blocked intake moves less air — and
+  `fillPower` is `1 - 0.55 * smoothstep(0.8, 1, cupFill)`: a **full cup is a weak
+  vacuum**, and every debris type in the game leans less without knowing it.
+  At `cupFill >= 1` the mouth stops capturing entirely and the flow REVERSES
+  within 46px, so whatever the air dragged up is blown back out.
 * The squared falloff is deliberate: the world only changes when the player
   brings the nozzle **closer**, which is the whole game.
 * Debris must derive *everything* — trembling, leaning, friction break-away,
@@ -397,6 +444,73 @@ None of this can be verified in the container, so it is done by the book:
   it; there is still no text in the game.
 
 
+## The dust cup, capacity and the bin
+
+The cup was a pure reward; it is now also a limit, and the limit teaches its own
+answer with nothing written down.
+
+```js
+vac.cupVol      // summed volume of everything in the cup (blob area)
+vac.cupFill     // 0..1 over CUP_CAPACITY
+vac.cupFull     // cupFill >= 1
+vac.cupVolTotal // everything ever collected, across pours (calibration only)
+vac.pourInto(bin, ctx)        // only for a scene writing its own finale
+```
+
+`CUP_CAPACITY` is 2000, in the units `_land()` measures blobs in (r²), and it is
+calibrated against `dev/playthrough.mjs`, which reports what each room actually
+deposits:
+
+| room | deposited | | room | deposited |
+|------|----------:|-|------|----------:|
+| intro | 488 | | sand | 1028 |
+| kitchen | 1018 | | sofa | 847 |
+| paper | 835 | | carpet | 973 |
+| toy | 2072 | | one trip down the hallway | ~110 |
+| thread | 127 | | | |
+
+A typical room is ~950, so the cup holds **two rooms' worth**: intro plus
+kitchen leaves it at 0.75, and the weakening starts early in the third room.
+
+The chain the child follows, in order, with no words at any step:
+
+1. **The cup is visibly full.** Contents jiggle harder the fuller it is, press
+   up against the lid, the lid bows, and tufts of fluff squeeze out of the seam.
+   The motor sags: `setMotor` is handed the fill as extra load and clog, so the
+   pitch drops and it labours.
+2. **Above 0.8 the world stops responding as much.** `fillPower` scales the
+   whole field down to 45% at 1.0, so every debris type leans less. The fade is
+   `smoothstep(0.8, 1, fill)`, which is first visible at about **0.85** and
+   unmistakable by **0.92**.
+3. **At 1.0 nothing goes in.** `field()` reports `inCapture: false` and reverses
+   the pull within 46px of the mouth, so the air drags a crumb up to the intake
+   and spits it back out with a puff. The thing visibly does not fit.
+4. **The bin is the only open thing in the room**, and its rim brightens and
+   pulses as the cup fills (`bin.invite`).
+5. **Bringing the head to it pours.** The cup's bottom flap swings open, the
+   whole contents arc across in one rush with the "zazaa" of `setStream`, the
+   lid claps, the cup is empty and the power is back.
+
+```js
+import { Bin } from '../props/bin.js';
+this.placeBin();                    // at the END of layout()
+this.placeBin({ x, y });            // or an explicit spot
+this.placeBin({ side: 'left' });
+```
+
+`Scene.placeBin()` scores the four corners the nozzle can reach against three
+soft rules — never under the parked machine (weight 0.30 inside 110px), not
+standing on the debris (0.008 inside 110px), and prefer the end of the room the
+child comes in at (0.004/px) — so no scene has to think about it and none of
+them can get it badly wrong. `main.js` ticks and draws `this.bin`; a scene sets
+`this.ownsBin = true` only if it drives the pour itself.
+
+The bin stays shut below `armFill` (0.5) so it never swallows the child's first
+three crumbs as they walk past the door. `bin.beginPour(vac, ctx, {pad: n})`
+invents `n` extra blobs, so a finale pour is a rush even from a half-empty cup —
+that is how the carpet finale works, and it is the same prop, walked over to the
+machine, not a second one.
+
 ## Core services for later scenes
 
 ### Strand transit (thread, hair, noodles)
@@ -544,3 +658,90 @@ and a tick), thins as it loses them — which lowers its own break-loose
 threshold — then cocks ~80ms AWAY from the nozzle before snapping in. Any new
 debris type should have an equivalent "it is straining, and holding still will
 eventually win" loop rather than a static deformed pose.
+
+### Air-borne specks (`src/core/airborne.js`)
+
+```js
+const air = new Airborne(400, { kinds: { ash: { color, drag, gravity, r, life, lift } } });
+air.spawn(x, y, z, vx, vy, vz, 'flour');   // z = height above the floor, design px
+air.update(dt, vac);                       // pull, lift, gravity, settle, capture
+air.draw(ctx, cam);                        // inside cam.apply()
+air.captured;                              // how many have gone up the tube
+```
+
+Everything that is not ON the floor any more. The airflow a speck feels is
+scaled by `1 / (1 + (z/46)^2)` and it **lifts** as well as pulls, so a cloud is
+dragged down and in rather than merely translated, and a speck thrown too high
+sails over the head and settles. Pooled: `spawn` never allocates after
+construction. Height reads as a shadow that separates from the speck and a size
+that grows. Used by flour, leaf fragments and the boss's fibres.
+
+### Powder film (`src/core/powder.js`)
+
+```js
+const pw = new Powder({x0,y0,x1,y1}, 64, 64);
+pw.blob(x, y, 90, 1);  pw.markDirty();     // lay it down, freeze what must be cleaned
+const got = pw.suck(vac.mouthX, vac.mouthY, 30, rate * dt * f.strength);
+pw.advect(vac, dt);                        // the film streaks toward the mouth
+const lifted = pw.puff(x, y, 60);          // -> spawn that as Airborne particles
+pw.drawSoft(ctx, '#fdfaf3');
+pw.cleanFrac();                            // 0..1, the progress with no counter
+```
+
+`HeightField` is a pile you dig a crater in; this is a *film* you drag around.
+`advect` samples each cell one flow-step upwind, so the whole film draws itself
+into streaks converging on the mouth — airflow made visible without drawing a
+single arrow. Where the density is gone the floor shows through, so the clean
+track is not a separate mask. Two flat fills per cell, no gradients, no filter.
+
+### Fabric (`src/core/cloth.js`)
+
+```js
+const cl = new Cloth({x0,y0,x1,y1}, 9, 7, { gain: 30, pinned: 'edges' });
+cl.update(dt, vac);
+cl.draw(ctx, { fill: '#c9a98b' });   // or cl.drawImage(ctx, offscreenCanvas)
+cl.bulge;                            // 0..1 peak lift
+cl.bulgeAt(x, y);  cl.pointAt(u, v, out);
+```
+
+A grid of springs. Each node samples the field at its **own** position, so the
+near corner lifts first exactly as a dust bunny's near fibres lean first; the
+neighbour links keep it a sheet; the seam is pinned. `damp` is a damping
+**ratio** derived from both spring constants — a fixed rate leaves a 9x7 grid
+ringing forever, which is the one thing a cushion must never do. `drawImage`
+deforms a bitmap one quad at a time with a transform, not per pixel.
+
+### Nozzle morph
+
+```js
+vac.setTool('crevice', smoothstep(70, 12, distanceIntoTheGap));   // from update()
+vac.setTool('wide', 0);
+vac.crevice;    // 0..1, if you want to draw something that follows the morph
+```
+
+The head, the capture ellipse (22x30 → 34x11) and the cone all morph together:
+much narrower off axis, much stronger and about 28% longer along it. Scenes
+drive `t` from world geometry, so entering a gap is something the child watches
+happen rather than a mode they switch.
+
+### Stepped camera (stairs)
+
+```js
+cam.stepTo(dt, anchor, vac.nozzle, { axis: 'y', step: 128, rate: 7, kick: 3.5 });
+cam.resetSteps();    // from layout()
+```
+
+A smooth follow up a flight of stairs reads as a ramp. This quantises the travel
+axis to whole treads with a hysteresis band, settles on each one, and kicks as
+the head crosses a nosing. The other axis follows normally, bounded like
+`followTo`.
+
+### Testing all of it
+
+`node dev/core-tests.mjs` runs each of these in the real page against the real
+`Vacuum` — a mock would only be testing the mock — and asserts the behaviour a
+room depends on: low specks go in and high ones do not, `suck` conserves mass,
+`advect` moves the centroid toward the mouth, the cloth bulges and then relaxes,
+the crevice tool trades width for reach, the field fades and then reverses as
+the cup fills, the bin pours a full cup and ignores a nearly empty one, and
+`stepTo` only ever settles on whole steps. It exits non-zero on any failure.
