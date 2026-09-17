@@ -91,6 +91,59 @@ export class Camera {
     this.tilt += (tt - this.tilt) * k;
   }
 
+  /**
+   * Stepped follow, for a staircase.
+   *
+   * A smooth follow up a flight of stairs reads as a ramp. This one quantises
+   * the travel axis to whole steps and SETTLES on each one: the camera holds
+   * still while the head works a tread, then moves up a whole step at once when
+   * the head crosses the nosing, with a small vertical kick as it lands — which
+   * is what "going up a step" feels like.
+   *
+   *   cam.stepTo(dt, {x: 0, y: 0, zoom, tilt}, vac.nozzle, {
+   *     axis: 'y', step: 128, rate: 7, kick: 3.5, hysteresis: 0.22,
+   *   });
+   *
+   * `axis` is the direction the stairs run in (portrait: 'y'; a diagonal flight
+   * in landscape: 'x'), `step` the world distance between treads. The other
+   * axis follows normally, bounded like `followTo`.
+   */
+  stepTo(dt, anchor, subject, opts) {
+    const o = opts || {};
+    const axis = o.axis === 'x' ? 'x' : 'y';
+    const step = o.step || 120;
+    const rate = o.rate === undefined ? 7 : o.rate;
+    const hyst = o.hysteresis === undefined ? 0.2 : o.hysteresis;
+    let tx = anchor.x, ty = anchor.y;
+    if (subject) {
+      // which tread is the head standing on? The hysteresis band means the
+      // camera does not flick back and forth when it hovers over a nosing.
+      const rel = (axis === 'y' ? subject.y - anchor.y : subject.x - anchor.x) / step;
+      let k = this._stepK === undefined ? Math.round(rel) : this._stepK;
+      if (rel > k + 0.5 + hyst) k = Math.floor(rel + 0.5);
+      else if (rel < k - 0.5 - hyst) k = Math.ceil(rel - 0.5);
+      if (this._stepK !== undefined && k !== this._stepK) this.kick(o.kick === undefined ? 3 : o.kick);
+      this._stepK = k;
+      if (axis === 'y') {
+        ty = anchor.y + k * step;
+        tx = anchor.x + clampAbs((subject.x - anchor.x) * (o.gain === undefined ? 0.4 : o.gain), o.limit === undefined ? 70 : o.limit);
+      } else {
+        tx = anchor.x + k * step;
+        ty = anchor.y + clampAbs((subject.y - anchor.y) * (o.gain === undefined ? 0.4 : o.gain), o.limit === undefined ? 70 : o.limit);
+      }
+    }
+    const tz = anchor.zoom === undefined ? this.zoom : anchor.zoom;
+    const tt = anchor.tilt === undefined ? this.tilt : anchor.tilt;
+    if (o.snap) { this.set(tx, ty, tz, tt); return; }
+    const kk = 1 - Math.exp(-rate * dt);
+    this.x += (tx - this.x) * kk;
+    this.y += (ty - this.y) * kk;
+    this.zoom += (tz - this.zoom) * kk;
+    this.tilt += (tt - this.tilt) * kk;
+  }
+  /** Forget which tread we were on (call from layout()). */
+  resetSteps() { this._stepK = undefined; }
+
   snapshot() {
     return { x: Math.round(this.x), y: Math.round(this.y), zoom: +this.zoom.toFixed(3), tilt: +this.tilt.toFixed(3) };
   }
