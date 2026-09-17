@@ -85,9 +85,6 @@ class Game {
     return h;
   }
 
-  /** Every room is clean: used by the hall to decide it is time to celebrate. */
-  houseClean() { return roomIds().every((id) => this.house.rooms[id].clean); }
-
   // -------------------------------------------------------------- lifecycle
 
   /**
