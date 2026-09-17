@@ -19,6 +19,7 @@ const DEVICES = quick
 
 // scene -> [gesture, frames, every(ms), skip(ms)]
 const MATRIX = {
+  hall: [['idle', 10, 400, 0], ['approach-slow', 16, 150, 0]],
   intro: [['approach-slow', 18, 90, 650], ['hold', 16, 150, 0], ['circle', 16, 180, 0]],
   kitchen: [['approach-slow', 16, 100, 700], ['pass-by', 14, 100, 200], ['rub', 16, 160, 0]],
   paper: [['approach-slow', 16, 110, 500], ['approach-fast', 14, 90, 0], ['hold', 16, 160, 0]],
@@ -28,6 +29,8 @@ const MATRIX = {
   sofa: [['approach-slow', 16, 140, 300], ['hold', 16, 190, 0]],
   carpet: [['rub', 18, 140, 0], ['approach-slow', 14, 120, 300]],
 };
+// The Phase B rooms go in here as they land; their StubScene placeholders have
+// nothing to look at, so they are deliberately not in the review matrix yet.
 
 const only = (process.argv.find((a) => a.startsWith('--scene=')) || '').slice(8);
 

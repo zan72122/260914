@@ -30,7 +30,7 @@
 import { startServer } from './serve.mjs';
 import { launch, DEVICES } from './shot.mjs';
 
-const SCENES = ['intro', 'kitchen', 'paper', 'toy', 'thread', 'sand', 'sofa', 'carpet'];
+const SCENES = ['hall', 'intro', 'kitchen', 'paper', 'toy', 'thread', 'sand', 'sofa', 'carpet'];
 
 function args() {
   const a = {};
