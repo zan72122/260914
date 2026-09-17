@@ -32,13 +32,21 @@ const TMPF = { fx: 0, fy: 0, strength: 0, inCapture: false, dist: 0 };
 export class BossBunny extends DustBunny {
   constructor(x, y, r, rng, opts = {}) {
     super(x, y, Math.min(r, 140), rng);      // n = 22 + 0.7r, so r<=140 => n<=120
-    this.core = '#b6aa98';
-    this.rim = '#7c6f5e';
-    this.light = '#e2dacc';
+    // a huge SOFT thing, not a threat: warm pale grey, a light rim, and no
+    // dark strands at all — at this size the base class's dark fibre pass reads
+    // as black spikes, which is the one thing a four-year-old must not see here
+    this.core = '#cdc1ac';
+    this.rim = 'rgba(176,164,142,0.55)';
+    this.light = '#efe8db';
     this.air = opts.air || null;             // the scene's Airborne layer
     // a mountain of fluff, not a sea urchin: shorter fibres and a fatter body
-    // than a small bunny's proportions, so the silhouette reads as a MASS
-    for (let i = 0; i < this.n; i++) this.fl[i] *= 0.82;
+    // than a small bunny's proportions, so the silhouette reads as a MASS,
+    // every strand curlier, and none of them drawn dark
+    for (let i = 0; i < this.n; i++) {
+      this.fl[i] *= 0.80;
+      this.fd[i] = 0;
+      this.fc[i] *= 1.45;                    // curlier: wisps of fluff, not quills
+    }
     this.r0 = this.r;
     this.phase = 'hold';                     // 'hold' | 'slide' | 'pop'
     this.stripT = 0.34;
@@ -114,7 +122,7 @@ export class BossBunny extends DustBunny {
         // the machine is working: a fistful of fluff across the intake
         const clog = clamp(0.16 + 0.16 * s, 0, 0.42);
         if (clog > vac.clog) vac.clog = clog;
-        this.stripT -= dt * (s - 0.32) * 2.2;
+        this.stripT -= dt * (s - 0.32) * 1.15;
         if (this.stripT <= 0) {
           this.stripT = 0.30 + this.rng.next() * 0.10;
           this._strip(vac, f, world);
@@ -129,7 +137,7 @@ export class BossBunny extends DustBunny {
       this.state = State.PULLED;
       if (vac.audio) vac.audio.pop('whoosh', 0.5);
     }
-    this._leanFibers(dt, vac, 1.0);
+    this._leanFibers(dt, vac, 1.45);
   }
 
   // ------------------------------------------------------------ stripping
@@ -302,38 +310,60 @@ export class BossBunny extends DustBunny {
     ctx.lineCap = 'round';
 
     // a soft mass first, so the fibres sit ON something
-    ctx.fillStyle = 'rgba(206,197,182,0.30)';
+    ctx.fillStyle = 'rgba(214,205,188,0.34)';
     ctx.beginPath();
-    ctx.ellipse(0, 0, this.r * 1.02, this.r * 0.90, 0, 0, TAU);
+    ctx.ellipse(0, 0, this.r * 1.04, this.r * 0.92, 0, 0, TAU);
     ctx.fill();
 
+    // three soft passes, widest and palest first: a halo of fluff with no hard
+    // strand in it anywhere
     this._fiberPath(ctx, 0);
-    ctx.strokeStyle = 'rgba(210,202,188,0.34)';
-    ctx.lineWidth = 7 * k; ctx.stroke();
-    ctx.strokeStyle = '#c6bdae';
-    ctx.lineWidth = 2.2 * k; ctx.stroke();
-    this._fiberPath(ctx, 1);
-    ctx.strokeStyle = '#7d7161';
-    ctx.lineWidth = 1.8 * k; ctx.stroke();
+    ctx.strokeStyle = 'rgba(226,219,203,0.26)';
+    ctx.lineWidth = 11 * k; ctx.stroke();
+    ctx.strokeStyle = 'rgba(222,214,197,0.55)';
+    ctx.lineWidth = 5 * k; ctx.stroke();
+    ctx.strokeStyle = '#ded5c2';
+    ctx.lineWidth = 1.9 * k; ctx.stroke();
 
+    // The body is a SMOOTHED outline, not one vertex per fibre. Per-fibre radii
+    // make a 100-gon with a deep notch wherever a fibre has been shed, and at
+    // this size that reads as a black spiky star. Averaging over five
+    // neighbours (and treating a shed fibre as a shallow dent, not a hole)
+    // keeps it a round, slightly lumpy ball all the way down to the last tuft.
     ctx.beginPath();
     for (let i = 0, first = true; i <= this.n; i++) {
       const j = i % this.n;
-      const L = this.fl[j];
-      if (L <= 0) continue;
+      let acc = 0, wn = 0;
+      for (let d = -2; d <= 2; d++) {
+        const q = (j + d + this.n) % this.n;
+        const w2 = d === 0 ? 3 : (d === 1 || d === -1 ? 2 : 1);
+        // a shed fibre is a shallow dent, never a hole: the pile thins by
+        // getting SMALLER (r), not by growing notches
+        acc += (this.fl[q] > 0 ? this.fl[q] : this.r * 0.80) * w2;
+        wn += w2;
+      }
+      const R = clamp((acc / wn) * 0.86, this.r * 0.62, this.r * 1.0)
+        * (1 + 0.05 * Math.sin(this.t * 5 + this.fw[j]) * (0.4 + this.tremble));
+      // NOTE: no per-fibre lean offset in the outline. Neighbouring fibres lean
+      // by different amounts (that is the point of them), and feeding that into
+      // the body made its edge a row of sharp teeth.
       const a = this.fa[j] + this.spin;
-      const w = 0.82 + 0.10 * Math.sin(this.t * 7 + this.fw[j]) * (0.4 + this.tremble);
-      const px = Math.cos(a) * L * w + this.fx[j] * 0.35;
-      const py = Math.sin(a) * L * w * 0.86 + this.fy[j] * 0.35;
+      const px = Math.cos(a) * R;
+      const py = Math.sin(a) * R * 0.86;
       if (first) { ctx.moveTo(px, py); first = false; } else ctx.lineTo(px, py);
     }
     ctx.closePath();
     ctx.fillStyle = this.core;
     ctx.fill();
-    ctx.strokeStyle = this.rim; ctx.lineWidth = 2.6 * k; ctx.stroke();
-    ctx.fillStyle = 'rgba(255,252,245,0.30)';
+    ctx.strokeStyle = this.rim; ctx.lineWidth = 1.0 * k; ctx.stroke();
+    // a big soft top-light, so the body reads as round and stuffed
+    ctx.fillStyle = 'rgba(255,253,246,0.40)';
     ctx.beginPath();
-    ctx.ellipse(-this.r * 0.24, -this.r * 0.28, this.r * 0.38, this.r * 0.26, -0.4, 0, TAU);
+    ctx.ellipse(-this.r * 0.22, -this.r * 0.30, this.r * 0.46, this.r * 0.30, -0.4, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,250,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(this.r * 0.26, this.r * 0.20, this.r * 0.26, this.r * 0.17, 0.5, 0, TAU);
     ctx.fill();
     ctx.restore();
 

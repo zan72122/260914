@@ -49,13 +49,13 @@ export class BedroomScene extends Scene {
     super('bedroom', rng);
     this.light = new LightLayer();
     this.light.scale = 0.42;
-    this.light.darkColor = '6,6,22';        // night-blue, so the beam is warm against it
+    this.light.darkColor = '5,7,26';        // night-blue, so the beam is warm against it
     this.light.glowColor = '255,206,142';
     this.air = new Airborne(220, {
       kinds: {
         // a tuft is several fibres at once: big enough to watch ride the tube,
         // and heavy enough in the cup that the boss fills it on its own
-        tuft: { color: '#ded5c4', drag: 2.7, gravity: 62, r: 6.6, life: 3.2, lift: 1.2 },
+        tuft: { color: '#e6ddcb', drag: 2.7, gravity: 62, r: 7.6, life: 3.2, lift: 1.2 },
       },
     });
     this.u = 0;
@@ -95,7 +95,7 @@ export class BedroomScene extends Scene {
       // under it is going away from the viewer.
       this.startPointer = { x: 0.5, y: 0.84 };
       this.bed = { x0: -vw * 0.47, x1: vw * 0.47, yEdge: -vh * 0.08, yBack: -vh * 0.92, gap: 54 };
-      this.cave = { x: 0, y: -vh * 0.46, zoom: this.scale * 1.26, tilt: 0.44 };
+      this.cave = { x: 0, y: -vh * 0.46, zoom: this.scale * 1.14, tilt: 0.44 };
       this.follow = { x: vw * 0.12, y: vh * 0.15 };
       this.exitCam = { x: 0, y: vh * 0.52, zoom: this.scale * 1.02, tilt: 0.08 };
       mat = { x: -vw * 0.02, y: vh * 0.16, rx: vw * 0.46, ry: vh * 0.15 };
@@ -106,7 +106,7 @@ export class BedroomScene extends Scene {
       ];
       hairAt = [[0, -0.22, -0.18], [0, 0.24, 0.16], [1, -0.20, 0.18], [1, 0.22, -0.16], [2, 0.0, -0.10]];
       clumps = [[-0.25, -0.28, 21], [0.26, -0.38, 23], [-0.07, -0.50, 19]];
-      bossAt = { x: -vw * 0.03, y: -vh * 0.72, r: 132 };
+      bossAt = { x: -vw * 0.03, y: -vh * 0.66, r: 96 };
       slipperAt = { x: vw * 0.24, y: -vh * 0.20, a: 0.42 };
       legs = [[-0.40, -0.09], [0.40, -0.09], [-0.40, -0.90], [0.40, -0.90]];
       binAt = { x: vw * 0.32, y: vh * 0.30 };
@@ -126,8 +126,8 @@ export class BedroomScene extends Scene {
         [vw * 0.12, vh * 0.05, 120, 92, '#93bfa6', '#c9e8d6'],
       ];
       hairAt = [[0, -0.22, -0.16], [0, 0.22, 0.18], [1, -0.20, 0.16], [1, 0.24, -0.14], [2, 0.02, -0.08]];
-      clumps = [[-0.42, -0.34, 21], [-0.14, -0.52, 23], [0.06, -0.38, 19]];
-      bossAt = { x: vw * 0.42, y: -vh * 0.66, r: 126 };
+      clumps = [[-0.42, -0.14, 21], [-0.14, -0.30, 23], [0.10, -0.22, 19]];
+      bossAt = { x: vw * 0.42, y: -vh * 0.58, r: 112 };
       slipperAt = { x: -vw * 0.24, y: -vh * 0.30, a: -0.3 };
       legs = [[-0.555, -0.115], [0.575, -0.115], [-0.555, -0.905], [0.575, -0.905]];
       binAt = { x: vw * 0.42, y: vh * 0.15 };
@@ -194,8 +194,8 @@ export class BedroomScene extends Scene {
      * which would put them behind the cone where no amount of holding helps.
      */
     this.bossWall = new Prop({
-      x: bossAt.x, y: bossAt.y + this.boss.r * 0.85 - 45,
-      shape: 'rect', w: this.boss.r * 2.6, h: 90,
+      x: (b.x0 + b.x1) * 0.5, y: bossAt.y + this.boss.r * 0.85 - 55,
+      shape: 'rect', w: (b.x1 - b.x0) + 400, h: 110,
       pushable: false, shadow: false, draw: () => {},
     });
     this.props.push(this.bossWall);
@@ -248,12 +248,12 @@ export class BedroomScene extends Scene {
     g.scale(q, q);
     this.film = { canvas, ctx: g, x, y, w, h, q };
     const gl = g.createLinearGradient(0, pad, 0, h - pad);
-    gl.addColorStop(0, 'rgba(16,13,24,0.68)');
-    gl.addColorStop(0.55, 'rgba(20,16,26,0.46)');
-    gl.addColorStop(1, 'rgba(24,20,28,0.24)');
+    gl.addColorStop(0, 'rgba(10,12,30,0.70)');
+    gl.addColorStop(0.55, 'rgba(13,15,32,0.48)');
+    gl.addColorStop(1, 'rgba(16,18,34,0.24)');
     g.fillStyle = gl;
     g.fillRect(pad, pad, w - pad * 2, h - pad * 2);
-    g.fillStyle = 'rgba(172,164,150,0.30)';
+    g.fillStyle = 'rgba(188,186,182,0.28)';
     g.fillRect(pad, pad, w - pad * 2, h - pad * 2);
     const rng = this.rng;
     for (let i = 0; i < 100; i++) {
@@ -390,14 +390,16 @@ export class BedroomScene extends Scene {
 
     this._camera(dt, cam, vac, u);
 
-    this.light.setDark(0.94 * smoothstep(0.02, 0.85, lightU));
+    this.light.setDark(0.955 * smoothstep(0.02, 0.85, lightU));
     const hl = vac.headlight;
     hl.on = lightU > 0.035;
     hl.r = this.pose === 'portrait' ? 215 : 205;
     hl.cone = 0.16;
     hl.softness = 1;
-    hl.intensity = clamp(lightU * 1.25, 0, 1);
-    hl.warm = 0.30 * smoothstep(0.05, 0.5, lightU);
+    hl.intensity = clamp(lightU * 1.4, 0, 1);
+    // a warm POOL, not a grey hole: the cavity floor and the fluff in it have
+    // to be lit, or the whole room reads as mud
+    hl.warm = 0.40 * smoothstep(0.05, 0.5, lightU);
 
     // ---- the skirt: the airflow lifts the hem, which is the way in --------
     const n = this.hem.length, W = b.x1 - b.x0;
@@ -681,7 +683,7 @@ export class BedroomScene extends Scene {
     const b = this.bed;
     const zoom = cam.zoom;
     cam.toScreen(vac.mouthX, vac.mouthY, SP);
-    L.addLight(SP.x, SP.y, 250 * zoom, 0.19 * u);
+    L.addLight(SP.x, SP.y, 250 * zoom, 0.17 * u);
     this._litMotes(L, cam, vac, u);
     if (this.pose === 'portrait') {
       cam.toScreen(0, b.yEdge + this.vh * 0.28, SP);
@@ -743,7 +745,7 @@ export class BedroomScene extends Scene {
     const s = super.snapshot();
     s.under = +this.u.toFixed(3);
     s.wipe = +this.wipe.toFixed(2);
-    s.dark = +this.light.dark.toFixed(2);
+    s.dark = this.light ? +this.light.dark.toFixed(2) : 0;
     s.air = this.air.snapshot();
     s.cushions = this.cushions.map((c) => c.snapshot());
     return s;
