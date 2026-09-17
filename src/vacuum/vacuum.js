@@ -134,7 +134,7 @@ export class Vacuum {
 
   clearCup() {
     this.cup.length = 0; this.cupCols.fill(0);
-    this.cupVol = 0; this.cupFill = 0; this.lidPress = 0;
+    this.cupVol = 0; this.cupFill = 0; this.lidPress = 0; this.cupOpen = 0;
   }
 
   /**
@@ -271,6 +271,10 @@ export class Vacuum {
     // a fuller cup shakes harder: the contents have nowhere left to go
     this.cupPhase = this.time * (7 + this.powerN * 7 + this.cupFill * 9);
     this.lidPress += (smoothstep(0.55, 1, this.cupFill) - this.lidPress) * (1 - Math.exp(-4 * dt));
+    // the bottom flap closes itself: the bin re-asserts it every frame of a
+    // pour (it is ticked after this), so leaving a room mid-pour, or a scene
+    // with no bin at all, can never leave the cup hanging open
+    this.cupOpen *= Math.exp(-dt / 0.12);
     this._rejectHot = Math.max(0, this._rejectHot - dt);
     this._updatePuffs(dt);
     this._updateMotes(dt, cam);
