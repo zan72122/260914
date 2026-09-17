@@ -31,7 +31,7 @@ export class Bin {
     this.color = opts.color || '#4a6f8c';
     this.rim = opts.rim || '#6d94b4';
     /** How close the MOUTH has to come before the cup opens, in design px. */
-    this.reach = opts.reach === undefined ? 74 : opts.reach;
+    this.reach = opts.reach === undefined ? 92 : opts.reach;
     this.rng = opts.rng || null;
     /** Set false while a scene does not want the bin to trigger. */
     this.armed = opts.armed === undefined ? true : opts.armed;

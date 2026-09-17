@@ -24,11 +24,16 @@ const TUBE_SAMPLES = 34;
 
 /**
  * Dust cup capacity, in the same units `_land()` measures blobs in (r^2).
- * Calibrated against the playthrough: a typical room deposits ~900-1100, so
- * this is a bit over two rooms' worth — long enough that the cup is a reward
- * for a while, short enough that every child meets the bin.
+ *
+ * Calibrated against `dev/playthrough.mjs`, which now reports what each room
+ * actually deposits: intro 488, kitchen 1018, paper 835, toy 2072, thread 127,
+ * sand 1028, sofa 847, carpet 973, and roughly 110 per trip down the hallway.
+ * A typical room is ~950, so this is two rooms' worth — the whole of the intro
+ * and the kitchen leaves the cup at 0.75, and the weakening starts early in the
+ * third room. Long enough that the cup is a reward for a good while, short
+ * enough that every child meets the bin.
  */
-export const CUP_CAPACITY = 2300;
+export const CUP_CAPACITY = 2000;
 /** Above this fraction the motor audibly labours and the flow starts to fade. */
 export const FILL_SOFT = 0.8;
 

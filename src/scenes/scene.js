@@ -147,22 +147,59 @@ export class Scene {
   /**
    * Put the room's bin down.
    *
-   * EVERY room has one, near the entrance and out of the way of the debris,
-   * because the cup-capacity mechanic only teaches itself if the answer is
-   * always already in the room. The default corner is the one the child comes
-   * in at (the side `startPointer` is on, at the near edge) and it is chosen
-   * inside `reachRect`, so the mouth can always get to it.
+   * EVERY room has one, because the cup-capacity mechanic only teaches itself
+   * if the answer is always already in the room: the cup fills, things stop
+   * going in, and the one open thing in sight is this.
    *
-   * Call it at the end of `layout()`, after `rest` and `startPointer` are set.
-   * `main.js` ticks and draws `this.bin`; a scene that wants to drive the pour
+   * Where it goes is chosen, not guessed. The candidates are the four corners
+   * the nozzle can actually reach; a corner is rejected if it is close enough
+   * to the parked machine to be sitting underneath it, or close enough to any
+   * debris to be standing on the mess, and of what is left the one NEAREST the
+   * entrance wins — so it is the first thing in the room and the last, without
+   * ever being in the way.
+   *
+   * Call it at the end of `layout()`, after `rest`, `startPointer` and the
+   * debris. `main.js` ticks and draws `this.bin`; a scene that drives the pour
    * itself (the carpet finale) sets `this.ownsBin = true` as well.
    */
   placeBin(opts) {
     const o = opts || {};
-    const R = this.reachRect(BIN_R, 30);
-    const left = o.side ? o.side === 'left' : this.startPointer.x < 0.5;
-    const x = o.x !== undefined ? o.x : (left ? R.x0 + 48 : R.x1 - 48);
-    const y = o.y !== undefined ? o.y : R.y1 - 44;
+    let x = o.x, y = o.y;
+    if (x === undefined || y === undefined) {
+      const R = this.reachRect(BIN_R, 30);
+      const park = this.parkPoint();
+      const cands = [
+        { x: R.x0 + 52, y: R.y1 - 48 }, { x: R.x1 - 52, y: R.y1 - 48 },
+        { x: R.x0 + 52, y: R.y0 + 62 }, { x: R.x1 - 52, y: R.y0 + 62 },
+      ];
+      const a = { x: 0, y: 0 };
+      let best = cands[0], bestScore = -1e9;
+      for (let i = 0; i < cands.length; i++) {
+        const c = cands[i];
+        if (o.side === 'left' && c.x > 0) continue;
+        if (o.side === 'right' && c.x < 0) continue;
+        const dPark = Math.hypot(c.x - park.x, c.y - park.y);
+        let clear = 1e9;
+        for (let k = 0; k < this.debris.length; k++) {
+          const d = this.debris[k];
+          if (d.decor) continue;
+          d.aim(a);
+          const dd = Math.hypot(a.x - c.x, a.y - c.y);
+          if (dd < clear) clear = dd;
+        }
+        // Three soft rules, weighted so they can never fight to a bad answer:
+        // standing under the parked machine is far worse than standing near
+        // the mess, which is worse than being at the far end of the room.
+        // 140 is the bin's half-width plus the head's radius plus a margin.
+        const score = -(Math.max(0, 110 - dPark) * 0.30
+          + Math.max(0, 110 - clear) * 0.008
+          + Math.min(dPark, 900) * 0.004);
+        if (score > bestScore) { bestScore = score; best = c; }
+      }
+      const c = best;
+      if (x === undefined) x = c.x;
+      if (y === undefined) y = c.y;
+    }
     this.bin = new Bin({ x, y, rng: this.rng });
     return this.bin;
   }
@@ -262,6 +299,7 @@ export class Scene {
     return {
       id: this.id, pose: this.pose, remaining: this.remaining(),
       complete: this.isComplete(),
+      bin: this.bin ? this.bin.snapshot() : null,
       debris: this.debris.map((d) => d.snapshot()),
     };
   }
