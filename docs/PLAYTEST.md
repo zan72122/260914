@@ -319,6 +319,27 @@ bin), `dev/out/cupzoom` (the cup itself at 3.2x).
   pushed out to 92 px so the head is usually beside it, but a child who keeps
   pushing will still overlap it.
 
+## The whole house, end to end
+
+`node dev/playthrough.mjs --budget=250`, one finger, in real time — into the
+hall, through every door, back out, until all thirteen are clean, then the
+celebration and the reset:
+
+| device | intro | kitchen | paper | toy | thread | sand | sofa | carpet | 5 stubs | hall (14 visits) | total | fps min/med | errors |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| iphone-portrait  | 5.4 | 6.4 | 8.1 | 8.6 | 7.5 | 12.5 | 15.5 | 82.6 | 2.8 each | 46.6 | 206.8s | 43.2 / 60 | 0 |
+| iphone-landscape | 28.8 | 6.6 | 8.8 | 24.7 | 10.3 | 33.6 | 15.6 | 105.4 | 2.8 each | 47.6 | 295.0s | 47.5 / 60 | 0 |
+| ipad-portrait    | 5.9 | 6.6 | 8.2 | 8.6 | 6.8 | 37.5 | 35.3 | 69.0 | 2.8 each | 48.4 | 240.2s | 24.4 / 39.2 | 0 |
+| ipad-landscape   | 5.9 | 6.6 | 7.9 | 8.1 | 9.0 | 64.5 | 33.6 | 55.1 | 2.8 each | 48.7 | 253.6s | 20.8 / 47.5 | 0 |
+
+The iPad fps column is the container's software rasteriser at 3.87 Mpx a frame,
+not a prediction for a real iPad — see the performance section of
+docs/ARCHITECTURE.md.
+
+The spread in `sand`, `sofa` and `carpet` is the autopilot, not the game: those
+rooms have pieces the head can only reach from one side, and how long the
+driver spends on them depends on which one it happens to leave until last.
+
 ## Left alone (Phase A)
 
 * The hallway is a corridor with parallel walls plus a depth haze, not a
