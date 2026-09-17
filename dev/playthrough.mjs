@@ -97,6 +97,8 @@ function AUTOPILOT(cfg) {
   let visited = {};                      // id -> when it was last worked on
   let held = null;                       // the piece currently being worked on
   let grindT = 0;                        // how long we have been holding on it
+  let grindTotal = 0;                    // ...including the productive part
+  let grindVol = 0;                      // cup volume when this hold last paid
   let forgiveAt = 0;                     // when the avoid list is wiped
   let rasterI = 0;
   let inFlow = false;
@@ -121,7 +123,8 @@ function AUTOPILOT(cfg) {
     R.scenes.push(cur);
     R.scene = cur.id;
     targetId = null; sinceTarget = 0; bestErr = 1e9; stall = 0; rasterI = 0;
-    avoid = {}; visited = {}; held = null; grindT = 0; forgiveAt = now() + 30000;
+    avoid = {}; visited = {}; held = null; grindT = 0; grindTotal = 0;
+    grindVol = g.vacuum.cupVolTotal; forgiveAt = now() + 30000;
     F = { x: g.scene.startPointer.x, y: g.scene.startPointer.y };
   }
 
@@ -266,6 +269,7 @@ function AUTOPILOT(cfg) {
     } else if (pick) {
       if (pick.d.id !== targetId) {
         targetId = pick.d.id; sinceTarget = 0; bestErr = 1e9; stall = 0;
+        grindT = 0; grindTotal = 0; grindVol = g.vacuum.cupVolTotal;
         if (cfg.trace) R.trace.push(Math.round(t - cur.t0) + ' -> ' + targetId + ' wd=' + Math.round(pick.wd)
           + ' u=' + (sc.u === undefined ? '' : sc.u.toFixed(2)));
       }
@@ -326,15 +330,24 @@ function AUTOPILOT(cfg) {
     // strains, sheds, thins, and its own break-loose threshold comes down to
     // meet the flow. It can take half a minute, and any fidgeting resets it.
     if (inFlow && stall > 0.8) {
-      grindT += dt;
-      if (grindT > 45 && targetId) {
-        if (cfg.trace) R.trace.push(Math.round(t - cur.t0) + ' ~~ ' + targetId + ' ground out wd=' + Math.round(wdist));
-        avoid[targetId] = t + 8000; grindT = 0; stall = 0; bestErr = 1e9; held = null;
+      grindT += dt; grindTotal += dt;
+      // Is the hold PAYING? The mother bunny under the sofa takes half a minute
+      // to win, but the whole time it is shedding fibres and they are going up
+      // the tube — the cup keeps growing. A bead wedged behind a toy where the
+      // head cannot follow gives nothing at all, and used to be held for a full
+      // 45 seconds before the driver looked elsewhere. So: patience while it
+      // pays, 14 seconds when it does not, and a hard ceiling either way.
+      if (g.vacuum.cupVolTotal > grindVol + 0.01) { grindVol = g.vacuum.cupVolTotal; grindT = 0; }
+      if ((grindT > 14 || grindTotal > 45) && targetId) {
+        if (cfg.trace) R.trace.push(Math.round(t - cur.t0) + ' ~~ ' + targetId + ' ground out wd='
+          + Math.round(wdist) + ' after ' + grindTotal.toFixed(1) + 's (' + grindT.toFixed(1) + 's unpaid)');
+        avoid[targetId] = t + 8000;
+        grindT = 0; grindTotal = 0; stall = 0; bestErr = 1e9; held = null;
       }
       window.game.input.pointer(F.x, F.y, true);
       return;
     }
-    grindT = 0;
+    grindT = 0; grindTotal = 0;
     // Nothing there: a short pause in case it is just slow, then move on.
     if (stall > 0.8 && t > holdUntil) holdUntil = t + 2200;
     if (t < holdUntil) {
