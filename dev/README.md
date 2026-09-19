@@ -64,7 +64,14 @@ game._g                       // the Game itself: .scene .vacuum .camera .loop  
 Plus whatever the type adds (`lift`, `flee`, `reel`, `clog`, `dig`, `frac`, …).
 
 Because `step()` advances both the simulation and the replay clock, a scripted
-run is bit-identical between machines for a given seed.
+run is bit-identical between machines for a given seed — and, since the camera's
+impact shake and the vacuum's motes are seeded too, bit-identical between RUNS.
+That is what makes "re-run the identical command and diff the contact sheets"
+below mean anything: two runs of the same command now produce the same PNGs,
+byte for byte. (They did not until recently: `Camera.update` shook with
+`Math.random`, `toWorld` subtracts the shake, and the nozzle follows the finger
+through `toWorld` — so every capture fed a couple of random pixels into the
+nozzle's world position and out into every debris trajectory in the room.)
 
 ---
 
