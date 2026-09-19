@@ -348,3 +348,330 @@ driver spends on them depends on which one it happens to leave until last.
 * The five placeholder rooms finish after a beat with nothing to do in them.
   They exist so the hub and the harness are exercisable; they are not a feel
   claim of any kind.
+
+---
+
+# Phase B — the five new rooms, read with fresh eyes
+
+A second independent review, on the same criterion and the same five questions,
+covering the rooms the first review did not exist for: `pantry stairs window
+veranda bedroom`. Method as before — the moment that *is* the room, on
+**iphone-portrait** and **iphone-landscape**, frames 70 ms apart, read as a
+contact sheet, with the per-frame `state.json` to check that the reaction grows
+with proximity instead of snapping:
+
+```sh
+node dev/shot.mjs --scene=<id> --device=iphone-<pose> \
+     --target=<id> --gesture=hold --every=70 --frames=24 --contact
+```
+
+Rooms whose moment needs travel (into the gap behind the bookshelf, up the
+flight, under the bed) also got a `--path` run, noted per room. iPad was
+spot-checked where the brief pointed at it (the pantry's hold dig on
+ipad-landscape, the stairs on ipad-portrait).
+
+`pt3-*` sheets are this review's first pass, `pt4-*` the re-shoot after the
+fixes. Same seed (1337), same device, same gesture, so the two are directly
+comparable.
+
+## Verdict table
+
+| room | pose | before | after | sheet (before → after) |
+|------|------|--------|-------|------------------------|
+| pantry | portrait | strong | **strong** | `dev/out/pt3-pantry-p` → `dev/out/pt4-pantry-p` |
+| pantry | landscape | strong | **strong** | `dev/out/pt3-pantry-l` → `dev/out/pt4-pantry-l` |
+| pantry | ipad-landscape | strong | **strong** | `dev/out/pt3-pantry-ipl` → `dev/out/pt4-pantry-ipl` |
+| pantry | finished room | **weak** | **ok** | `dev/out/pt4-pantry-p-done` |
+| stairs | portrait | **weak** | **strong** | `dev/out/pt3-stairs-p` → `dev/out/pt4-stairs-p`, `pt4-stairs-p-ring`, `pt4-stairs-p-climb` |
+| stairs | landscape | **weak** | **strong** | `dev/out/pt3-stairs-l` → `dev/out/pt4-stairs-l`, `pt4-stairs-l-climb` |
+| stairs | ipad-portrait | ok | **strong** | `dev/out/pt3-stairs-ipp` → `dev/out/pt4-stairs-ipp` |
+| window | portrait (hem) | ok | **strong** | `dev/out/pt3-window-p` → `dev/out/pt4-window-p` |
+| window | portrait (gap) | ok | **strong** | `dev/out/pt3-window-p-gap` → `dev/out/pt4-window-p-gap` |
+| window | landscape | ok | **strong** | `dev/out/pt3-window-l` → `dev/out/pt4-window-l` |
+| veranda | portrait | ok | **strong** | `dev/out/pt3-veranda-p` → `dev/out/pt4-veranda-p` |
+| veranda | landscape | **weak** | **strong** | `dev/out/pt3-veranda-l` → `dev/out/pt4-veranda-l` |
+| bedroom | portrait | **weak** | **strong** | `dev/out/pt3-bedroom-p` → `dev/out/pt4-bedroom-p` |
+| bedroom | landscape | **weak** | **strong** | `dev/out/pt3-bedroom-l` → `dev/out/pt4-bedroom-l` |
+| bedroom | ipad-landscape | **weak** | **strong** | `dev/out/pt3-bedroom-ipl` → `dev/out/pt4-bedroom-ipl` |
+
+---
+
+## pantry — dark slate tile, a tipped bag of flour
+
+### portrait — **strong** (unchanged)
+
+* **(a)** The white stuff is not a lump, it is *going somewhere*: it frays into
+  long curved streaks that all bend round into the mouth, and where the head
+  sits a black hole opens in it and grows.
+* **(b)** Yes, and it is the clearest case in the house, because the reaction
+  is the medium itself. `dev/out/pt4-pantry-p/state.json`: `dig` rises 0 →
+  0.167 while `clean` is still 0.015, i.e. the powder is visibly being pulled
+  *before* any of it has been counted; then `air` 1 → 2 → 9 → 27 and `caught`
+  0 → 0 → 19 → 28.
+* **(c)** Yes: the streaks are the anticipation, the roar (`roar` 0 → 0.61 →
+  0.93) is the snap, single specks are visible in the tube and the cup goes
+  white from the bottom up.
+* **(d)** The specks are drawn at 5 design px but they are pure white on near
+  black, they never appear alone, and the streaks they ride are 60–120 px long.
+  The chips and the raisin that surface out of the film are 21–23 px of dark
+  brown on white.
+* **(e)** strong.
+
+### landscape — **strong** (unchanged), ipad-landscape — **strong**
+
+* The hold dig was the thing to check on a big landscape screen, and it holds
+  up: `dev/out/pt4-pantry-ipl` frames 10–23 are a clean black bay opening in
+  the drift with the streak fan converging on it and the motif coming up
+  through the middle. Nothing about it is smaller or slower than on a phone.
+
+### the finished room — was **weak**, now **ok**
+
+* Before: clearing the spill left one bright medallion in the middle of a large
+  flat black floor. The reward for finishing the room was a black rectangle.
+* **Fixed (no new mechanics):** the medallion now has small relatives — warm
+  diamonds with a teal pip — scattered over the rest of the floor and painted
+  **only where the haze is thick enough to hide them** (the accent painter is
+  handed `spill.densityAt` and skips any spot the flour would not cover), so
+  they come up one at a time as the child works outward instead of being on
+  show from frame 0. The completion bloom also grows a soft radial warm wash
+  over the room, so a clean pantry is a *lit* pantry.
+* Still only **ok**: it is decoration on a floor, not a second thing to do.
+  That was the intent — the note was "a small warm bloom/motif is fine, no new
+  mechanics".
+* Sheets: `dev/out/pt4-pantry-p-start` (hidden) and `dev/out/pt4-pantry-p-done`.
+
+---
+
+## stairs — a flight of treads, things perched on the nosings
+
+### portrait — **strong** (was weak)
+
+* Before: **the debris was too small to be debris.** Edge crumbs were 16–23
+  design px of tan on tan wood — dots. A dot that tumbles down a step between
+  two frames 100 ms apart has not tumbled, it has teleported, and the teeter
+  that precedes it was a two-pixel wobble. The fluff tufts in the riser corners
+  were grey smudges on a brown tread. See `dev/out/pt3-stairs-p` frames 0–23:
+  almost nothing changes that a four-year-old could name.
+* **Fixed by scale and contrast, not by features:**
+  * The crumbs are **real objects** now, 38–52 design px across, each with its
+    own silhouette and its own colour, and none of them in the wood's family:
+    a puffed cereal **O** with a hole you can see through, the docked corner of
+    a **cracker**, a **bottle cap** with a crimped rim and a hard specular, and
+    the old flake. Every one of them carries a dark outline so it separates
+    from the tread.
+  * The cereal **ring** — the heavy one that only a hold will tip — went from
+    42 to 60 px and is glazed: a bright sweep, a white specular, a warm bounce
+    underneath and a dark well for the hole. It is now unmistakably the fat
+    heavy thing on the flight.
+  * **Fluff tufts** went from 42–60 to 58–82 px wide and from grey to
+    near-white with a darker rim and a fatter halo.
+  * A falling piece lays down **three fading ghosts of itself** along the arc it
+    is travelling, and the bounce and tip puffs are twice the count and half
+    again the size, so the fall reads in a sheet sampled every 100 ms.
+* **(a)** Something you would recognise off your own kitchen floor is hanging
+  over the edge of a step, rocking; it goes over, bounces down the flight with
+  a puff at each tread, and is swallowed on the way past.
+* **(b)** Yes, and the rock slows as it leans, which is the anticipation.
+  `dev/out/pt4-stairs-p-ring/state.json`, the heavy ring: `s` 0.12 → 0.28 →
+  0.31 → 0.27 → 0.30 → 0.38 → 1.15 (`pulled`), with `lean` 0.01 → 0.20 → 0.40 →
+  0.36 → 0.35 → 0.51 → 0.85. It hangs out over the lip for over a second before
+  it goes.
+* **(c)** Yes. The tip happens at the far end of a forward rock, the trail and
+  the puff carry the fall, and the tube ride is one of the best in the game —
+  `dev/out/pt4-stairs-p-climb` frames 11–14 have a green bottle cap and an
+  orange cereal O visibly stacked up inside the hose.
+* **(d)** Yes: smallest is the cracker corner at ~38 px, cream on mid-brown.
+* **(e)** strong.
+
+**The climb also reads.** The hop gathers deeper (17 px of dip, was 10), arcs
+higher (52 px, was 32) over a longer 0.42 s, and lands with a bigger camera
+kick. `dev/out/pt4-stairs-p-climb/state.json` nozzle y: 132 (pressed) → **146**
+(crouch) → 123 → 63 → 27 → 36 (land) — five frames at 70 ms, with dust shaken
+out of the riser corner all the way up.
+
+### landscape — **strong** (was weak)
+
+* Same fix, same evidence: `dev/out/pt4-stairs-l-climb` frames 9–13 are a red
+  bottle cap coming down two treads and going up the tube as a red streak,
+  against crackers and white tufts that are legible from across the room. The
+  camera climbs with the head from frame 9, so the flight fills the frame
+  instead of sitting in the top-right corner.
+
+### ipad-portrait — **strong**
+
+* `dev/out/pt4-stairs-ipp` frames 12–17: the cap and two Os tumble into the
+  mouth in sequence; 18–23 the big glossy ring comes down on its own.
+
+---
+
+## window — a curtain, light shafts, and the gap behind the bookshelf
+
+### portrait, the hem — **strong** (was ok)
+
+* Before: the lift was real and continuous, but it read as **the curtain
+  getting shorter**. The fabric retracted upward and the only shadow it had
+  *faded* as it went, which is the opposite of what a thing coming off the
+  floor does.
+* **Fixed:**
+  * the hem's shadow is now drawn from the fabric's **rest** positions and
+    darkens and lengthens with the lift, so a strip of lit floor opens between
+    the fabric and its shadow — that gap is the depth cue;
+  * the lifted edge gets a **rolled lip**: a dark casing line under a warm lit
+    underside, both thickening with the lift;
+  * the hem rolls up further than the rows above it, so the sheet bows into a
+    curl instead of sliding up flat.
+* **(a)** The bottom of the curtain peels up off the boards, curls, and hangs
+  there waving — and the pile of dust that was under it is simply there.
+* **(b)** Yes: `dev/out/pt4-window-p/state.json` curtain lift, every other
+  frame: `0.044 → 0.101 → 0.135 → 0.146 → 0.194 → 0.358 → 0.637 → 0.861 →
+  0.951 → 0.986`. It starts stirring about a head and a half away.
+* **(c)** Yes, and the curtain is a *can't-have-it*: hold on it and the weave is
+  drawn taut into the intake, the motor labours, and after 0.6 s it slips free
+  with a flap. The bunnies behind it are the things that do go up the tube.
+* **(d)** Yes: the bunnies behind the hem are 24–40 px of pale grey on warm
+  boards, and the hem itself is the width of the window.
+* **(e)** strong. Landscape is the same fix and reads the same:
+  `dev/out/pt4-window-l` frames 4–11.
+
+### portrait, the gap — **strong** (was ok)
+
+* Before: the single-file queue worked — the items came out in order — but with
+  the head driven into the slot each one went straight from `reacting` to
+  `in-cup` in one frame. Nothing *shot*. The room's own word for its mechanic
+  ("shoo") never happened.
+* **Fixed:** a gap item is never simply removed from the shelf any more.
+  Whatever the head does, it **cocks back its own width, shoots**, and is drawn
+  for two frames with a tapering streak in its own colour and two white speed
+  lines either side before it is taken.
+* **(a)** Things are queued up in the dark slot behind the bookshelf, all
+  straining; the one at the front jerks backwards and then *bangs* out of the
+  slot into the mouth, and the whole queue shuffles up one.
+* **(b)** Yes, and it answers only to air running **down the corridor**:
+  `dev/out/pt4-window-p-gap/state.json`, the bead: `0.038 → 0.145 → 0.160 →
+  0.185 → 0.298 → 0.676 → 1.043 → 1.659` and gone.
+* **(c)** Yes — the cock-back is the beat, the streak is the snap.
+  `dev/out/pt4-window-p-gap` frames 15, 17, 19 and 20 each catch a different
+  item mid-shoo. The head visibly morphs into a crevice tool on the way in.
+* **(d)** The smallest is the lint at 22 px; the crumb is 14 px and is the one
+  marginal item in the room, but it is pale on near-black and it is never the
+  only thing in the slot.
+* **(e)** strong.
+
+---
+
+## veranda — a balcony of fallen leaves
+
+### portrait — **strong** (was ok)
+
+* Before: the wet leaf's peel was mostly **foreshortening** — the blade
+  squashed along the peel axis by 52 %, rose 16 px and offset its shadow by
+  3 px. At phone size that is a leaf *getting smaller*, which is the one thing
+  it must not look like.
+* **Fixed:**
+  * the blade rises 36 px as it peels and foreshortens only 32 %;
+  * its **shadow stays on the tile** and slides 19 x 25 px out from under it,
+    spreading and lightening — the gap between the leaf and its shadow is the
+    height;
+  * the lifted edge gets a wide soft glow under a hard white line, both growing
+    with the peel, so the part that is off the ground is the brightest thing on
+    it.
+* **(a)** The mouth grips the near edge of a soaked leaf, the edge lifts off the
+  tile with its shadow dropping away underneath it, it peels back further and
+  further, and then it lets go with a shlp.
+* **(b)** Yes: `dev/out/pt4-veranda-p/state.json` `peel` = `0 → 0.01 → 0.11 →
+  0.28 → 0.38 → 0.46 → 0.51 → 0.56`, a full second of it, and it goes *back
+  down* if the head leaves.
+* **(c)** Yes, and the dry leaves next to it do something completely different
+  — they crack, whiten along the crack lines and crumble into fragments that
+  race up the tube — which is what makes "wet" and "dry" a thing the child
+  learns rather than a thing they are told.
+* **(d)** Yes: leaves are 60–110 px. Twigs and seed pods are 18–30 px.
+* **(e)** strong.
+
+### landscape — **strong** (was weak)
+
+* Before: not the peel — the **tone**. The trodden-in litter film was doing its
+  hiding with opacity (a 0.36 brown wash plus 150 dark blotches), and it lay
+  over the leaves as well as the deck, so on a landscape phone a dry leaf, a
+  wet leaf, a twig and the balcony were one flat brown. `dev/out/pt3-veranda-l`
+  is the evidence: you cannot tell the debris from the floor at a glance.
+* **Fixed:** the film is lighter and warmer (0.31, and the blotches 0.09–0.22),
+  and the hard ground-in crumbs are darker and stronger. The litter still reads
+  as litter and the tile pattern is still veiled, but the debris has its colours
+  back — compare `dev/out/pt4-veranda-l/000.png` with `pt3-veranda-l/000.png`.
+* **(e)** strong, with the peel fix above on top of it.
+
+---
+
+## bedroom — cushions, pet hair, and the boss under the bed
+
+### portrait — **strong** (was weak)
+
+* Before: the boss lives **inside the headlight beam**, and it was pale fluff on
+  a pale warm wash. `dev/out/pt3-bedroom-p/020.png` is the proof: the grand
+  finale of the whole house is a white blob in a white cone, and you cannot see
+  where it begins. The headlight's warm paint goes on top of everything, so at
+  0.40 it was bleaching the boss into the beam.
+* **Fixed:**
+  * the body is a **darker warm grey** (`#9b8e7a`) with a bright, thick lit rim,
+    and its top-light is turned down to a suggestion of roundness; the soft mass
+    underneath the fibres went from pale to shadow, so the fluff sits *on*
+    something;
+  * the fibre halo grades dark → light over four passes instead of two, which
+    keeps the silhouette soft while still separating it from the cream behind;
+  * the **tufts it sheds** are drawn here rather than inherited from the base
+    dust bunny: longer, nearly opaque white with a dark casing, so the one thing
+    travelling between the boss and the mouth is the brightest thing on screen;
+  * the headlight's warm paint drops 0.40 → 0.22 — enough to light the cavity
+    floor, not enough to bleach the boss.
+* **(a)** There is something enormous and furry under the bed. It will not come
+  out. Hold the vacuum on it and it *sheds*: bright tufts stream off it into the
+  mouth one after another, and it gets smaller.
+* **(b)** Yes: `dev/out/pt4-bedroom-p/state.json`, `s` = `0.001 → 0.003 → 0.007
+  → 0.028 → 0.354 → 0.974 → 1.115 → 1.125` while `fibers` goes 89 → 86 → 83 —
+  the stripping only starts once the flow is real, and it is continuous.
+* **(c)** Yes, and its beat is the room: strip, strip, strip, the motor clogs
+  and labours, the cup fills (which is what sends the child to the bin), and
+  only when it is thin does it finally slide, stretch and pop.
+* **(d)** Yes: the boss is 130–140 px of body, the tufts are ~30 px of white,
+  and the pet hairs out on the rug are 26–40 px.
+* **(e)** strong.
+
+### landscape and ipad-landscape — **strong** (was weak)
+
+* Same fix. `dev/out/pt4-bedroom-l` frames 10–23 (`--path="0.45,0.80;0.92,0.55;
+  @boss#13,4000"`): the boss is a dark round mass with a lit crest, clearly a
+  *thing* sitting in the beam rather than part of it.
+* One note that is not a contrast problem: coming at the boss from the side of
+  the cavity, the field at its centre sits around 0.4 and the stripping is very
+  slow. A child who pushes into it gets 1.1; a child who grazes it gets a long
+  wait. It is winnable either way and the bin is in reach, so it is left alone.
+
+---
+
+## Verification after the fixes
+
+* `node dev/core-tests.mjs` — **33/33 passed**.
+* `node dev/playthrough.mjs --device=iphone-portrait --clean=<the eight old
+  rooms>` — all five rooms finished, **zero page errors**: pantry 86.1 s,
+  stairs 18.7 s, window 8.6 s, veranda 16.7 s, bedroom 41.4 s, total 194.9 s,
+  fps min/median 19.2 / 55.
+* `node dev/fps.mjs --scene=<id> --device=iphone-portrait --seconds=5`:
+  stairs 52.8, veranda 50, pantry 45.6, window 38.4, bedroom 36 median.
+  The three under 50 were **already** under 50 before this review's changes —
+  measured on the previous commit, window was 38.4 and bedroom 39.2 — so this
+  is the container's software rasteriser and the rooms' full-screen layers, not
+  anything done here. See the performance section of docs/ARCHITECTURE.md.
+
+## Left alone (Phase B review)
+
+* **pantry is long.** 86 s on the autopilot is by far the longest room in the
+  house; a density grid takes a while to empty by hand. It is not a feel
+  problem and it is the room's whole point, but it is the first place to look
+  if the house ever needs to be shorter.
+* **the window's gap crumb** at 14 design px is the smallest live thing in the
+  five rooms. It is pale on near-black and always in a queue with bigger
+  things, so it reads — but it is the one item below the brief's 9 px bar only
+  by a comfortable margin rather than a wide one.
+* **the boss approached from the side** (above).
+* Sound was not reviewed; every sheet is shot with `mute=1`.
