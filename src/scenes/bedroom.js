@@ -398,8 +398,11 @@ export class BedroomScene extends Scene {
     hl.softness = 1;
     hl.intensity = clamp(lightU * 1.4, 0, 1);
     // a warm POOL, not a grey hole: the cavity floor and the fluff in it have
-    // to be lit, or the whole room reads as mud
-    hl.warm = 0.40 * smoothstep(0.05, 0.5, lightU);
+    // to be lit, or the whole room reads as mud. But the warm paint goes on
+    // TOP of everything, so too much of it bleaches the boss — which lives in
+    // the middle of the beam — into the beam. 0.22 lights the floor and still
+    // leaves the boss a darker shape with a lit edge.
+    hl.warm = 0.22 * smoothstep(0.05, 0.5, lightU);
 
     // ---- the skirt: the airflow lifts the hem, which is the way in --------
     const n = this.hem.length, W = b.x1 - b.x0;

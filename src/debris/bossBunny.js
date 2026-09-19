@@ -35,9 +35,13 @@ export class BossBunny extends DustBunny {
     // a huge SOFT thing, not a threat: warm pale grey, a light rim, and no
     // dark strands at all — at this size the base class's dark fibre pass reads
     // as black spikes, which is the one thing a four-year-old must not see here
-    this.core = '#cdc1ac';
-    this.rim = 'rgba(176,164,142,0.55)';
-    this.light = '#efe8db';
+    // It lives INSIDE the headlight beam, which is a warm cream wash. A pale
+    // body in a pale beam is one shape; so the body is a darker warm grey and
+    // the rim around it is lighter than the beam, which puts an edge on it
+    // from anywhere in the room.
+    this.core = '#9b8e7a';
+    this.rim = 'rgba(255,250,238,0.92)';
+    this.light = '#fdf8ec';
     this.air = opts.air || null;             // the scene's Airborne layer
     // a mountain of fluff, not a sea urchin: shorter fibres and a fatter body
     // than a small bunny's proportions, so the silhouette reads as a MASS,
@@ -310,7 +314,7 @@ export class BossBunny extends DustBunny {
     ctx.lineCap = 'round';
 
     // a soft mass first, so the fibres sit ON something
-    ctx.fillStyle = 'rgba(214,205,188,0.34)';
+    ctx.fillStyle = 'rgba(104,94,80,0.40)';
     ctx.beginPath();
     ctx.ellipse(0, 0, this.r * 1.04, this.r * 0.92, 0, 0, TAU);
     ctx.fill();
@@ -318,12 +322,14 @@ export class BossBunny extends DustBunny {
     // three soft passes, widest and palest first: a halo of fluff with no hard
     // strand in it anywhere
     this._fiberPath(ctx, 0);
-    ctx.strokeStyle = 'rgba(226,219,203,0.26)';
-    ctx.lineWidth = 11 * k; ctx.stroke();
-    ctx.strokeStyle = 'rgba(222,214,197,0.55)';
-    ctx.lineWidth = 5 * k; ctx.stroke();
-    ctx.strokeStyle = '#ded5c2';
-    ctx.lineWidth = 1.9 * k; ctx.stroke();
+    ctx.strokeStyle = 'rgba(88,78,64,0.30)';
+    ctx.lineWidth = 14 * k; ctx.stroke();
+    ctx.strokeStyle = 'rgba(184,172,152,0.40)';
+    ctx.lineWidth = 7 * k; ctx.stroke();
+    ctx.strokeStyle = 'rgba(252,246,232,0.62)';
+    ctx.lineWidth = 3.0 * k; ctx.stroke();
+    ctx.strokeStyle = '#fffdf6';
+    ctx.lineWidth = 1.4 * k; ctx.stroke();
 
     // The body is a SMOOTHED outline, not one vertex per fibre. Per-fibre radii
     // make a 100-gon with a deep notch wherever a fibre has been shed, and at
@@ -355,13 +361,14 @@ export class BossBunny extends DustBunny {
     ctx.closePath();
     ctx.fillStyle = this.core;
     ctx.fill();
-    ctx.strokeStyle = this.rim; ctx.lineWidth = 1.0 * k; ctx.stroke();
-    // a big soft top-light, so the body reads as round and stuffed
-    ctx.fillStyle = 'rgba(255,253,246,0.40)';
+    ctx.strokeStyle = this.rim; ctx.lineWidth = 3.2 * k; ctx.stroke();
+    // a big soft top-light, so the body reads as round and stuffed — kept low,
+    // because the job of the light here is roundness, not brightness
+    ctx.fillStyle = 'rgba(255,248,232,0.22)';
     ctx.beginPath();
     ctx.ellipse(-this.r * 0.22, -this.r * 0.30, this.r * 0.46, this.r * 0.30, -0.4, 0, TAU);
     ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,250,0.28)';
+    ctx.fillStyle = 'rgba(60,50,38,0.22)';
     ctx.beginPath();
     ctx.ellipse(this.r * 0.26, this.r * 0.20, this.r * 0.26, this.r * 0.17, 0.5, 0, TAU);
     ctx.fill();
@@ -377,6 +384,33 @@ export class BossBunny extends DustBunny {
     for (let i = 0; i < this.coreBits.length; i++) {
       const c = this.coreBits[i];
       drawCoreShape(ctx, c.kind, this.x + c.ox, this.y + c.oy, c.rot);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  /**
+   * The fibres it sheds are the only thing travelling between the boss and the
+   * mouth, so they are the beat of the whole fight: brighter and longer than an
+   * ordinary bunny's, with a dark hairline through them so they stay visible
+   * where they cross the brightest part of the beam.
+   */
+  _drawWisps(ctx) {
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (let i = 0; i < this.wisps.length; i++) {
+      const w = this.wisps[i];
+      if (w.life <= 0) continue;
+      ctx.globalAlpha = clamp(w.life * 1.7, 0, 1);
+      const L = w.len * 1.45;
+      const dx = Math.cos(w.a) * L, dy = Math.sin(w.a) * L;
+      ctx.beginPath();
+      ctx.moveTo(w.x - dx, w.y - dy);
+      ctx.quadraticCurveTo(w.x, w.y + L * 0.3, w.x + dx, w.y + dy);
+      ctx.strokeStyle = 'rgba(92,82,68,0.55)';
+      ctx.lineWidth = 6.4; ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,253,244,0.98)';
+      ctx.lineWidth = 3.4; ctx.stroke();
     }
     ctx.globalAlpha = 1;
     ctx.restore();
