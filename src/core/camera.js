@@ -15,6 +15,19 @@ export class Camera {
     this.w = 1; this.h = 1;
     this.shake = 0;
     this._sx = 0; this._sy = 0;
+    /**
+     * Optional seeded RNG for the impact shake.
+     *
+     * This is not a nicety. `toWorld` subtracts the shake offset, and the
+     * nozzle follows the finger THROUGH `toWorld`, so an unseeded shake feeds
+     * a couple of random pixels straight back into the nozzle's world position,
+     * into `field()`, and into every debris trajectory in the room. `?seed=`
+     * promises a reproducible run; without this it is not one, and two
+     * identical `dev/shot.mjs` invocations disagree about where half the debris
+     * is. `main.js` gives the camera its OWN stream, so shaking does not
+     * perturb the RNG the scenes are drawing from.
+     */
+    this.rng = null;
   }
   setViewport(w, h) { this.w = w; this.h = h; }
   get yScale() { return this.zoom * (1 - YSQUASH * this.tilt); }
@@ -45,8 +58,9 @@ export class Camera {
   update(dt) {
     if (this.shake > 0.001) {
       this.shake *= Math.exp(-dt * 9);
-      this._sx = (Math.random() * 2 - 1) * this.shake;
-      this._sy = (Math.random() * 2 - 1) * this.shake;
+      const r = this.rng;
+      this._sx = (r ? r.range(-1, 1) : Math.random() * 2 - 1) * this.shake;
+      this._sy = (r ? r.range(-1, 1) : Math.random() * 2 - 1) * this.shake;
     } else { this.shake = 0; this._sx = 0; this._sy = 0; }
   }
   kick(amount) { this.shake = Math.max(this.shake, amount); }

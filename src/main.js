@@ -33,6 +33,19 @@ class Game {
     if (P.mute) this.audio.enabled = false;
     this.vacuum = new Vacuum(this.rng);
     this.vacuum.audio = this.audio;
+    /**
+     * Two more seeded streams, separate from the one the scenes draw from.
+     *
+     * The camera's shake is subtracted by `toWorld`, and the nozzle follows the
+     * finger through `toWorld` — so an unseeded shake put a couple of random
+     * pixels into the nozzle's world position every time something was
+     * captured, and from there into `field()` and into every debris trajectory
+     * in the room. `?seed=` is supposed to pin a run; it now does. They are
+     * separate streams so that shaking the camera and drawing motes cannot
+     * shift what a scene's own RNG hands out next.
+     */
+    this.camera.rng = new RNG(P.seed + 7777);
+    this.vacuum.fxRng = new RNG(P.seed + 31337);
     this.dpr = 1;
     this.w = 1; this.h = 1;
     this.pose = 'portrait';

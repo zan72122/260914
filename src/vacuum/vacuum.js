@@ -107,6 +107,14 @@ export class Vacuum {
     this._moteT = 0;
 
     this.audio = null;
+    /**
+     * Cosmetic-only RNG: mote sizes and puff sizes. It is separate from `rng`
+     * so that drawing does not consume the stream the simulation draws from,
+     * and it exists at all so that two runs of the same seed produce the same
+     * PIXELS — `dev/shot.mjs` output is only diffable if nothing in the draw
+     * path calls `Math.random`.
+     */
+    this.fxRng = null;
     this._fieldOut = { fx: 0, fy: 0, strength: 0, inCapture: false, dist: 0 };
     this._mouth = { x: 0, y: 0, dirX: 0, dirY: -1 };
   }
@@ -561,7 +569,7 @@ export class Vacuum {
             const uy = this.dirX * Math.sin(spread) + this.dirY * Math.cos(spread);
             pu.x = mx + ux * 6; pu.y = my + uy * 6;
             pu.vx = ux * 150; pu.vy = uy * 150;
-            pu.life = 1; pu.r = 3 + Math.random() * 4;
+            pu.life = 1; pu.r = 3 + (this.fxRng ? this.fxRng.next() : Math.random()) * 4;
             break;
           }
         }
@@ -603,7 +611,7 @@ export class Vacuum {
           const rad = 50 + (this.rng ? this.rng.next() : Math.random()) * this.radius * 0.7;
           m.x = this.mouthX + Math.cos(a) * rad;
           m.y = this.mouthY + Math.sin(a) * rad * 0.8;
-          m.vx = 0; m.vy = 0; m.life = 1; m.r = 0.7 + Math.random() * 1;
+          m.vx = 0; m.vy = 0; m.life = 1; m.r = 0.7 + (this.fxRng ? this.fxRng.next() : Math.random());
           break;
         }
       }
