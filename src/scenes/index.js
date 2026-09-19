@@ -10,12 +10,11 @@ import { CarpetScene } from './carpet.js';
 import { PantryScene } from './pantry.js';
 import { VerandaScene } from './veranda.js';
 import { StairsScene } from './stairs.js';
-import { StubScene } from './stub.js';
 import { WindowScene } from './window.js';
 import { BedroomScene } from './bedroom.js';
 
 /**
- * Scene registry.
+ * Scene registry — the ONLY core file a new scene touches.
  *
  * `hall` is the hub: every room's door lives there, and every room hands back
  * to it. The ROOM order below is the order the doors appear along the hallway
@@ -26,8 +25,9 @@ import { BedroomScene } from './bedroom.js';
  *   intro -> kitchen -> paper -> toy -> thread -> sand -> sofa -> carpet -> intro
  * which is what `CHAIN_NEXT` below is for.
  *
- * A Phase B agent replaces exactly ONE line: their `StubScene` entry becomes
- * `new <Their>Scene(rng)`, plus the import.
+ * All thirteen rooms are written; the placeholder scene that used to stand in
+ * for an unwritten one is gone, and with it `isStub()`. Adding a room is still
+ * one import and one line here, and nothing else in the core.
  */
 export const SCENES = [
   { id: 'hall', make: (rng) => new HallScene(rng) },
@@ -51,7 +51,6 @@ export const CHAIN = ['intro', 'kitchen', 'paper', 'toy', 'thread', 'sand', 'sof
 
 export function sceneIds() { return SCENES.map((s) => s.id); }
 export function roomIds() { return SCENES.filter((s) => s.id !== 'hall').map((s) => s.id); }
-export function isStub(id) { const e = findScene(id); return !!(e && e.stub); }
 export function findScene(id) { return SCENES.find((s) => s.id === id) || null; }
 export function nextSceneId(id) {
   const i = CHAIN.indexOf(id);
