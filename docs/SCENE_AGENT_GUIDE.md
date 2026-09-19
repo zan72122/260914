@@ -110,6 +110,13 @@ this.placeBin({ side: 'left' });   // same rule, other corner
 front). You do not update it, draw it, or trigger it. Do not set `ownsBin`
 unless you are writing a finale that drives the pour itself.
 
+The same applies to the debris. `this.clearStartZone(n)` pushes pieces OUT of
+the parked airflow; `this.pullIntoReach(34)` pulls them back INSIDE the
+rectangle the head can reach. A piece exactly ON that boundary is the one that
+bites: it is reachable only with the finger jammed against the bottom of the
+glass, so it is not unwinnable, just a long unrewarding grind on the last piece
+in the room. Call both at the end of `layout()`.
+
 Both poses need one. A room with no bin is a room a child can get stuck in.
 
 ---

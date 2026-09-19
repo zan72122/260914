@@ -262,6 +262,15 @@ export class MyScene extends Scene {
   to hang. Debris a little outside the rectangle is still fine — the airflow
   reaches ~200px at full power — but a scene scattering things near an edge
   should filter against it, as the entrance hall does for its grit.
+  `this.pullIntoReach(margin)` is the other half of `clearStartZone`: it clamps
+  every piece's aim point back inside the rectangle, with a margin that leaves
+  the head somewhere to stand. It is opt-in, because a scene may mean it — the
+  deep nook under the sofa is deliberately out of reach and is won by holding
+  still. A piece sitting exactly ON the boundary is the case to watch: it is
+  reachable only with the finger jammed against the bottom of the glass, which
+  is not impossible, just a long unrewarding grind on the last piece in the
+  room. The intro's roll-in bunny sat there in landscape and turned the first
+  room in the game from six seconds into twenty-nine.
   **It is measured at `this.rest`, and a room whose camera MOVES has to say what
   it means by that.** With `followTo`/`stepTo` the reachable world is the rest
   rectangle swept along the camera's path, which is much bigger. A scrolling
