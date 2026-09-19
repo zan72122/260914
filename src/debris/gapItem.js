@@ -54,6 +54,9 @@ export class GapItem extends Debris {
     this.cock = 0;             // wind-up away from the mouth, just before it goes
     this.cockT = -1;
     this.flying = false;
+    this.flyT = 0;             // how long it has been in the air
+    this.shoo = 0;             // 1 the frame it leaves, decaying: the streak
+    this.shooX = x; this.shooY = y;
     this.shuffle = 0;          // >0: hopping up the queue after the one in front
     /**
      * A beat of its own before it will go. Without it, a head held deep in the
@@ -84,6 +87,7 @@ export class GapItem extends Debris {
   }
 
   update(dt, vac, world) {
+    this.shoo = Math.max(0, this.shoo - dt * 2.6);
     if (this.state === State.DONE) return;
     this.t += dt;
     const f = vac.field(this.x, this.y, this._f);
@@ -128,6 +132,7 @@ export class GapItem extends Debris {
     }
 
     if (this.flying) {
+      this.flyT += dt;
       this.vx += this.ax * Math.max(0, proj) * 1500 * dt / this.K.mass;
       this.vx += f.fx * 120 * dt;
       this.vy += this.ay * Math.max(0, proj) * 1500 * dt / this.K.mass;
@@ -173,11 +178,16 @@ export class GapItem extends Debris {
           if (this.cockT >= 0.09) {
             if (proj > this.K.thr * 0.85) {
               this.flying = true;
+              this.flyT = 0;
               this.state = State.PULLED;
               this.vx = this.ax * 130; this.vy = this.ay * 130;
               this.spin = this.rng.range(-7, 7);
               this.cockT = -1; this.cock = 0;
               this.launched = true;
+              // the "shoo": it leaves from a standstill, so the frame it goes
+              // needs a mark on it or the whole event falls between frames
+              this.shoo = 1;
+              this.shooX = this.x; this.shooY = this.y;
             } else { this.cockT = -1; this.cock = 0; }
           }
         } else if (proj < this.K.thr * 0.6) this.cock = 0;
@@ -186,9 +196,27 @@ export class GapItem extends Debris {
     }
 
     if (f.inCapture) {
+      // Nothing in this slot is ever simply removed from the shelf. Even when
+      // the head is driven right up to it, the item cocks back the width of
+      // itself and then shoots — so the "shoo" the room is named for happens
+      // every time, and the streak has two frames to be seen in.
+      if (!this.flying && !this.escaped) { this._shoot(); return; }
+      if (this.flying && this.flyT < 0.13) return;
       this._handOff(vac, { kind: this.K.cup, color: this.K.color, size: this.K.size });
       world.onCaptured && world.onCaptured(this);
     }
+  }
+
+  _shoot() {
+    this.shooX = this.x - this.ax * this.r * 1.5;
+    this.shooY = this.y - this.ay * this.r * 1.5;
+    this.x = this.shooX; this.y = this.shooY;
+    this.flying = true;
+    this.flyT = 0;
+    this.shoo = 1;
+    this.state = State.PULLED;
+    this.cock = 0; this.cockT = -1;
+    this.vx = this.ax * 260; this.vy = this.ay * 260;
   }
 
   /** Out on the open boards: an ordinary crumb, shivering then skating in. */
@@ -235,6 +263,31 @@ export class GapItem extends Debris {
     const sp = Math.hypot(this.vx, this.vy);
     const stretch = 1 + clamp(sp / 620, 0, 0.7);
     ctx.save();
+    // the shoo: a tapering streak back to the spot it left from, plus two
+    // speed lines either side of it, so "it shot off down the slot" is a thing
+    // you can see in ONE frame
+    if (this.shoo > 0.02) {
+      const a = this.shoo;
+      ctx.globalAlpha = a * 0.8;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = this.K.color;
+      ctx.lineWidth = this.r * 1.5 * a;
+      ctx.beginPath();
+      ctx.moveTo(this.shooX - this.ax * 4, this.shooY - this.ay * 4);
+      ctx.lineTo(this.x, this.y);
+      ctx.stroke();
+      ctx.globalAlpha = a * 0.55;
+      ctx.strokeStyle = 'rgba(255,252,240,0.9)';
+      ctx.lineWidth = 2.2;
+      for (let i = -1; i <= 1; i += 2) {
+        const ox = this.px * this.r * 1.5 * i, oy = this.py * this.r * 1.5 * i;
+        ctx.beginPath();
+        ctx.moveTo(this.shooX + ox, this.shooY + oy);
+        ctx.lineTo(this.x - this.ax * this.r * 1.2 + ox, this.y - this.ay * this.r * 1.2 + oy);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
     ctx.fillStyle = 'rgba(24,16,8,0.30)';
     ctx.beginPath();
     ctx.ellipse(this.x + 2, this.y + this.r * 0.55, this.r * 0.85, this.r * 0.32, 0, 0, TAU);

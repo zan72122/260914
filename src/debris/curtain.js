@@ -167,7 +167,10 @@ export class Curtain {
         const idle = Math.sin(this.t * 1.35 - c * 0.5) * swayAmp * w;
         const amp = (2.2 + 9.5 * l) * (1 - 0.55 * this.grab) + this.snapFlash * 15 * w;
         this.dx[i] = cl.x[i] + wave * amp * 0.55 + idle;
-        this.dy[i] = cl.y[i] - l * (cl.hy[i] - this.railY) * 0.60 + wave * amp * 0.28;
+        // the hem rolls up further than the rows above it, so the fabric bows
+        // into a curl instead of sliding up as one flat sheet
+        const ret = 0.52 + 0.30 * w;
+        this.dy[i] = cl.y[i] - l * (cl.hy[i] - this.railY) * ret + wave * amp * 0.28;
       }
     }
     this.snapFlash = Math.max(0, this.snapFlash - dt * 2.6);
@@ -207,17 +210,43 @@ export class Curtain {
     cl.drawImage(ctx, this.img, { shade: true });
     cl.x = ox; cl.y = oy;
 
-    // the shadow the hem still casts on the boards it has not left yet
+    // The hem's shadow stays on the BOARDS, where the fabric is resting when
+    // nothing is happening. As the hem comes up the drawn edge climbs away from
+    // it and a strip of lit floor opens between the two — that gap is the only
+    // thing that tells a four-year-old the hem went UP rather than got shorter,
+    // so it is drawn from the rest positions, not the display ones.
     const C = this.cols;
+    const base = (this.rows - 1) * C;
+    const L = clamp(this.lift, 0, 1);
     ctx.save();
-    ctx.globalAlpha = 0.13 * (1 - clamp(this.lift, 0, 1) * 0.6);
+    ctx.globalAlpha = 0.11 + 0.24 * L;
     ctx.fillStyle = '#3a2a16';
     ctx.beginPath();
-    ctx.moveTo(this.dx[(this.rows - 1) * C], this._hemY[0] + 3);
-    for (let c = 1; c < C; c++) ctx.lineTo(this.dx[(this.rows - 1) * C + c], this._hemY[c] + 3);
-    for (let c = C - 1; c >= 0; c--) ctx.lineTo(this.dx[(this.rows - 1) * C + c], this._hemY[c] + 13);
+    ctx.moveTo(this.dx[base], cl.hy[base] + 2);
+    for (let c = 1; c < C; c++) ctx.lineTo(this.dx[base + c], cl.hy[base + c] + 2);
+    for (let c = C - 1; c >= 0; c--) ctx.lineTo(this.dx[base + c], cl.hy[base + c] + 11 + 17 * L);
     ctx.closePath();
     ctx.fill();
+
+    // and the underside of the lifted hem catches the window: a warm lit lip
+    // that thickens as it curls, so the edge is a rolled edge and not a cut
+    if (L > 0.02) {
+      ctx.globalAlpha = clamp(0.20 + 0.72 * L, 0, 1);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(94,72,44,0.55)';
+      ctx.lineWidth = 2.4 + 5.5 * L;
+      ctx.beginPath();
+      ctx.moveTo(this.dx[base], this._hemY[0] + 1);
+      for (let c = 1; c < C; c++) ctx.lineTo(this.dx[base + c], this._hemY[c] + 1);
+      ctx.stroke();
+      ctx.strokeStyle = '#fff1cf';
+      ctx.lineWidth = 1.6 + 3.4 * L;
+      ctx.beginPath();
+      ctx.moveTo(this.dx[base], this._hemY[0] + 2.5 + 2 * L);
+      for (let c = 1; c < C; c++) ctx.lineTo(this.dx[base + c], this._hemY[c] + 2.5 + 2 * L);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
