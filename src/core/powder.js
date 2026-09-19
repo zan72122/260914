@@ -9,9 +9,12 @@ const TMPF = { fx: 0, fy: 0, strength: 0, inCapture: false, dist: 0 };
  * around. Density lies flat on the floor, and the airflow does three different
  * things to it, which is what makes powder read as air made visible:
  *
- *   advect(vac, dt)   every cell's mass slides a little way DOWN the flow
- *                     vector, so the film draws itself into streaks that all
- *                     point at the mouth, and the streaks thin as they go in
+ *   advect(vac,dt,    every cell's mass slides a little way DOWN the flow
+ *     gain, swirl)    vector, so the film draws itself into streaks that all
+ *                     point at the mouth, and the streaks thin as they go in.
+ *                     Mass-conserving: nothing is cleaned that did not go in.
+ *   feather(rect,w)   fade the film out at the edges instead of ruling a line
+ *   clipTo(rect)      cut it to the shape of what it is lying on
  *   suck(x,y,r,rate)  mass at the mouth is taken away and returned to the
  *                     caller, which is what fills the cup
  *   puff(x,y,r)       a fast approach lifts the film off the floor into
@@ -24,7 +27,7 @@ const TMPF = { fx: 0, fy: 0, strength: 0, inCapture: false, dist: 0 };
  *   const pw = new Powder({x0,y0,x1,y1}, 64, 64);
  *   pw.blob(x, y, 90, 1);                       // tip the bag over
  *   const got = pw.suck(vac.mouthX, vac.mouthY, 30, 2.4 * dt * f.strength);
- *   pw.advect(vac, dt);
+ *   pw.advect(vac, dt);                         // mass-conserving
  *   pw.drawSoft(ctx, '#fdfaf3');
  */
 export class Powder {
@@ -121,33 +124,114 @@ export class Powder {
    * sampled one flow-step upwind of each cell, so everything downstream of the
    * mouth stretches into lines that converge on it.
    *
+   *   pw.advect(vac, dt);                   // straight in
+   *   pw.advect(vac, dt, 380, 0.55);        // slower, and it curls as it comes
+   *
+   * `gain` is how far a unit of flow moves the film in one second; `swirl` is a
+   * rotation in radians applied to the flow vector, scaled DOWN where the flow
+   * is strong — so the film curls in from the far edge and straightens out as it
+   * reaches the mouth, which is what makes it read as air rather than as a pull.
+   *
+   * **Mass-conserving.** Semi-Lagrangian sampling leaks mass at the leading edge
+   * of the film, and that leak is INVISIBLE CLEANING: powder disappearing
+   * without going up the tube, so the room gets shorter the harder the air
+   * blows. Whatever the pass lost is given straight back to the cells the air is
+   * touching (`was / now` is exactly that ratio), so the powder GATHERS in the
+   * flow instead of evaporating. The cap is only a guard against `now`
+   * collapsing to nothing.
+   *
    * `dt` is clamped internally, so a dropped frame cannot blow the film apart.
    */
-  advect(vac, dt, gain = 900) {
-    if (!vac) return;
+  advect(vac, dt, gain = 900, swirl = 0) {
+    if (!vac) return 0;
     const C = this.cols, R = this.rows, d = this.d, t = this._t;
     const step = Math.min(0.05, dt);
+    const x0 = this.rect.x0, y0 = this.rect.y0, cw = this.cw, ch = this.ch;
+    if (!this._touch || this._touch.length !== C * R) this._touch = new Int32Array(C * R);
+    const touch = this._touch;
+    let nt = 0, was = 0, now = 0;
     t.set(d);
     for (let cy = 0; cy < R; cy++) {
+      const wy = this.worldY(cy);
       for (let cx = 0; cx < C; cx++) {
         const i = cy * C + cx;
-        if (t[i] <= 0.0005) { d[i] = t[i]; continue; }
-        const wx = this.worldX(cx), wy = this.worldY(cy);
+        const v0 = t[i];
+        if (v0 <= 0.0005) { d[i] = v0; continue; }
+        const wx = this.worldX(cx);
         const f = vac.field(wx, wy, TMPF);
-        if (f.strength < 0.02) { d[i] = t[i]; continue; }
+        if (f.strength < 0.02) { d[i] = v0; continue; }
         // where did this cell's powder come from? one flow-step back upwind
-        const bx = wx - f.fx * gain * step;
-        const by = wy - f.fy * gain * step;
-        const sx = clamp((bx - this.rect.x0) / this.cw - 0.5, 0, C - 1.001);
-        const sy = clamp((by - this.rect.y0) / this.ch - 0.5, 0, R - 1.001);
-        const x0 = sx | 0, y0 = sy | 0;
-        const fx = sx - x0, fy = sy - y0;
-        const a = t[y0 * C + x0], b = t[y0 * C + x0 + 1];
-        const c = t[(y0 + 1) * C + x0], e = t[(y0 + 1) * C + x0 + 1];
-        const v = a + (b - a) * fx + ((c + (e - c) * fx) - (a + (b - a) * fx)) * fy;
-        // blend, so weak flow only smears it and strong flow moves it bodily
-        const k = clamp(f.strength * 1.6, 0, 1);
-        d[i] = t[i] + (v - t[i]) * k;
+        let fx = f.fx, fy = f.fy;
+        if (swirl) {
+          const a = swirl / (1 + f.strength * 3.4);
+          const ca = Math.cos(a), sa = Math.sin(a);
+          fx = f.fx * ca - f.fy * sa;
+          fy = f.fx * sa + f.fy * ca;
+        }
+        const sx = clamp((wx - fx * gain * step - x0) / cw - 0.5, 0, C - 1.001);
+        const sy = clamp((wy - fy * gain * step - y0) / ch - 0.5, 0, R - 1.001);
+        const ix = sx | 0, iy = sy | 0;
+        const tx = sx - ix, ty = sy - iy;
+        const q = iy * C + ix;
+        const aa = t[q], bb = t[q + 1], cc = t[q + C], ee = t[q + C + 1];
+        const top = aa + (bb - aa) * tx;
+        const bot = cc + (ee - cc) * tx;
+        const v = top + (bot - top) * ty;
+        // Blend, so weak flow only smears it and strong flow moves it bodily.
+        // The ceiling matters: at k = 1 a cell is REPLACED by whatever is one
+        // flow-step upwind, which in a strong flow is often bare floor, and the
+        // give-back below then has to restore more mass than it can account
+        // for. 0.72 is the pantry's number, proved over a whole room.
+        const k = clamp(f.strength * 1.6, 0, 0.72);
+        const nv = v0 + (v - v0) * k;
+        d[i] = nv;
+        touch[nt++] = i;
+        was += v0; now += nv;
+      }
+    }
+    if (nt && now > 1e-6 && was > now) {
+      const k = Math.min(4, was / now);
+      for (let i = 0; i < nt; i++) d[touch[i]] *= k;
+      return was;
+    }
+    return was;
+  }
+
+  /**
+   * Fade the film out over `w` world px inside the edges of a rectangle (the
+   * film's own, by default), so it ends in a soft drift instead of a ruled
+   * line. Call it once after laying the powder down and BEFORE `markDirty()`,
+   * or the feathered edge counts as dirt that can never quite be cleaned.
+   */
+  feather(rect, w = 40) {
+    const r = rect || this.rect;
+    const wd = Math.max(1e-3, w);
+    for (let cy = 0; cy < this.rows; cy++) {
+      const wy = this.worldY(cy);
+      for (let cx = 0; cx < this.cols; cx++) {
+        const i = this.idx(cx, cy);
+        if (this.d[i] <= 0) continue;
+        const wx = this.worldX(cx);
+        const e = Math.min(wx - r.x0, r.x1 - wx, wy - r.y0, r.y1 - wy);
+        if (e >= wd) continue;
+        this.d[i] *= clamp(e / wd, 0, 1);
+      }
+    }
+  }
+
+  /**
+   * Wipe everything outside a rectangle. A film laid down with round `blob`s
+   * spills past whatever it is meant to be sitting on (a mat, a tile, the floor
+   * inside a doorway); this cuts it to that shape. Like `feather`, use it
+   * before `markDirty()`.
+   */
+  clipTo(rect) {
+    for (let cy = 0; cy < this.rows; cy++) {
+      const wy = this.worldY(cy);
+      for (let cx = 0; cx < this.cols; cx++) {
+        const wx = this.worldX(cx);
+        if (wx >= rect.x0 && wx <= rect.x1 && wy >= rect.y0 && wy <= rect.y1) continue;
+        this.d[this.idx(cx, cy)] = 0;
       }
     }
   }
