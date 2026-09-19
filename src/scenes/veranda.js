@@ -176,6 +176,16 @@ export class VerandaScene extends Scene {
 
     // nothing may sit where the head cannot follow it
     const R = this.reachRect({ x0: 0, y0: 0, x1: 0, y1: 0 }, 26);
+    // ...and nothing may be BLOWN there either. `bounds` is the deck a leaf is
+    // allowed to slide around on, and every loose piece holds this same object,
+    // so clipping it to the reachable rectangle here fixes them all at once.
+    // Without this, the side gust piles leaves against the house wall at
+    // bounds.x1, which on a landscape phone is past the far end of the mouth's
+    // travel: half a dozen leaves the child can see and can never have.
+    this.bounds.x0 = Math.max(this.bounds.x0, R.x0);
+    this.bounds.x1 = Math.min(this.bounds.x1, R.x1);
+    this.bounds.y0 = Math.max(this.bounds.y0, R.y0);
+    this.bounds.y1 = Math.min(this.bounds.y1, R.y1);
     const a = { x: 0, y: 0 };
     for (let i = 0; i < this.debris.length; i++) {
       const d = this.debris[i];
