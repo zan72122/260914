@@ -601,6 +601,23 @@ out of the riser corner all the way up.
   back — compare `dev/out/pt4-veranda-l/000.png` with `pt3-veranda-l/000.png`.
 * **(e)** strong, with the peel fix above on top of it.
 
+### and a bug the review turned up: leaves blown out of reach
+
+* `node dev/playthrough.mjs --device=iphone-landscape` **failed** in this room:
+  200 s and twelve pieces left, six of them stacked at `x ≈ 245`, `reacting`
+  at `s ≈ 0.18`, never taken.
+* The cause: `bounds` — the deck a leaf is allowed to slide around on — ran all
+  the way to the house wall (`wallX - 52`), but the head's reachable rectangle
+  stops short of that on a landscape phone. The room already clamped the
+  *initial* placement into reach; it did not stop the side gust from blowing a
+  leaf out of it afterwards. Half a dozen leaves the child can see and can
+  never have is the worst kind of bug in a wordless game: there is no way to
+  be told it is not your fault.
+* **Fixed** by clipping `bounds` to that same rectangle at layout time. Every
+  loose piece holds the one object, so it fixes them all, and the bin (placed
+  from `bounds.y1`) lands inside reach too. Layout is otherwise unchanged —
+  one leaf moved 13 px.
+
 ---
 
 ## bedroom — cushions, pet hair, and the boss under the bed
@@ -652,10 +669,18 @@ out of the riser corner all the way up.
 ## Verification after the fixes
 
 * `node dev/core-tests.mjs` — **33/33 passed**.
-* `node dev/playthrough.mjs --device=iphone-portrait --clean=<the eight old
-  rooms>` — all five rooms finished, **zero page errors**: pantry 86.1 s,
-  stairs 18.7 s, window 8.6 s, veranda 16.7 s, bedroom 41.4 s, total 194.9 s,
-  fps min/median 19.2 / 55.
+* `node dev/playthrough.mjs --devices=iphone-portrait,iphone-landscape
+  --clean=<the eight old rooms> --budget=220` — **both poses finished, zero
+  page errors**:
+
+  | device | pantry | stairs | window | veranda | bedroom | hall | total | fps min/med |
+  |---|---|---|---|---|---|---|---|---|
+  | iphone-portrait | 27.2s | 18.3s | 8.1s | 46.4s | 25.6s | 23.2s/6 | 148.7s | 29 / 55.2 |
+  | iphone-landscape | 65.8s | 26.1s | 8.7s | 14.5s | 28.8s | 22.6s/6 | 166.5s | 36.9 / 57.6 |
+
+  Landscape **was failing** before the reach fix above (veranda 180 s, give-up).
+* The whole house end to end, `--device=iphone-portrait` with nothing pre-cleaned:
+  all thirteen rooms, 339 s, zero errors, celebration and reset in 5 s.
 * `node dev/fps.mjs --scene=<id> --device=iphone-portrait --seconds=5`:
   stairs 52.8, veranda 50, pantry 45.6, window 38.4, bedroom 36 median.
   The three under 50 were **already** under 50 before this review's changes —
@@ -665,10 +690,11 @@ out of the riser corner all the way up.
 
 ## Left alone (Phase B review)
 
-* **pantry is long.** 86 s on the autopilot is by far the longest room in the
-  house; a density grid takes a while to empty by hand. It is not a feel
-  problem and it is the room's whole point, but it is the first place to look
-  if the house ever needs to be shorter.
+* **pantry is long**, and how long depends entirely on the path the autopilot
+  happens to take through the powder: 27 s in portrait and 66 s in landscape on
+  the same run, and 75 s on a full-house pass. A density grid takes a while to
+  empty by hand. It is not a feel problem and it is the room's whole point, but
+  it is the first place to look if the house ever needs to be shorter.
 * **the window's gap crumb** at 14 design px is the smallest live thing in the
   five rooms. It is pale on near-black and always in a queue with bigger
   things, so it reads — but it is the one item below the brief's 9 px bar only
