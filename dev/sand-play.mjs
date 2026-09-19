@@ -10,7 +10,7 @@ import { launch, DEVICES } from './shot.mjs';
 const device = process.argv[2] || 'iphone-portrait';
 const secs = Number(process.argv[3] || 45);
 const dim = DEVICES[device];
-const { server, url } = await startServer(8132);
+const { server, url } = await startServer(Number(process.env.PORT || 0));
 const browser = await launch();
 const ctx = await browser.newContext({
   viewport: { width: dim.width, height: dim.height },

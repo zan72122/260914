@@ -1,7 +1,7 @@
 /** Suck for a while, rotate the device, and check the scene survives it. */
 import { startServer } from './serve.mjs';
 import { launch, DEVICES } from './shot.mjs';
-const { server, url } = await startServer(8134);
+const { server, url } = await startServer(Number(process.env.PORT || 0));
 const browser = await launch();
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 const page = await ctx.newPage();

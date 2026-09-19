@@ -20,6 +20,8 @@
  * |------|---------|---------|
  * | `--scene`   | `sofa` | scene id |
  * | `--device`  | `iphone-portrait` | or `--devices=a,b` / `--all` |
+ * | `--all`     | off | every scene x every device — but an explicit `--scene`/
+ *                       `--device` still wins on that axis |
  * | `--seconds` | 6 | sampling window (the first second is discarded) |
  * | `--hold`    | — | `@bunny#3`, `@sock`, `@auto`: park the mouth on it |
  * | `--profile` | off | also report ms/frame in sim, scene.draw, vacuum.draw, drawOver, light |
@@ -30,7 +32,9 @@
 import { startServer } from './serve.mjs';
 import { launch, DEVICES } from './shot.mjs';
 
-const SCENES = ['hall', 'intro', 'kitchen', 'paper', 'toy', 'thread', 'sand', 'sofa', 'carpet'];
+/** Every scene in the game, in hallway order. `--all` walks this list. */
+const SCENES = ['hall', 'intro', 'kitchen', 'paper', 'toy', 'thread', 'sand', 'sofa', 'carpet',
+  'pantry', 'stairs', 'window', 'veranda', 'bedroom'];
 
 function args() {
   const a = {};
@@ -43,9 +47,16 @@ function args() {
 const A = args();
 const seconds = parseFloat(A.seconds || '6');
 const seed = A.seed || '1337';
-const scenes = A.all ? SCENES : (A.scenes ? String(A.scenes).split(',') : [A.scene || 'sofa']);
-const devices = A.all || A.devices ? (A.devices ? String(A.devices).split(',') : Object.keys(DEVICES))
-  : [A.device || 'iphone-portrait'];
+/**
+ * `--all` means "every scene x every device" — but only for the axis that was
+ * not named. `--all --scene=pantry` is one room on four devices, and
+ * `--all --device=ipad-portrait` is every room on one, because a probe you have
+ * to narrow by hand is a probe nobody narrows.
+ */
+const namedScenes = A.scenes ? String(A.scenes).split(',') : (A.scene ? [A.scene] : null);
+const namedDevices = A.devices ? String(A.devices).split(',') : (A.device ? [A.device] : null);
+const scenes = namedScenes || (A.all ? SCENES : ['sofa']);
+const devices = namedDevices || (A.all ? Object.keys(DEVICES) : ['iphone-portrait']);
 
 /**
  * Injected into the page. Same shape as the playthrough autopilot: it reads
@@ -171,7 +182,7 @@ function PROBE(cfg) {
   requestAnimationFrame(tick);
 }
 
-const { server, url } = await startServer(Number(process.env.PORT || 0) || 8166);
+const { server, url } = await startServer(Number(process.env.PORT || 0));   // 0 = any free port
 const browser = await launch();
 const rows = [];
 for (const scene of scenes) {

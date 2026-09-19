@@ -28,9 +28,12 @@ const MATRIX = {
   sand: [['approach-slow', 18, 120, 300], ['circle', 16, 180, 0]],
   sofa: [['approach-slow', 16, 140, 300], ['hold', 16, 190, 0]],
   carpet: [['rub', 18, 140, 0], ['approach-slow', 14, 120, 300]],
+  pantry: [['approach-slow', 16, 120, 300], ['approach-fast', 14, 90, 0], ['hold', 16, 170, 0]],
+  stairs: [['approach-slow', 16, 130, 300], ['hold', 16, 180, 0]],
+  window: [['approach-slow', 16, 120, 300], ['hold', 16, 180, 0]],
+  veranda: [['approach-slow', 16, 120, 300], ['hold', 16, 180, 0]],
+  bedroom: [['approach-slow', 16, 130, 300], ['hold', 16, 190, 0]],
 };
-// The Phase B rooms go in here as they land; their StubScene placeholders have
-// nothing to look at, so they are deliberately not in the review matrix yet.
 
 const only = (process.argv.find((a) => a.startsWith('--scene=')) || '').slice(8);
 

@@ -17,9 +17,34 @@ const TYPES = {
   '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json', '.webp': 'image/webp', '.map': 'application/json',
 };
 
+/**
+ * Start the dev server.
+ *
+ * `port` is a PREFERENCE, not a demand: 0 asks the OS for any free port, and a
+ * port that is already taken (another harness run, a stale server) silently
+ * falls back to a free one instead of throwing EADDRINUSE. The resolved object
+ * always carries the port actually bound, so callers must use the returned
+ * `url` and never rebuild one from the number they asked for.
+ */
 export function startServer(port = PORT) {
-  const server = createServer(handler);
-  return new Promise((resolve) => server.listen(port, () => resolve({ server, port, url: 'http://127.0.0.1:' + port })));
+  return new Promise((resolve, reject) => {
+    const server = createServer(handler);
+    let retried = false;
+    server.on('error', (e) => {
+      if ((e.code === 'EADDRINUSE' || e.code === 'EACCES') && !retried) {
+        retried = true;
+        server.listen(0);
+        return;
+      }
+      reject(e);
+    });
+    const done = () => {
+      const a = server.address();
+      const p = a && typeof a === 'object' ? a.port : port;
+      resolve({ server, port: p, url: 'http://127.0.0.1:' + p });
+    };
+    server.listen(port, done);
+  });
 }
 
 async function handler(req, res) {

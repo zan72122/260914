@@ -16,7 +16,7 @@ const dir = join(ROOT, 'dev', 'out', 'sand-' + device + '-buried');
 await rm(dir, { recursive: true, force: true });
 await mkdir(dir, { recursive: true });
 
-const { server, url } = await startServer(8133);
+const { server, url } = await startServer(Number(process.env.PORT || 0));
 const browser = await launch();
 const ctx = await browser.newContext({
   viewport: { width: dim.width, height: dim.height },

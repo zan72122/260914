@@ -67,6 +67,21 @@ const MAX_SHOTS = parseInt(A.shots || '30', 10);
 const HUB = !A.chain;                    // `--chain` plays the old linear ring
 const FROM = A.from || (HUB ? 'hall' : 'intro');
 const TRACE = !!A.trace;                 // log every target change into result.json
+/**
+ * How long the driver may keep holding on ONE piece before it gives up and goes
+ * to look at something else.
+ *
+ *   --grind=<s>      the hard ceiling on a single hold  (default 60)
+ *   --grind-unpaid=<s>  the ceiling while the hold is paying NOTHING (default 14)
+ *
+ * The boss bunny under the bed and the mother bunny under the sofa are both
+ * won by standing still for a long time, and a room whose finale takes longer
+ * than the ceiling is unfinishable by the driver for harness reasons alone —
+ * which is not the same thing as a room a child cannot finish. So it is a flag,
+ * and 60s is generous enough for every room in the house as it stands.
+ */
+const GRIND = parseFloat(A.grind || '60');
+const GRIND_UNPAID = parseFloat(A['grind-unpaid'] || '14');
 const PRECLEAN = A.clean || '';          // `--clean=intro,kitchen` to skip rooms
 
 // --------------------------------------------------------------- autopilot
@@ -336,9 +351,12 @@ function AUTOPILOT(cfg) {
       // the tube — the cup keeps growing. A bead wedged behind a toy where the
       // head cannot follow gives nothing at all, and used to be held for a full
       // 45 seconds before the driver looked elsewhere. So: patience while it
-      // pays, 14 seconds when it does not, and a hard ceiling either way.
+      // pays, `grindUnpaid` seconds when it does not, and a hard `grind`
+      // ceiling either way — both are flags (`--grind`, `--grind-unpaid`),
+      // because a finale that takes longer than the ceiling is a harness
+      // limitation, not a room a child cannot finish.
       if (g.vacuum.cupVolTotal > grindVol + 0.01) { grindVol = g.vacuum.cupVolTotal; grindT = 0; }
-      if ((grindT > 14 || grindTotal > 45) && targetId) {
+      if ((grindT > cfg.grindUnpaid || grindTotal > cfg.grind) && targetId) {
         if (cfg.trace) R.trace.push(Math.round(t - cur.t0) + ' ~~ ' + targetId + ' ground out wd='
           + Math.round(wdist) + ' after ' + grindTotal.toFixed(1) + 's (' + grindT.toFixed(1) + 's unpaid)');
         avoid[targetId] = t + 8000;
@@ -400,7 +418,8 @@ async function runDevice(url, browser, name) {
 
   await page.addInitScript({
     content: '(' + AUTOPILOT.toString() + ')('
-      + JSON.stringify({ chain: CHAIN, rooms: ROOMS, hub: HUB, budget: BUDGET, trace: TRACE }) + ');',
+      + JSON.stringify({ chain: CHAIN, rooms: ROOMS, hub: HUB, budget: BUDGET, trace: TRACE,
+        grind: GRIND, grindUnpaid: GRIND_UNPAID }) + ');',
   });
   const extra = (HUB ? '' : '&chain=1') + (PRECLEAN ? '&clean=' + encodeURIComponent(PRECLEAN) : '');
   await page.goto(`${url}/index.html?scene=${FROM}&seed=${SEED}&mute=1${extra}`, { waitUntil: 'load' });
@@ -504,7 +523,7 @@ async function contactSheet(page, url, dirName, dir, shots, device) {
 
 // ---------------------------------------------------------------------- main
 
-const { server, url } = await startServer(Number(process.env.PORT || 0) || 8145);
+const { server, url } = await startServer(Number(process.env.PORT || 0));   // 0 = any free port
 const browser = await launch();
 const results = [];
 for (const name of deviceNames) {
