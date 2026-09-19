@@ -2,7 +2,7 @@ import { Scene } from './scene.js';
 import { FlourSpill } from '../debris/flour.js';
 import { Chip } from '../debris/chip.js';
 import { Prop, resolveProps } from '../props/prop.js';
-import { makePantryFloor, paintPantryMotif } from '../floors/pantry.js';
+import { makePantryFloor, paintPantryMotif, paintPantryAccents } from '../floors/pantry.js';
 import { TAU, clamp, smoothstep } from '../core/math.js';
 
 const RR = { x0: 0, y0: 0, x1: 0, y1: 0 };
@@ -188,6 +188,13 @@ export class PantryScene extends Scene {
     const park = this.parkPoint(portrait ? 92 : 78);
     spill.clearDisc(park.x, park.y, portrait ? 150 : 132);
     spill.seal();
+    // The medallion's small relatives, scattered over the rest of the room so
+    // that the floor AROUND the spill is worth clearing too. Painted only where
+    // the haze is thick enough to hide them, and after the spill exists so it
+    // can be asked — otherwise half of them are on show before a finger has
+    // moved and the reveal is spent.
+    paintPantryAccents(this.floor, safe, rng, motif, portrait ? 16 : 18,
+      (x, y) => spill.densityAt(x, y) > 0.34);
     this.spill = spill;
     this.debris.push(spill);
 
@@ -500,7 +507,24 @@ export class PantryScene extends Scene {
     const u = this.bloom;
     const grow = smoothstep(0, 0.7, u);
     ctx.save();
+    // the light in the pantry comes up with it: a clean floor is a LIT floor,
+    // otherwise finishing this room hands the child a black rectangle
+    const sf = this.safe;
+    const R = Math.hypot(sf.x1 - sf.x0, sf.y1 - sf.y0) * 0.62;
+    if (!this._wash || this._washR !== R) {
+      const gd = ctx.createRadialGradient(m.x, m.y, R * 0.10, m.x, m.y, R);
+      gd.addColorStop(0, 'rgba(255,220,171,1)');
+      gd.addColorStop(0.55, 'rgba(255,214,160,0.55)');
+      gd.addColorStop(1, 'rgba(255,208,150,0)');
+      this._wash = gd; this._washR = R;
+    }
     ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.30 * grow;
+    ctx.fillStyle = this._wash;
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, R, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = 1;
     ctx.globalAlpha = 0.34 * Math.sin(Math.min(1, u) * Math.PI) + 0.12 * grow;
     ctx.fillStyle = '#ffdfa0';
     ctx.beginPath();

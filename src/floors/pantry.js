@@ -95,3 +95,42 @@ export function paintPantryMotif(floor, cx, cy, rx, ry, rng) {
   g.beginPath(); g.arc(0, 0, r, 0, TAU); g.stroke();
   g.restore();
 }
+
+/**
+ * Small warm accent tiles scattered over the rest of the pantry floor.
+ *
+ * The medallion under the spill is the prize; these are the reason the floor
+ * AROUND it is worth clearing too. They are painted on the base under the thin
+ * haze of flour that covers the whole room, so they come up one at a time as
+ * the child works outward — and when the room is finished it is a patterned
+ * floor rather than a black one.
+ */
+export function paintPantryAccents(floor, rect, rng, keepOut, n, hidden) {
+  const g = floor.bctx;
+  const N = n || 14;
+  const x0 = rect.x0 - floor.baseRect.x0, y0 = rect.y0 - floor.baseRect.y0;
+  const w = rect.x1 - rect.x0, h = rect.y1 - rect.y0;
+  for (let i = 0; i < N; i++) {
+    const px = x0 + rng.range(w * 0.06, w * 0.94);
+    const py = y0 + rng.range(h * 0.06, h * 0.94);
+    if (keepOut) {
+      const dx = (px + floor.baseRect.x0 - keepOut.x) / (keepOut.rx + 26);
+      const dy = (py + floor.baseRect.y0 - keepOut.y) / (keepOut.ry + 26);
+      if (dx * dx + dy * dy < 1) continue;
+    }
+    if (hidden && !hidden(px + floor.baseRect.x0, py + floor.baseRect.y0)) continue;
+    const r = rng.range(11, 17);
+    g.save();
+    g.translate(px, py);
+    g.rotate(rng.range(0, TAU));
+    // a warm diamond with a teal pip: the medallion's family, a quarter its size
+    g.fillStyle = '#e8b968';
+    g.beginPath();
+    g.moveTo(0, -r); g.lineTo(r, 0); g.lineTo(0, r); g.lineTo(-r, 0);
+    g.closePath(); g.fill();
+    g.strokeStyle = 'rgba(96,64,30,0.40)'; g.lineWidth = 2; g.stroke();
+    g.fillStyle = '#4fb9a6';
+    g.beginPath(); g.arc(0, 0, r * 0.34, 0, TAU); g.fill();
+    g.restore();
+  }
+}
