@@ -165,6 +165,40 @@ export class Scene {
   }
 
   /**
+   * Pull every piece back inside the rectangle the head can reach.
+   *
+   * `clearStartZone` pushes debris OUT of the parked airflow; this is the other
+   * guard, and it is the one that decides whether a room can be finished. The
+   * head is clamped to the glass and drawn a whole lead offset ahead of the
+   * finger, so a piece sitting exactly on the edge of `reachRect` can only be
+   * reached with the finger jammed against the bottom of the screen and the
+   * mouth barely touching it — which in practice means a long, unrewarding grind
+   * on the last piece in the room, not an impossible one. Both are bad.
+   *
+   * Call it at the end of `layout()`, after every piece is in `this.debris`,
+   * with a margin that leaves the head somewhere to stand (30-40 is plenty).
+   * It measures from each piece's `aim()` point and moves it with `translate()`,
+   * so ropes, strands and patches come along in one piece; `anchored` pieces
+   * (an invitation that must stay where it is) are left alone.
+   *
+   * It is opt-in, not automatic: a scene may have a good reason to put
+   * something just outside — the deep nook under the sofa is deliberately out
+   * of the head's reach and is won by holding still instead.
+   */
+  pullIntoReach(margin = 34) {
+    const R = this.reachRect(CSZ_R, margin);
+    const a = { x: 0, y: 0 };
+    for (let i = 0; i < this.debris.length; i++) {
+      const d = this.debris[i];
+      if (d.anchored) continue;
+      d.aim(a);
+      const nx = a.x < R.x0 ? R.x0 : (a.x > R.x1 ? R.x1 : a.x);
+      const ny = a.y < R.y0 ? R.y0 : (a.y > R.y1 ? R.y1 : a.y);
+      if (nx !== a.x || ny !== a.y) d.translate(nx - a.x, ny - a.y);
+    }
+  }
+
+  /**
    * Put the room's bin down.
    *
    * EVERY room has one, because the cup-capacity mechanic only teaches itself

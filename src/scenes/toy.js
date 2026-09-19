@@ -294,12 +294,33 @@ export class ToyScene extends Scene {
     resolveProps(vac, this.props, dt, { separate: true, bounds: this.bounds });
 
     // a toy sliding off its nest uncovers it, piece by piece
+    //
+    // ...and a toy that has nowhere left to slide gives its dust up anyway.
+    // A toy shoved into a corner of `bounds`, or up against the solid chest,
+    // stops moving while it is still sitting on one of its own nest items —
+    // and then the child is pressing the head into the toy, the toy will not
+    // budge, and nothing at all happens. The room becomes unfinishable for the
+    // one piece the toy is standing on. (The playthrough driver found this the
+    // hard way: `bead#137 ground out wd=29` six times over, 140s in a room that
+    // takes nine.) So: while the head is ON the piece and the toy has not moved
+    // for a moment, the dust comes out from under the toy regardless. It reads
+    // as the last of it being dragged out, which is what is happening.
     for (let i = 0; i < this.debris.length; i++) {
       const d = this.debris[i];
       if (!d.dormant || !d.nest) continue;
       if (!covers(d.nest.prop, d.x, d.y, 0.99)) {
         d.dormant = false;
         this._puff(d.x, d.y, 5);
+        continue;
+      }
+      const P = d.nest.prop;
+      const jammed = Math.hypot(P.vx, P.vy) < 3;
+      const onIt = Math.hypot(d.x - vac.nozzle.x, d.y - vac.nozzle.y) < vac.headRadius + 18;
+      d.digT = jammed && onIt ? (d.digT || 0) + dt : 0;
+      if (d.digT > 1.6) {
+        d.dormant = false;
+        d.digT = 0;
+        this._puff(d.x, d.y, 7);
       }
     }
 

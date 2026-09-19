@@ -78,11 +78,18 @@ export class IntroScene extends Scene {
       x: this.leg.x, y: this.leg.y, shape: 'circle', r: 15, pushable: false,
       shadow: false, draw: () => {},
     }));
-    this.clearStartZone(138);
-    this.placeBin();
     this.rollIn.dormant = true;
     this.peeker.dormant = true;
     this.debris.push(this.rollIn, this.peeker);
+    this.clearStartZone(138);
+    // The roll-in bunny is the LAST piece in the room, and in landscape it sat
+    // at y = 117 with the reach rectangle ending at y = 117: the head could
+    // touch it only with the finger jammed against the bottom of the glass. The
+    // driver ground on it for fourteen seconds, and the first room in the game
+    // took 29s instead of 6. Nothing here is meant to be won at the edge of the
+    // machine's travel.
+    this.pullIntoReach(34);
+    this.placeBin();
   }
 
   _makeBunny(nx, ny, r) {
