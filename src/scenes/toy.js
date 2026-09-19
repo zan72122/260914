@@ -74,15 +74,31 @@ export class ToyScene extends Scene {
       this.floor = makePlayroomFloor({ x0: -w * 0.95, y0: -h * 1.25, x1: w * 1.15, y1: h * 1.1 }, rng, { tile: 140 });
       this.wall = { x: w * 0.44, w: 620 };
       this.door = { y: -h * 0.02, w: 180, h: 250 };
+      // Kept clear of the bottom of the reach rectangle. A toy's nest lies on
+      // the toy's own footprint and never moves, so a toy parked at the edge of
+      // the head's travel hides a bead the head can only just touch — which is
+      // a fourteen-second grind on the last piece in the room, not a puzzle.
       toys = [
-        { k: 'bear', p: this._p(0.30, 0.700), a: 0 },
+        { k: 'bear', p: this._p(0.30, 0.635), a: 0 },
         { k: 'car', p: this._p(0.55, 0.395), a: 0.30 },
-        { k: 'train', p: this._p(0.78, 0.655), a: -0.10 },
+        { k: 'train', p: this._p(0.78, 0.600), a: -0.10 },
       ];
       const c = this._p(0.38, 0.145);
       this.chest = { x: c.x, y: c.y, w: 250, h: 104 };
       this.exitCam = { x: w * 0.40, y: -h * 0.02, zoom: this.scale * 1.05, tilt: 0.24 };
       this.bounds = { x0: -w * 0.5, y0: -h * 0.5, x1: this.wall.x, y1: h * 0.5, inset: 0.8 };
+    }
+
+    // ...and a toy may not be SHOVED out of reach either: a toy pushed past the
+    // end of the head's travel can never be pushed back, and it takes its nest
+    // with it. `bounds` is what `resolveProps` keeps the toys inside, so
+    // clipping it here fixes the whole room at once.
+    {
+      const RR = this.reachRect({ x0: 0, y0: 0, x1: 0, y1: 0 }, 20);
+      this.bounds.x0 = Math.max(this.bounds.x0, RR.x0);
+      this.bounds.x1 = Math.min(this.bounds.x1, RR.x1);
+      this.bounds.y0 = Math.max(this.bounds.y0, RR.y0);
+      this.bounds.y1 = Math.min(this.bounds.y1, RR.y1);
     }
 
     if (this.chest) {
