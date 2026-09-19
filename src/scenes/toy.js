@@ -306,37 +306,51 @@ export class ToyScene extends Scene {
       if (p.sense) p.sense(dt, vac);
     }
 
+    // Leaning on a toy shoves it, even without a swipe.
+    //
+    // `resolveProps` gives a pushable prop velocity proportional to the HEAD's
+    // velocity, so a head held still against a toy does nothing at all. That is
+    // right for a glancing knock and wrong for the thing a child actually does,
+    // which is to push and keep pushing — and it is what made a nest
+    // unwinnable: the driver creeps up to a piece under the train, stops
+    // because it cannot get closer, holds, and the train never moves again. The
+    // pieces stay under it for ever. (ipad-landscape, `crumb#153 ground out
+    // wd=30` five times over, 200s in a room that takes nine.) A steady press
+    // now makes the toy creep, scaled by its mass, so the bear slides easily
+    // and the block train grudgingly.
+    for (let i = 0; i < this.props.length; i++) {
+      const p = this.props[i];
+      if (p.pushable !== true) continue;
+      const hv = Math.hypot(vac.nozzle.vx, vac.nozzle.vy);
+      if (hv > 110) continue;                       // a real sweep already shoves it
+      const dx = vac.nozzle.x - p.x, dy = vac.nozzle.y - p.y;
+      let inside;
+      if (p.shape === 'circle') {
+        inside = Math.hypot(dx, dy) < p.r + vac.headRadius * 0.72;
+      } else {
+        const ca = Math.cos(-p.angle), sa = Math.sin(-p.angle);
+        const rx = dx * ca - dy * sa, ry = dx * sa + dy * ca;
+        inside = Math.abs(rx) < p.w * 0.5 + vac.headRadius * 0.72
+          && Math.abs(ry) < p.h * 0.5 + vac.headRadius * 0.72;
+      }
+      if (!inside) continue;
+      const d = Math.hypot(dx, dy) || 1;
+      const k = (240 / Math.max(0.3, p.mass)) * dt;
+      p.vx -= (dx / d) * k;
+      p.vy -= (dy / d) * k;
+      p.nudge = Math.max(p.nudge, 0.35);
+    }
+
     // the core does the shoving, the toy-on-toy separation and the room bounds
     resolveProps(vac, this.props, dt, { separate: true, bounds: this.bounds });
 
     // a toy sliding off its nest uncovers it, piece by piece
-    //
-    // ...and a toy that has nowhere left to slide gives its dust up anyway.
-    // A toy shoved into a corner of `bounds`, or up against the solid chest,
-    // stops moving while it is still sitting on one of its own nest items —
-    // and then the child is pressing the head into the toy, the toy will not
-    // budge, and nothing at all happens. The room becomes unfinishable for the
-    // one piece the toy is standing on. (The playthrough driver found this the
-    // hard way: `bead#137 ground out wd=29` six times over, 140s in a room that
-    // takes nine.) So: while the head is ON the piece and the toy has not moved
-    // for a moment, the dust comes out from under the toy regardless. It reads
-    // as the last of it being dragged out, which is what is happening.
     for (let i = 0; i < this.debris.length; i++) {
       const d = this.debris[i];
       if (!d.dormant || !d.nest) continue;
       if (!covers(d.nest.prop, d.x, d.y, 0.99)) {
         d.dormant = false;
         this._puff(d.x, d.y, 5);
-        continue;
-      }
-      const P = d.nest.prop;
-      const jammed = Math.hypot(P.vx, P.vy) < 3;
-      const onIt = Math.hypot(d.x - vac.nozzle.x, d.y - vac.nozzle.y) < vac.headRadius + 18;
-      d.digT = jammed && onIt ? (d.digT || 0) + dt : 0;
-      if (d.digT > 1.6) {
-        d.dormant = false;
-        d.digT = 0;
-        this._puff(d.x, d.y, 7);
       }
     }
 

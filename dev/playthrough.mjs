@@ -117,6 +117,7 @@ function AUTOPILOT(cfg) {
   let forgiveAt = 0;                     // when the avoid list is wiped
   let rasterI = 0;
   let inFlow = false;
+  let hidden = false;
   let last = now();
   const P = { x: 0, y: 0 };
   const AIMP = { x: 0, y: 0 };
@@ -276,6 +277,7 @@ function AUTOPILOT(cfg) {
       g.camera.toScreen(sc.bin.x, sc.bin.y, P);
       tx = P.x / g.w; ty = P.y / g.h;
       wdist = Math.hypot(sc.bin.x - g.vacuum.mouthX, sc.bin.y - g.vacuum.mouthY);
+      hidden = false;
       if (targetId !== 'bin') {
         targetId = 'bin'; bestErr = 1e9; stall = 0; held = null;
         if (cfg.trace) R.trace.push(Math.round(t - cur.t0) + ' -> BIN fill=' + g.vacuum.cupFill.toFixed(2));
@@ -293,6 +295,18 @@ function AUTOPILOT(cfg) {
       // is the flow actually reaching it? That decides whether standing still is
       // patience (the mother bunny takes a long, long hold) or futility
       inFlow = pick.d.strength > 0.08;
+      /**
+       * ...unless the thing is DORMANT, in which case standing still is
+       * neither. A dormant piece is underneath something — a toy, a cushion —
+       * and the way to get it is to SHOVE the thing off it, which is work the
+       * head can only do while it is moving. The driver's one reflex is to stop
+       * dead when it stops getting closer, and against a heavy toy that is a
+       * deadlock: it creeps up, stops, holds, the toy never moves again, and
+       * the room is unfinishable (ipad-landscape, `crumb#153 ground out wd=30`
+       * five times over). A child does not stand still and stare at a toy. So
+       * for a hidden piece the driver keeps working at it instead.
+       */
+      hidden = !!pick.d.dormant;
     } else if (sc.id === 'carpet' && sc.rug && sc.combFrac !== undefined && sc.combFrac < 0.66) {
       // the room is clear but the rug is not combed: raster it, cell by cell,
       // moving on as soon as the roller has actually reached each one
@@ -318,6 +332,8 @@ function AUTOPILOT(cfg) {
 
     // ---- the brush roll: the carpet only gives things up to rubbing ------
     if (sc.id === 'carpet') rub = 1;
+    // ...and shoving a toy off the thing hiding under it is the same motion
+    if (hidden) rub = 1;
     // ...and on a rug, standing perfectly still achieves nothing at all
     if (rub) holdUntil = 0;
 
@@ -344,7 +360,7 @@ function AUTOPILOT(cfg) {
     // the whole game is built on: the motor winds to full power, the thing
     // strains, sheds, thins, and its own break-loose threshold comes down to
     // meet the flow. It can take half a minute, and any fidgeting resets it.
-    if (inFlow && stall > 0.8) {
+    if (inFlow && !hidden && stall > 0.8) {
       grindT += dt; grindTotal += dt;
       // Is the hold PAYING? The mother bunny under the sofa takes half a minute
       // to win, but the whole time it is shedding fibres and they are going up
