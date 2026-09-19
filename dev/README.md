@@ -8,7 +8,13 @@ conditions** — without playing the game from the start.
 
 ```sh
 node dev/serve.mjs       # http://localhost:8080  (npm run serve)
+PORT=9000 node dev/serve.mjs
 ```
+
+Every script here starts its own server on **a free port**, and prints nothing
+about it because nothing needs to know: a port already in use falls back to
+another one, so two harness runs can be in flight at once. `PORT=` still pins
+one if you want to point a browser at it.
 
 Everything that drives a browser uses the preinstalled Chromium at
 `PLAYWRIGHT_BROWSERS_PATH` (default `/opt/pw-browsers`); `dev/shot.mjs` picks the
@@ -189,6 +195,18 @@ on a give-up the report lists the ids, positions and states of what is left.
 | `--chain` | off | play the historical linear ring instead of the hub |
 | `--shots` | 30 | maximum screenshots per device |
 | `--trace` | off | log every target change, give-up and bin trip into `result.json` |
+| `--grind` | 60 | seconds the driver may hold on ONE piece before giving up |
+| `--grind-unpaid` | 14 | ...and how long it holds while the cup is not growing |
+
+**`--grind` is the one to reach for when a room "does not finish".** The boss
+bunny under the bed and the mother bunny under the sofa are both won by standing
+perfectly still for a long time, and the driver has to tell that apart from a
+bead wedged where the head cannot follow. It does so by watching the cup: while
+the hold is PAYING (`cupVolTotal` still growing) it waits up to `--grind`
+seconds, and when it is paying nothing it gives up after `--grind-unpaid`. A
+finale that needs longer than the ceiling is a harness limitation, not a room a
+child cannot finish — raise the flag rather than shortening the finale, and say
+which you did.
 
 ---
 
@@ -213,15 +231,17 @@ before and after a change.
 
 | flag | default | meaning |
 |------|---------|---------|
-| `--scene` | `sofa` | scene id |
-| `--device` / `--devices` / `--all` | `iphone-portrait` | |
+| `--scene` | `sofa` | scene id (or `--scenes=a,b`) |
+| `--device` / `--devices` | `iphone-portrait` | |
+| `--all` | off | every scene x every device — but an explicit `--scene` or `--device` still wins on that axis, so `--all --scene=pantry` is one room on four devices |
 | `--seconds` | 6 | sampling window; the first second is thrown away |
 | `--hold` | — | `@bunny#3`, `@sock`, `@auto`: park the mouth on it and hold |
 | `--profile` | off | ms/frame in sim, scene.draw, vacuum.draw, drawOver and the light layer |
 | `--init` | — | JavaScript run in the page before the module loads (flags) |
 | `--seed` `--json` | | |
 
-It exits after printing which runs came in under 50 fps median.
+It exits after printing which runs came in under 50 fps median. `--all` walks
+all fourteen scenes (the hall and the thirteen rooms).
 
 **Reading the numbers.** The JS is not usually the problem: on the sofa, the
 whole of `sim` + every `draw` measured under 1.5ms while the frame itself took
@@ -310,19 +330,27 @@ node dev/core-tests.mjs
 node dev/core-tests.mjs --only=powder
 ```
 
-Fourteen assertions against the real `Vacuum` in a real page: the airborne
-layer, the powder film, the cloth grid, the crevice morph, the cup's fade and
-refusal, the bin's pour and its arm threshold, and the stepped camera. A mock
-vacuum would only be testing the mock, so there isn't one. Exits non-zero on any
-failure or page error; run it with the playthrough whenever `src/core/`,
-`src/vacuum/` or `src/props/bin.js` changes.
+Thirty-three assertions against the real `Vacuum` in a real page: the airborne
+layer (including that a speck's drawn size, its cup price and its cup kind are
+three different things, and that `onSettle` fires once), the powder film
+(including that `advect` conserves mass — a leak there is flour cleaned without
+going up the tube), the cloth grid (pinning any edge, keeping a fold through
+`translate`, lifting only the node the air is under), props (`'sweep'`, `oneWay`,
+`keepInside`'s pad), `placeBin({within})`, lazy debris ids, the crevice morph,
+the cup's fade and refusal, the bin's pour and its arm threshold, the stepped
+camera on an uneven tread list, `vac.squash`, a half-res grime layer, and the
+audio graph rendered through an `OfflineAudioContext` (finite samples, no
+clipping, everything-on louder than everything-off). A mock vacuum would only be
+testing the mock, so there isn't one. Exits non-zero on any failure or page
+error; run it with the playthrough whenever `src/core/`, `src/vacuum/`,
+`src/props/prop.js` or `src/props/bin.js` changes.
 
 ## Other scripts
 
-`dev/sheets.mjs` runs the standard review matrix — every scene x 4 devices, with
-the gestures that matter for each — and writes one contact sheet per
-combination. `--quick` restricts it to iphone-portrait, `--scene=<id>` to one
-scene.
+`dev/sheets.mjs` runs the standard review matrix — all thirteen rooms plus the
+hall x 4 devices, with the gestures that matter for each — and writes one
+contact sheet per combination. `--quick` restricts it to iphone-portrait,
+`--scene=<id>` to one scene.
 
 The per-scene scripts below predate `--path` / `--exec` and are kept because
 their canned paths and probes are still the fastest way into their scene. They

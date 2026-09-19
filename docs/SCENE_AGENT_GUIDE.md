@@ -1,8 +1,18 @@
-# Scene agent guide (Phase B) — read docs/BRIEF.md and docs/ARCHITECTURE.md first
+# Scene agent guide — read docs/BRIEF.md and docs/ARCHITECTURE.md first
 
-You are one of **five** agents building a room CONCURRENTLY in the same working
-directory. Phase A built the hub, the cup/bin mechanic and the core services
-your room needs; they are done and they are **not yours to change**.
+This is the contract for writing a room. It was written for the five agents who
+built Phase B concurrently in one working directory, and it still is the
+contract: the file-ownership rules below are what make it safe for more than one
+person to work on the house at once.
+
+**What changed since Phase B.** The five rooms are written, and the core grew
+the things they had to work around. Everything under *New core APIs* is still
+true; the new parts are marked. In particular `Airborne` now separates how a
+speck LOOKS from what the CUP charges for it, `Powder.advect` conserves mass,
+`Cloth` pins any edge and can lift, `Prop` has a third pushable mode and a
+one-way mode, `Scene.placeBin` takes a `within`, `Camera.stepTo` takes an
+uneven tread list, `Floor.enableGrime` takes a scale and `vac.squash` deforms
+the head. None of it is required; all of it is tested.
 
 Your room is one of:
 
@@ -22,21 +32,24 @@ Your room is one of:
   `src/debris/`, `src/floors/`, `src/props/` whose names are unambiguously
   yours (`src/debris/flourBag.js`, `src/floors/veranda.js`), your own
   `dev/<yourId>-*.mjs`, and `dev/out/` output.
-- **The core is frozen for Phase B.** Do not edit: `src/main.js`,
-  `src/scenes/scene.js`, `src/scenes/hall.js`, `src/scenes/stub.js`,
+- **The core is not yours.** Do not edit: `src/main.js`,
+  `src/scenes/scene.js`, `src/scenes/hall.js`,
   `src/vacuum/*`, `src/core/*`, `src/props/prop.js`, `src/props/bin.js`,
   `src/debris/base.js`, `src/debris/dustBunny.js`, `src/debris/crumb.js`,
   `dev/shot.mjs`, `dev/playthrough.mjs`, `dev/gestures.mjs`, `dev/core-tests.mjs`,
   `index.html`, and any other agent's scene. If something is genuinely missing,
   work around it inside your own files (subclass, wrap, duplicate a helper) and
   list the exact core change you wanted in your final report.
-- Registry: `src/scenes/index.js` already has a line for your id. Change
-  **that one line and its import** from `StubScene` to your class, touching
-  nothing else in the file. Another agent may have edited between your read and
-  your write; if the edit fails, re-read and retry. Never rewrite the file.
+- Registry: add **one import and one line** to `SCENES` in
+  `src/scenes/index.js`, touching nothing else in the file. Another agent may
+  have edited between your read and your write; if the edit fails, re-read and
+  retry. Never rewrite the file.
 - Commit only your own files: `git add <your files> src/scenes/index.js` then
   `git commit`. Never `git add -A` / `git add .`. Never push. Never
   rebase/reset. If a commit fails because another agent is committing, retry.
+  **`git add -A` is not a shortcut, it is a bug**: it sweeps up whatever another
+  agent has half-written in their own files, and whatever they have staged. If
+  you find you have committed someone else's file, say so in your report.
 
 ---
 
@@ -108,35 +121,62 @@ worked example of each.
 
 ```js
 import { Airborne } from '../core/airborne.js';
-const air = new Airborne(400);                     // pooled, no per-frame alloc
+const air = new Airborne(400, {                    // pooled, no per-frame alloc
+  rng: this.rng,                                   // deterministic jitter
+  onSettle: (it) => this.putItBack(it),            // it has come back down
+});
 air.spawn(x, y, z, vx, vy, vz, 'flour');           // z = height in design px
 air.update(dt, vac);                               // pull, lift, gravity, capture
 air.draw(ctx, cam);                                // inside cam.apply()
-air.kinds.myKind = { color, drag, gravity, r, life, lift };
+air.kinds.myKind = {
+  color, drag, gravity, r, life, lift,
+  shape: 'dot' | 'flake' | 'fibre',    // how it is DRAWN
+  cupKind: 'wisp' | 'crumb' | 'fluff', // what travels up the tube
+  cupSize: 2,                          // what the CUP charges for one of them
+};
 ```
 Low specks are deep in the flow and go straight in; high ones only drift and
-settle. `air.captured` counts what has gone up the tube.
+settle. `air.captured` counts what has gone up the tube, `air.settled` what has
+come back down.
+
+**Draw it as big as a four-year-old needs and price it separately.** `r` used to
+be the drawn size AND the cup price at once, which is a straight fight between
+legibility and how long the room lasts. `cupSize` ends it: `{r: 5, cupSize: 1.5}`
+is a speck you can see that the cup barely notices.
 
 ```js
 import { Powder } from '../core/powder.js';
 const pw = new Powder({x0,y0,x1,y1}, 64, 64);
-pw.blob(x, y, 90, 1);  pw.markDirty();             // lay it down, then freeze
-                                                   // "what has to be cleaned"
+pw.blob(x, y, 90, 1);                              // lay it down
+pw.feather(rect, 40);   pw.clipTo(matRect);        // soften / cut to shape
+pw.markDirty();                                    // THEN freeze "what has to
+                                                   // be cleaned"
 const mass = pw.suck(vac.mouthX, vac.mouthY, 30, rate * dt * f.strength);
 pw.advect(vac, dt);                                // streaks converging on the mouth
+pw.advect(vac, dt, 380, 0.55);                     // slower, and curling as it comes
 const lifted = pw.puff(x, y, 60);                  // -> spawn that as Airborne
 pw.drawSoft(ctx, '#fdfaf3');
 pw.cleanFrac();                                    // 0..1 progress, no counter
 ```
+`advect` is **mass-conserving**: a film is never cleaned without going up the
+tube, so a room cannot get shorter the harder the air blows. `feather` and
+`clipTo` belong before `markDirty()`, or the spill off the edge of the mat
+counts as dirt that can never be cleaned.
 
 ```js
 import { Cloth } from '../core/cloth.js';
 const cl = new Cloth({x0,y0,x1,y1}, 9, 7, { gain: 30, pinned: 'edges' });
+new Cloth(rect, 9, 7, { pinned: {top: true}, lift: 14 });   // a hem on a rail
 cl.update(dt, vac);
+cl.translate(dx, dy);                // move it without unfolding it
 cl.draw(ctx, { fill: '#c9a98b' });   // or cl.drawImage(ctx, offscreenCanvas)
 cl.bulge;                            // 0..1 peak lift, for spawning hair out of it
-cl.bulgeAt(x, y);  cl.pointAt(u, v, out);
+cl.bulgeAt(x, y);  cl.liftAt(x, y);  cl.pointAt(u, v, out);
 ```
+`pinned` takes `'edges' | 'all' | 'none'`, `{top,bottom,left,right}`, an array of
+node indices or a `(c,r,cols,rows)` predicate. `lift` turns each node's own field
+sample into an apparent RISE in px, folded into both draw paths, so the sheet
+domes toward the eye instead of only sliding sideways.
 
 ```js
 vac.setTool('crevice', smoothstep(70, 12, distanceIntoTheGap));   // in update()
@@ -156,6 +196,27 @@ cam.resetSteps();    // in layout()
 vac.cupFill;      // 0..1
 vac.cupFull;      // nothing more fits
 vac.pourInto(bin, ctx);   // only if you are writing your own finale
+vac.squash(0.6, 'y');     // deform the head while it is jammed in something;
+                          // re-assert every frame, like clog
+```
+
+```js
+import { Prop, resolveProps, keepInside } from '../props/prop.js';
+new Prop({ ..., pushable: 'sweep' });        // the head rides over it; only a
+                                             // fast sweep displaces it
+new Prop({ ..., pushable: false, oneWay: {x: 0, y: -1} });  // solid one way only
+resolveProps(vac, this.props, dt, { bounds: { x0, y0, x1, y1, pad: 24 } });
+```
+**Round stops let the head slide out of dead ends.** Build a solid thing the head
+can walk into out of CIRCLES; keep rectangles for surfaces it only ever meets
+face-on. Two solid rects meeting at a right angle is a notch the head gets wedged
+in and cannot drive out of — the full explanation is next to `resolveProps`.
+
+```js
+this.placeBin({ within: { x0, y0, x1, y1 } });   // the part of the floor that
+                                                 // is actually floor
+cam.stepTo(dt, anchor, vac.nozzle, { axis: 'y', steps: [...], offset: -90 });
+floor.enableGrime({ scale: 0.5 });               // half-res dust layer
 ```
 
 Everything from Phase 2 is unchanged and still the bar: `vac.field(x, y, out)`
@@ -195,7 +256,7 @@ node dev/shot.mjs --scene=<id> --device=iphone-portrait --gesture=approach-slow 
 node dev/shot.mjs --scene=<id> --device=iphone-landscape --gesture=<the gesture that matters> --frames=16 --every=100 --contact
 node dev/shot.mjs --scene=<id> --device=ipad-portrait  ... and ipad-landscape ...
 node dev/shot.mjs --scene=<id> --device=iphone-portrait --gesture=idle --frames=12 --every=300 --complete --contact
-node dev/fps.mjs  --scene=<id> --all --seconds=5
+node dev/fps.mjs  --scene=<id> --all --seconds=5     # <id> on all four devices
 node dev/core-tests.mjs                     # must stay green
 node dev/playthrough.mjs --device=iphone-portrait
 ```
@@ -233,6 +294,10 @@ node dev/shot.mjs --scene=<id> --exec="for(let i=0;i<40;i++)vac.addToCup({kind:'
 
 # your room in the middle of a real run
 node dev/playthrough.mjs --device=iphone-portrait --clean=intro,kitchen,paper,toy,thread,sand,sofa,carpet
+
+# your finale takes longer than the driver's patience? lengthen it, don't
+# shorten the finale
+node dev/playthrough.mjs --device=iphone-portrait --grind=90 --trace
 ```
 
 `dev/README.md` has the rest (`--path`, `--target`, `--exec`, `--skip`,

@@ -32,8 +32,7 @@ src/props/bin.js        the bin, and the shared cup pour
 src/scenes/scene.js     Scene base (the contract below)
 src/scenes/index.js     registry — the ONLY core file a new scene touches
 src/scenes/hall.js      the hub: thirteen doors, door states, the house reset
-src/scenes/stub.js      placeholder room for an id whose scene is not written yet
-src/scenes/*.js         the rooms
+src/scenes/*.js         the rooms (all thirteen are written; the placeholder is gone)
 manifest.webmanifest    name/colour/icon so it can be added to the home screen
 ```
 
@@ -52,6 +51,27 @@ ajar with a real `DustBunny` sitting in the gap under it, swaying in the idle
 airflow like any other invitation in the game. Driving the head at it is how you
 go in: the room starts as the fluff reaches the mouth. A room that is done has
 its door shut, its frame glowing and the floor in front of it polished.
+
+**Each door promises a different room.** Thirteen identical dark rectangles are
+thirteen holes, and a hole is not somewhere a four-year-old wants to go. The
+opening of an ajar door carries a sliver of that room's own colour — `ROOM_TINT`
+in `src/scenes/hall.js`, taken from each room's floor and set: white tile for the
+kitchen, sky for the veranda, pink for the bedroom, purple yarn for the thread
+room, nearly black for under the sofa. It is inset on every side so the jamb
+keeps its shadow and the colour reads as depth rather than as a picture hung in
+the doorway, and it is two flat fills — a gradient there would be a fresh raster
+every frame, thirteen times over.
+
+**A finished door twinkles.** The warm glow around the frame is a wash, and at
+the far end of a corridor a wash is hard to tell from the light on the wall next
+to it. A small four-point shine hangs on the door itself and breathes: a point
+carries down the whole hallway, and it is obviously ON the door. That is the
+entire reward for finishing a room.
+
+Nothing in the hall is a `Prop`. The frames and the closed door faces are baked
+into the floor texture by `_paintWalls()`, so there is nothing for the head to
+catch on anywhere in the hub — which is the answer to "can the head get stuck on
+a door frame": there is no collider to get stuck on.
 
 The trigger is "the fluff **reached** the mouth", not "was swallowed" — because
 a full dust cup swallows nothing, and a full cup must never be able to lock a
@@ -154,6 +174,12 @@ permanent blob in the cup. The cup is the only progress display in the game.
 States are `idle → reacting → pulled → captured → transit → in-cup`. Use the
 names for the dev overlay; the engine only cares about `DONE`.
 
+`Debris` builds its `id` from `type` LAZILY, on the first read, not in the
+constructor: `type` is a getter, and a subclass whose type depends on its own
+fields (`get type() { return this.heavy ? 'stone' : 'chip'; }`) has not set them
+yet while the base constructor is running. Assigning `d.id` still works, and the
+harness aims at whatever is there.
+
 Two hooks on `Debris` that anything built out of node arrays should override:
 
 ```js
@@ -199,6 +225,11 @@ export class MyScene extends Scene {
 }
 ```
 
+* **`onCaptured(d, ctx)`** is handed the SAME update context the scene is ticked
+  with (`{vacuum, camera, input, rng, audio, world}`), so a capture can play a
+  sound, kick the camera or spawn the next hint without the scene stashing a
+  reference to any of them. Older scenes declare `onCaptured(d)` and ignore it.
+
 * **`drawOver(ctx, cam)`** runs after `vacuum.draw()`, so a scene can put
   something in front of the machine: `carpet` pours the dust cup into the bin
   there, `thread` draws a strand while it is being reeled in through the mouth
@@ -231,6 +262,14 @@ export class MyScene extends Scene {
   to hang. Debris a little outside the rectangle is still fine — the airflow
   reaches ~200px at full power — but a scene scattering things near an edge
   should filter against it, as the entrance hall does for its grit.
+  **It is measured at `this.rest`, and a room whose camera MOVES has to say what
+  it means by that.** With `followTo`/`stepTo` the reachable world is the rest
+  rectangle swept along the camera's path, which is much bigger. A scrolling
+  room should either set `rest` to the composition it is laying debris out
+  against, or call `reachRect` once per camera station and union the results.
+  Trusting the single rest rectangle of a scrolling room rejects legitimate
+  positions at the far end; ignoring it accepts positions the head can only
+  reach after a scroll, which is usually fine but is not the same guarantee.
 * **Progress across an orientation change.** `layout()` rebuilds the world from
   nothing, so the player's progress has to be put back:
   * **`this.persist`** is a plain object that survives `relayout()`. Put
@@ -290,6 +329,7 @@ tube path.
 
 ```js
 vac.gulp(amount)        // squash the mouth, as if something just went in
+vac.squash(a, 'x'|'y')  // deliberately deform the head; see below
 vac.transit(item, dur)  // send it up the tube; returns the transit record, so
                         // a scene can keep animating it (toy makes it bounce)
 vac.addToCup(item)      // straight into the cup, no tube ride
@@ -297,6 +337,16 @@ vac.emptyCup()          // tip it out: the contents, with world coords in wx/wy
 vac.cupToWorld(lx, ly, out)   // a cup-local point in world space
 vac.clog = 0..1         // the intake is blocked
 ```
+
+**`vac.squash(amount, axis)`** is the deliberate version of `gulp`. A gulp is an
+impact — something went in, 45ms, gone. This one is driven by a scene every
+frame while a condition holds: the head jammed under a riser, mashed into a
+cushion, held against a skirting board. `'y'` flattens it ACROSS the axis,
+`'x'` shortens it ALONG the axis, the apparent area is conserved so it reads as
+rubber rather than as the head shrinking, the strongest call in a frame wins so
+two callers cannot cancel each other out, and it relaxes over ~110ms once the
+scene stops asking — exactly like `clog`, and for the same reason: nothing can
+forget to switch it off.
 
 **`vac.clog`** is understood by the vacuum itself: the motor pitch drops and
 goes boomy, `flowScale` weakens the airflow, and the head judders. Whatever is
@@ -315,8 +365,18 @@ nothing.
 ```js
 const g = floor.growBase(rect);   // save()d, and in WORLD coordinates
 drawTheWholeSet(g); g.restore();  // walls, skirting, a mat, a chair, a rug
+floor.enableGrime();              // full-res grime layer
+floor.enableGrime({ scale: 0.5 });// ...or a quarter of the pixels
 floor.smoothGrime = false;        // soft dust does not need the bilinear filter
 ```
+
+`enableGrime({scale})` makes the layer smaller than the floor and stretches it
+back over it on the way to the screen. The context it returns is pre-scaled, so
+`reveal()` and anything a scene paints into it keep working in world units and
+nothing else has to know. Grime is soft dust with no edges in it and it is the
+one full-screen ALPHA composite most rooms pay for, so half-res is invisible and
+buys a real frame or two on a big canvas — pair it with `smoothGrime = false`
+unless the upscale actually shows.
 
 `growBase(rect)` enlarges the BASE canvas, keeping what is on it, so a scene can
 bake its static set into the opaque blit that has to happen anyway instead of
@@ -494,10 +554,19 @@ The chain the child follows, in order, with no words at any step:
 
 ```js
 import { Bin } from '../props/bin.js';
-this.placeBin();                    // at the END of layout()
-this.placeBin({ x, y });            // or an explicit spot
+this.placeBin();                        // at the END of layout()
+this.placeBin({ x, y });                // or an explicit spot
 this.placeBin({ side: 'left' });
+this.placeBin({ within: {x0,y0,x1,y1} });   // only on this part of the floor
 ```
+
+`within` narrows the corner search before the corners are scored — the one thing
+the corner rule cannot work out for itself, which is that part of the reachable
+floor is not FLOOR: a stair, a balcony edge, the gap behind a bookshelf, the
+space under a bed. It is INTERSECTED with the reachable rectangle rather than
+replacing it, and a `within` that leaves nothing falls back to the whole
+reachable rectangle, because a bin out of reach strands a child with a full
+cup.
 
 `Scene.placeBin()` scores the four corners the nozzle can reach against three
 soft rules — never under the parked machine (weight 0.30 inside 110px), not
@@ -539,6 +608,13 @@ audio.setStream(0..1);   // the "zazaa": a mass draining, not a pop per piece
 audio.setMotor(power, load, clog);   // called by the vacuum, not by scenes
 ```
 
+All three, plus every `pop`, are rendered through an `OfflineAudioContext` in
+`dev/core-tests.mjs`: every sample finite, nothing clipping, and
+everything-on measurably louder than everything-off (peak 0.21 against 0.07 at
+idle). `resume()`/`suspend()` swallow a REJECTED promise as well as a thrown
+error — on iOS they reject rather than throw, and an unhandled rejection is a
+page error in the harness.
+
 `setSpace` closes the room down around the motor (sofa uses it for "under the
 furniture": lowpass, quieter air, lower note). `setStream` opens a wide filtered
 noise bed for a MASS going in — sand collapsing into the crater, a whole spill
@@ -568,6 +644,40 @@ resolveProps(ctx.vacuum, this.props, dt, {
   bounds: { x0, y0, x1, y1, inset },  // pushable props stay in this rectangle
 });
 ```
+There are three kinds of prop, not two:
+
+```js
+pushable: true       the head shoves it aside, it slides and grinds to a halt
+pushable: false      it blocks the head, which slides along its edge
+pushable: 'sweep'    the head rides OVER it. Creeping up does nothing at all;
+                     only a pass faster than `sweepSpeed` (260 px/s) displaces
+                     it, and by how fast. A rug corner, a flat toy, a sheet of
+                     paper — the difference between something you bump into and
+                     something you brush past.
+oneWay: {x, y}       solid from ONE side only: the head is pushed back out when
+                     it arrives from the side the vector points away from, and
+                     passes straight through from the other. A stair nosing you
+                     come down over but cannot climb back through. One dot
+                     product against the contact normal, both shapes.
+```
+
+**Round stops let the head slide out of dead ends.** The rule every solid prop
+in the game is laid out by, and the easiest one to get wrong. A non-pushable
+prop resolves the overlap along the contact normal and cancels only the INWARD
+part of the head's velocity, so the head keeps whatever motion runs along the
+surface and slides. That works on a circle and on the long face of a rectangle,
+and fails at an internal corner — two solid rects meeting at a right angle, or
+a rect whose end is flush against a wall — where both normals push the head out,
+the corrections fight, and the sliding component is cancelled twice over. The
+head stops dead in the notch, the finger is somewhere else, and the child is
+holding a machine that will not move. So: build stops out of CIRCLES wherever
+the head can actually arrive at one (a table leg, a bowl, a plant pot, the end
+cap of a wall run), keep rectangles for surfaces the head only ever meets
+face-on (a skirting board, a sofa front, a stair edge), round the ends of a long
+rect with a circle at each end, and never leave a notch narrower than
+`vac.headRadius * 1.5` that the head can reach. It will find it, and it will
+stay there.
+
 Pushable props are shoved by the nozzle head (not by the airflow), slide, and
 grind to a halt; `prop.nudge` (0..1, decaying) is set on contact so you can rock
 or squash them. Non-pushable props push the head back out and cancel its inward
@@ -583,6 +693,13 @@ sink in (before, displacement was scaled by `1/mass` and the remainder was
 simply left as penetration, so the head visibly buried itself in the block
 train). `separateProps(props)` and `keepInside(prop, bounds)` are exported
 separately if a scene wants only one of them.
+
+`keepInside` had a trap in it. `bounds.inset` is a MULTIPLIER on the prop's own
+half-extent, so the same number means a different clearance for every prop and
+`inset: 24` would be twenty-four prop-widths rather than 24px. **`bounds.pad` is
+the same idea in pixels and is the form to use.** `inset` is still honoured for
+the scenes written against it, and a value greater than 2 — which can only ever
+have been meant as pixels — is read as pixels.
 
 ### Lighting (`src/core/light.js`)
 
@@ -663,12 +780,32 @@ eventually win" loop rather than a static deformed pose.
 ### Air-borne specks (`src/core/airborne.js`)
 
 ```js
-const air = new Airborne(400, { kinds: { ash: { color, drag, gravity, r, life, lift } } });
+const air = new Airborne(400, {
+  rng: this.rng,                  // deterministic jitter; Math.random without it
+  onSettle: (it) => { ... },      // once, when a speck touches the floor again
+  kinds: {
+    ash: { color, drag, gravity, r, life, lift,
+           shape: 'dot' | 'flake' | 'fibre',   // how it is DRAWN
+           cupKind: 'wisp' | 'crumb' | 'fluff',// what goes up the tube
+           cupSize: 2 },                       // what the CUP charges for one
+  },
+});
 air.spawn(x, y, z, vx, vy, vz, 'flour');   // z = height above the floor, design px
 air.update(dt, vac);                       // pull, lift, gravity, settle, capture
 air.draw(ctx, cam);                        // inside cam.apply()
-air.captured;                              // how many have gone up the tube
+air.captured; air.settled;                 // gone up the tube / come back down
 ```
+
+The look, the physics and the price are three different things, and a kind says
+all three separately. `r` used to be all of them at once, which forced the
+pantry to draw flour smaller than a child can comfortably see so that the cup
+would not fill in twenty seconds; `cupSize` is the escape. `shape` decides the
+draw path — a dot is one arc (the cheap, common case), a flake an ellipse that
+tumbles with `rot`, a fibre a short hair lying along its own rotation.
+`onSettle` is how a room puts a cloud back on the floor instead of letting it
+evaporate. The defaults preserve the old behaviour exactly: a kind called `leaf`
+draws as a flake and lands in the cup as a crumb, everything else is a dot and a
+wisp.
 
 Everything that is not ON the floor any more. The airflow a speck feels is
 scaled by `1 / (1 + (z/46)^2)` and it **lifts** as well as pulls, so a cloud is
@@ -681,13 +818,35 @@ that grows. Used by flour, leaf fragments and the boss's fibres.
 
 ```js
 const pw = new Powder({x0,y0,x1,y1}, 64, 64);
-pw.blob(x, y, 90, 1);  pw.markDirty();     // lay it down, freeze what must be cleaned
+pw.blob(x, y, 90, 1);                      // lay it down
+pw.feather(rect, 40);  pw.clipTo(rect);    // soften the edge / cut it to shape
+pw.markDirty();                            // THEN freeze what must be cleaned
 const got = pw.suck(vac.mouthX, vac.mouthY, 30, rate * dt * f.strength);
 pw.advect(vac, dt);                        // the film streaks toward the mouth
+pw.advect(vac, dt, 380, 0.55);             // ...slower, and curling as it comes
 const lifted = pw.puff(x, y, 60);          // -> spawn that as Airborne particles
 pw.drawSoft(ctx, '#fdfaf3');
 pw.cleanFrac();                            // 0..1, the progress with no counter
 ```
+
+**`advect` is mass-conserving, and that is not a nicety.** Semi-Lagrangian
+sampling leaks mass at the leading edge of the film, and a leak here is
+INVISIBLE CLEANING: powder disappearing without going up the tube, so the room
+gets shorter the harder the air blows and the cup ends up with a third of what
+the floor lost. Whatever a pass loses is given straight back to the cells the
+air is touching, so the film GATHERS in the flow instead of evaporating. The
+per-frame replacement is capped at 0.72 for the same reason: at 1.0 a cell is
+replaced by whatever is one flow-step upwind, which in a strong flow is often
+bare floor, and the give-back then cannot account for what it has to restore.
+The pantry found this first and fixed it in its own copy; this is that fix, in
+the core, with a test (`node dev/core-tests.mjs --only=powder`).
+
+`swirl` rotates the flow vector by a little, scaled DOWN where the flow is
+strong, so the film curls in from the far edge and straightens as it arrives.
+`feather(rect, w)` fades the density out over `w` px inside an edge and
+`clipTo(rect)` wipes everything outside one — a film laid down with round blobs
+otherwise spills off the mat it is meant to be sitting on. Both belong BEFORE
+`markDirty()`, or the spill counts as dirt that can never be cleaned.
 
 `HeightField` is a pile you dig a crater in; this is a *film* you drag around.
 `advect` samples each cell one flow-step upwind, so the whole film draws itself
@@ -699,11 +858,23 @@ track is not a separate mask. Two flat fills per cell, no gradients, no filter.
 
 ```js
 const cl = new Cloth({x0,y0,x1,y1}, 9, 7, { gain: 30, pinned: 'edges' });
+new Cloth(rect, 9, 7, { pinned: {top: true}, lift: 14 });   // a hanging hem
 cl.update(dt, vac);
+cl.translate(dx, dy);                // move it without unfolding it
 cl.draw(ctx, { fill: '#c9a98b' });   // or cl.drawImage(ctx, offscreenCanvas)
 cl.bulge;                            // 0..1 peak lift
-cl.bulgeAt(x, y);  cl.pointAt(u, v, out);
+cl.bulgeAt(x, y);  cl.liftAt(x, y);  cl.pointAt(u, v, out);
 ```
+
+`pinned` takes five forms: `'edges'` (the default), `'all'`, `'none'`,
+`{top, bottom, left, right}` for a hem that hangs from its rail, an explicit
+array of node indices, or a `(c, r, cols, rows)` predicate.
+
+`lift` is the other half of what the air does to fabric. Each node already moves
+SIDEWAYS toward the mouth by what it samples at its own position; `lift` turns
+the same number into an apparent RISE in px, folded into `draw`, `drawImage` and
+`pointAt`, so the sheet domes toward the eye instead of merely sliding with a
+white wash on it. It defaults to 0, which is pixel-identical to before.
 
 A grid of springs. Each node samples the field at its **own** position, so the
 near corner lifts first exactly as a dust bunny's near fibres lean first; the
@@ -729,6 +900,10 @@ happen rather than a mode they switch.
 
 ```js
 cam.stepTo(dt, anchor, vac.nozzle, { axis: 'y', step: 128, rate: 7, kick: 3.5 });
+cam.stepTo(dt, anchor, vac.nozzle, {
+  axis: 'y', steps: [0, -90, -230, -300, -460],   // a flight that is not a ruler
+  offset: -90,                                    // the tread you want in frame
+});
 cam.resetSteps();    // from layout()
 ```
 
@@ -737,12 +912,30 @@ axis to whole treads with a hysteresis band, settles on each one, and kicks as
 the head crosses a nosing. The other axis follows normally, bounded like
 `followTo`.
 
+`steps` is the world coordinate of each tread, for a flight with a winder, a
+half landing or a deeper bottom step: the camera settles on the nearest entry
+and the hysteresis becomes a fraction of the local gap, so an uneven flight
+behaves like an even one. `offset` shifts the settled position along the travel
+axis — the tread the head is standing on is rarely the tread you want in the
+middle of the screen, because a climb wants to show the steps AHEAD.
+
 ### Testing all of it
 
 `node dev/core-tests.mjs` runs each of these in the real page against the real
 `Vacuum` — a mock would only be testing the mock — and asserts the behaviour a
-room depends on: low specks go in and high ones do not, `suck` conserves mass,
-`advect` moves the centroid toward the mouth, the cloth bulges and then relaxes,
-the crevice tool trades width for reach, the field fades and then reverses as
-the cup fills, the bin pours a full cup and ignores a nearly empty one, and
-`stepTo` only ever settles on whole steps. It exits non-zero on any failure.
+room depends on. Thirty-three assertions: low specks go in and high ones do not;
+a kind's drawn size, its cup price and its cup kind are three different things;
+`onSettle` fires once at z=0; `suck` conserves mass and `advect` does too, with
+and without swirl; `feather` softens an edge and `clipTo` cuts to shape; the
+cloth bulges and relaxes, keeps its fold through `translate`, and lifts only the
+node the air is under; a `'sweep'` prop ignores a crawl, moves on a sweep and
+never blocks the head; a `oneWay` prop is solid one way and open the other;
+`keepInside` honours `pad`, the legacy `inset` and an `inset` that is obviously
+pixels; `placeBin({within})` stays inside and an impossible one still lands in
+reach; an id is derived from a `type` that depends on the subclass's own fields;
+the crevice tool trades width for reach; the field fades and then reverses as
+the cup fills; the bin pours a full cup and ignores a nearly empty one; `stepTo`
+settles on whole steps and on a named uneven list with an offset; `squash`
+clamps, relaxes and draws; a half-res grime layer puts its hole where a full-res
+one does; and the audio graph renders offline without clipping. It exits
+non-zero on any failure.
