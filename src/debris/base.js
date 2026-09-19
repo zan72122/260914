@@ -28,9 +28,26 @@ export class Debris {
     this.state = State.IDLE;
     this.strength = 0;              // last sampled field strength at the centre
     this.t = 0;
-    this.id = this.type + '#' + (++_nextId);
+    /**
+     * Serial number, handed out at construction; the ID itself is built from
+     * `type` LAZILY, on the first read.
+     *
+     * `type` is a getter, and a subclass whose type depends on its own fields
+     * (`get type() { return this.heavy ? 'stone' : 'chip'; }`) has not set them
+     * yet while the base constructor is running — so building the id here gave
+     * `undefined#7`, and half the debris in the house re-derived it by hand
+     * afterwards. Reading it later costs nothing and is always right.
+     */
+    this._serial = ++_nextId;
+    this._id = null;
     this._f = { fx: 0, fy: 0, strength: 0, inCapture: false, dist: 0 };
   }
+  get id() {
+    if (this._id === null) this._id = this.type + '#' + this._serial;
+    return this._id;
+  }
+  /** A scene may still name a piece itself; the harness aims by whatever is here. */
+  set id(v) { this._id = v; }
   get type() { return 'debris'; }
   /**
    * Move the whole piece, including any private node arrays. The default moves

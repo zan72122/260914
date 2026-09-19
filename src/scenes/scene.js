@@ -16,6 +16,13 @@ import { Bin } from '../props/bin.js';
  *   entry()             where the camera starts when this scene is entered
  *
  * Optional hooks:
+ *   onCaptured(d, ctx)            something went up the tube. `ctx` is the SAME
+ *                       update context the scene is ticked with
+ *                       ({vacuum, camera, input, rng, audio, world}), so a
+ *                       capture can play a sound, kick the camera or spawn the
+ *                       next hint without the scene having to stash a reference
+ *                       to any of them. Both arguments have always been passed;
+ *                       older scenes simply declared `onCaptured(d)`.
  *   drawOver(ctx2d, cam)          drawn AFTER the vacuum: in front of the machine
  *   saveProgress()/restoreProgress(p)  carry the player's progress across an
  *                       orientation change (the default is index-based and is
@@ -88,6 +95,19 @@ export class Scene {
    * band can never be collected, and the room can never be finished. Anything
    * laying out debris near an edge should filter against this. Conservative: it
    * ignores the extra reach the mouth gets from leaning into a drag.
+   *
+   * **It is measured at `this.rest`, and a scene whose camera MOVES has to say
+   * what it means by that.** With `followTo`/`stepTo` the reachable world is
+   * the rest rectangle swept along whatever path the camera takes, which is far
+   * bigger than this one — so a scene that scrolls (the hall, the stairs, the
+   * corridor under the sofa) should set `rest` to the composition it wants
+   * while the debris is being laid out, or call `reachRect` once per camera
+   * station and union the results by hand. Using the single rest rectangle of a
+   * scrolling room as if it were the whole floor rejects legitimate positions at
+   * the far end; trusting it as if the camera never moved accepts positions the
+   * head can only reach after a scroll, which is usually fine but is NOT the
+   * same guarantee. When in doubt, place debris where the head can reach it
+   * without the camera having to move first.
    */
   reachRect(out, margin = 24) {
     const L = LEAD[this.pose] || LEAD.portrait;
@@ -161,12 +181,32 @@ export class Scene {
    * Call it at the end of `layout()`, after `rest`, `startPointer` and the
    * debris. `main.js` ticks and draws `this.bin`; a scene that drives the pour
    * itself (the carpet finale) sets `this.ownsBin = true` as well.
+   *
+   *   this.placeBin();                        // pick a corner
+   *   this.placeBin({ side: 'left' });        // ...on this side
+   *   this.placeBin({ x, y });                // or put it exactly here
+   *   this.placeBin({ within: {x0,y0,x1,y1} });
+   *
+   * `within` narrows the search to a world rectangle before the corners are
+   * scored — the one thing the corner rule cannot work out for itself, which is
+   * that part of the reachable floor is not FLOOR: it is a stair, a balcony
+   * edge, the gap behind a bookshelf, the space under a bed. Intersect it with
+   * the reachable rectangle rather than replacing it, so a `within` that is too
+   * generous still cannot put the bin somewhere the head can never go.
    */
   placeBin(opts) {
     const o = opts || {};
     let x = o.x, y = o.y;
     if (x === undefined || y === undefined) {
       const R = this.reachRect(BIN_R, 30);
+      if (o.within) {
+        const W = o.within;
+        R.x0 = Math.max(R.x0, W.x0); R.x1 = Math.min(R.x1, W.x1);
+        R.y0 = Math.max(R.y0, W.y0); R.y1 = Math.min(R.y1, W.y1);
+        // a `within` that leaves nothing at all is a mistake in the scene, not
+        // a reason to strand the child: fall back to the reachable rectangle
+        if (R.x1 - R.x0 < 60 || R.y1 - R.y0 < 60) this.reachRect(R, 30);
+      }
       const park = this.parkPoint();
       const cands = [
         { x: R.x0 + 52, y: R.y1 - 48 }, { x: R.x1 - 52, y: R.y1 - 48 },

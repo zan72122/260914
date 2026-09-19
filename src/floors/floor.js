@@ -17,6 +17,7 @@ export class Floor {
     this.gctx = null;
     this.grimeDirty = false;
     this.grimeCleared = false;   // true once nothing is left to composite
+    this.gscale = 1;             // grime layer resolution, see enableGrime({scale})
     /**
      * Smoothing for the two composites. The base usually has plank edges in it
      * and wants the filter; a grime layer is soft dust, and on a software
@@ -58,9 +59,30 @@ export class Floor {
     g.translate(-r.x0, -r.y0);
     return g;
   }
-  enableGrime() {
-    this.grime = makeCanvas(this.w, this.h);
+  /**
+   * Turn the grime layer on and return its context, in WORLD coordinates.
+   *
+   *   floor.enableGrime();                // full resolution
+   *   floor.enableGrime({ scale: 0.5 });  // half-res: a quarter of the pixels
+   *
+   * `scale` makes the layer smaller than the floor and stretches it back over
+   * it on the way to the screen. Grime is soft dust with no edges in it, so
+   * half-res is invisible and buys a real frame or two on a big canvas: the
+   * layer is the one full-screen ALPHA composite in most rooms, and alpha is
+   * what a software rasteriser charges for. Pair it with
+   * `floor.smoothGrime = false` unless the upscale actually shows.
+   *
+   * The context is pre-scaled, so `reveal()` and everything a scene paints into
+   * it keep working in world units and nothing else has to know.
+   */
+  enableGrime(opts) {
+    const sc = opts && opts.scale ? Math.max(0.1, Math.min(1, opts.scale)) : 1;
+    this.gscale = sc;
+    this.gw = Math.max(1, Math.round(this.w * sc));
+    this.gh = Math.max(1, Math.round(this.h * sc));
+    this.grime = makeCanvas(this.gw, this.gh);
     this.gctx = this.grime.getContext('2d');
+    if (sc !== 1) this.gctx.scale(sc, sc);
     this.grimeCleared = false;
     return this.gctx;
   }
@@ -83,7 +105,7 @@ export class Floor {
   /** Erase the whole grime layer. After this it costs nothing to draw. */
   clearGrime() {
     if (!this.gctx) return;
-    this.gctx.clearRect(0, 0, this.w, this.h);
+    this.gctx.clearRect(0, 0, this.w, this.h);   // the ctx is in world units
     this.grimeCleared = true;
   }
   draw(ctx) {
@@ -92,7 +114,12 @@ export class Floor {
     // a fully erased grime layer is a full-screen no-op composite every frame
     if (this.grime && !this.grimeCleared) {
       ctx.imageSmoothingEnabled = !!this.smoothGrime;
-      ctx.drawImage(this.grime, this.rect.x0, this.rect.y0);
+      // a half-res layer is stretched back over the floor it belongs to
+      if (this.gscale && this.gscale !== 1) {
+        ctx.drawImage(this.grime, 0, 0, this.gw, this.gh, this.rect.x0, this.rect.y0, this.w, this.h);
+      } else {
+        ctx.drawImage(this.grime, this.rect.x0, this.rect.y0);
+      }
     }
     ctx.imageSmoothingEnabled = true;
   }

@@ -28,14 +28,25 @@ export class Audio {
     this.resume();
   }
 
+  /**
+   * `resume()`/`suspend()` are asynchronous, and on iOS they do not merely
+   * throw when they are unhappy — they hand back a REJECTED promise, which
+   * surfaces as an unhandled rejection and, in the harness, as a page error.
+   * Both are swallowed: there is nothing useful to do about a context that
+   * will not resume except carry on silently without sound.
+   */
   resume() {
     if (!this.ctx) return;
-    try { if (this.ctx.state === 'suspended') this.ctx.resume(); } catch (_) {}
+    try {
+      if (this.ctx.state === 'suspended') quiet(this.ctx.resume());
+    } catch (_) {}
   }
 
   suspend() {
     if (!this.ctx) return;
-    try { if (this.ctx.state === 'running') this.ctx.suspend(); } catch (_) {}
+    try {
+      if (this.ctx.state === 'running') quiet(this.ctx.suspend());
+    } catch (_) {}
   }
 
   start() {
@@ -85,7 +96,7 @@ export class Audio {
       this.motorLP = lp;
       this.streamGain = sg; this.streamBP = sbp; this.streamLP = slp;
       this.ready = true;
-      if (ctx.state === 'suspended') ctx.resume();
+      this.resume();
     } catch (_) { this.enabled = false; }
   }
 
@@ -190,3 +201,5 @@ export class Audio {
 }
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+/** Swallow a promise that may reject; a silent game is better than a crash. */
+function quiet(p) { if (p && typeof p.catch === 'function') p.catch(() => {}); }

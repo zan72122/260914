@@ -102,11 +102,27 @@ export class Camera {
    *
    *   cam.stepTo(dt, {x: 0, y: 0, zoom, tilt}, vac.nozzle, {
    *     axis: 'y', step: 128, rate: 7, kick: 3.5, hysteresis: 0.22,
+   *     offset: -90,              // sit the head low, the flight above it
+   *     steps: [0, -128, -250, -390],   // ...or name the treads outright
    *   });
    *
    * `axis` is the direction the stairs run in (portrait: 'y'; a diagonal flight
    * in landscape: 'x'), `step` the world distance between treads. The other
    * axis follows normally, bounded like `followTo`.
+   *
+   * Two more options, for stairs that are not a ruler:
+   *
+   *   steps: [y0, y1, ...]   the world coordinates of the treads themselves,
+   *          when they are not evenly spaced (a winder, a half landing, a
+   *          bottom step that is deeper than the rest). The camera settles on
+   *          the nearest ENTRY, with the same hysteresis, measured as a
+   *          fraction of the gap it is currently between — so `step` is
+   *          ignored and the list is the authority.
+   *   offset: px            a constant shift of the settled position along the
+   *          travel axis. The tread the head is on is rarely the tread you want
+   *          in the middle of the screen: a climb wants to show the steps
+   *          AHEAD, so portrait stairs run with a negative offset and the head
+   *          sits low in frame with the flight above it.
    */
   stepTo(dt, anchor, subject, opts) {
     const o = opts || {};
@@ -114,21 +130,41 @@ export class Camera {
     const step = o.step || 120;
     const rate = o.rate === undefined ? 7 : o.rate;
     const hyst = o.hysteresis === undefined ? 0.2 : o.hysteresis;
+    const list = o.steps && o.steps.length ? o.steps : null;
+    const offset = o.offset || 0;
     let tx = anchor.x, ty = anchor.y;
     if (subject) {
-      // which tread is the head standing on? The hysteresis band means the
-      // camera does not flick back and forth when it hovers over a nosing.
-      const rel = (axis === 'y' ? subject.y - anchor.y : subject.x - anchor.x) / step;
-      let k = this._stepK === undefined ? Math.round(rel) : this._stepK;
-      if (rel > k + 0.5 + hyst) k = Math.floor(rel + 0.5);
-      else if (rel < k - 0.5 - hyst) k = Math.ceil(rel - 0.5);
-      if (this._stepK !== undefined && k !== this._stepK) this.kick(o.kick === undefined ? 3 : o.kick);
-      this._stepK = k;
+      const along = axis === 'y' ? subject.y : subject.x;
+      const base = axis === 'y' ? anchor.y : anchor.x;
+      let settled;
+      if (list) {
+        // which entry is the head standing on? The hysteresis is a fraction of
+        // the local gap, so an uneven flight behaves like an even one.
+        let k = this._stepK === undefined ? nearestIndex(list, along) : this._stepK;
+        k = Math.max(0, Math.min(list.length - 1, k));
+        const gapUp = k < list.length - 1 ? list[k + 1] - list[k] : 0;
+        const gapDn = k > 0 ? list[k] - list[k - 1] : 0;
+        if (gapUp && along > list[k] + gapUp * (0.5 + hyst)) k = nearestIndex(list, along);
+        else if (gapDn && along < list[k] - gapDn * (0.5 + hyst)) k = nearestIndex(list, along);
+        if (this._stepK !== undefined && k !== this._stepK) this.kick(o.kick === undefined ? 3 : o.kick);
+        this._stepK = k;
+        settled = list[k] + offset;
+      } else {
+        // which tread is the head standing on? The hysteresis band means the
+        // camera does not flick back and forth when it hovers over a nosing.
+        const rel = (along - base) / step;
+        let k = this._stepK === undefined ? Math.round(rel) : this._stepK;
+        if (rel > k + 0.5 + hyst) k = Math.floor(rel + 0.5);
+        else if (rel < k - 0.5 - hyst) k = Math.ceil(rel - 0.5);
+        if (this._stepK !== undefined && k !== this._stepK) this.kick(o.kick === undefined ? 3 : o.kick);
+        this._stepK = k;
+        settled = base + k * step + offset;
+      }
       if (axis === 'y') {
-        ty = anchor.y + k * step;
+        ty = settled;
         tx = anchor.x + clampAbs((subject.x - anchor.x) * (o.gain === undefined ? 0.4 : o.gain), o.limit === undefined ? 70 : o.limit);
       } else {
-        tx = anchor.x + k * step;
+        tx = settled;
         ty = anchor.y + clampAbs((subject.y - anchor.y) * (o.gain === undefined ? 0.4 : o.gain), o.limit === undefined ? 70 : o.limit);
       }
     }
@@ -150,3 +186,13 @@ export class Camera {
 }
 
 function clampAbs(v, m) { return v > m ? m : v < -m ? -m : v; }
+
+/** Index of the entry in a sorted list nearest to `v`. */
+function nearestIndex(list, v) {
+  let bi = 0, bd = Infinity;
+  for (let i = 0; i < list.length; i++) {
+    const d = Math.abs(list[i] - v);
+    if (d < bd) { bd = d; bi = i; }
+  }
+  return bi;
+}

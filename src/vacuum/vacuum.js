@@ -52,6 +52,8 @@ export class Vacuum {
     this.load = 0;             // 0..1, debris currently in the flow
     this.time = 0;
     this.gulpAmount = 0;       // mouth squash when something goes in
+    this.squashAmount = 0;     // extra deliberate squash, see squash()
+    this.squashAxis = 'y';
     /**
      * 0..1 blockage at the intake. The vacuum itself understands it: the
      * motor pitch drops, the flow weakens and the head shakes. Debris that
@@ -130,6 +132,7 @@ export class Vacuum {
     }
     this.transits.length = 0;
     this.power = 1; this.powerN = 0; this.gulpAmount = 0; this.clog = 0;
+    this.squashAmount = 0;
   }
 
   clearCup() {
@@ -171,6 +174,9 @@ export class Vacuum {
     this.power += (target - this.power) * (1 - Math.exp(-dt / (tau / 3)));
     this.powerN = clamp((this.power - 1) / (this.MAXP - 1), 0, 1);
     this.gulpAmount *= Math.exp(-dt / 0.045);
+    // a deliberate squash relaxes more slowly than a gulp: a gulp is an impact,
+    // this is the head being pressed against something and letting go
+    this.squashAmount *= Math.exp(-dt / 0.11);
     // whatever is plugging the mouth re-asserts `clog` every frame; left alone
     // it clears itself quickly, so nothing can forget to switch it off
     this.clog = clamp(this.clog * Math.exp(-dt / 0.09), 0, 1);
@@ -402,6 +408,28 @@ export class Vacuum {
   gulp(amount = 1) {
     if (amount > this.gulpAmount) this.gulpAmount = clamp(amount, 0, 1);
     return this.gulpAmount;
+  }
+
+  /**
+   * Deliberately deform the head, and have the drawing honour it.
+   *
+   *   vac.squash(0.6, 'y');   // flattened ACROSS the axis: pressed into a gap
+   *   vac.squash(0.4, 'x');   // shortened ALONG it: nose-on into something solid
+   *
+   * `gulp` is the involuntary version (something went in, 45ms, gone). This one
+   * is driven by a scene every frame while a condition holds — the head jammed
+   * under a riser, mashed into a cushion, held against a skirting board — and
+   * relaxes over ~110ms once the scene stops asking. Re-assert it every frame,
+   * exactly like `clog`; the strongest call in a frame wins, so two callers
+   * cannot cancel each other out.
+   */
+  squash(amount, axis) {
+    const a = clamp(amount === undefined ? 1 : amount, 0, 1);
+    if (a > this.squashAmount) {
+      this.squashAmount = a;
+      this.squashAxis = axis === 'x' ? 'x' : 'y';
+    }
+    return this.squashAmount;
   }
 
   transit(item, dur) {
@@ -808,6 +836,13 @@ export class Vacuum {
     ctx.translate(this.nozzle.x + this._shakeX, this.nozzle.y + this._shakeY);
     ctx.rotate(ang);
     ctx.scale(1 + 0.12 * g, 1 - 0.1 * g);      // the mouth gulps when it swallows
+    const q = this.squashAmount;
+    if (q > 0.002) {
+      // squash conserves the head's apparent area, so it reads as rubber and
+      // never as the head simply shrinking
+      if (this.squashAxis === 'x') ctx.scale(1 - 0.30 * q, 1 + 0.24 * q);
+      else ctx.scale(1 + 0.24 * q, 1 - 0.30 * q);
+    }
     // the crevice tool: the same head drawn long and thin. One scale is enough
     // because every shape below is built around the axis.
     if (cv > 0) ctx.scale(1 + 0.42 * cv, 1 - 0.62 * cv);
@@ -857,6 +892,7 @@ export class Vacuum {
       cupVolTotal: Math.round(this.cupVolTotal),
       tool: this.toolKind, toolT: +this.toolT.toFixed(2),
       clog: +this.clog.toFixed(2), gulp: +this.gulpAmount.toFixed(2),
+      squash: +this.squashAmount.toFixed(2), squashAxis: this.squashAxis,
     };
   }
 }
