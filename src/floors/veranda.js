@@ -117,20 +117,24 @@ export function paintLitter(floor, cx, cy, rx, ry, rng, heavy = [], clip = null)
   }
   // a bed of trodden-in litter: enough to hide the pattern, thin enough at the
   // edges that the concrete still shows and the deck does not read as mud
-  g.fillStyle = 'rgba(138,114,74,0.36)';
+  // Kept deliberately light. The litter has to hide the tile pattern, but it
+  // sits on top of every leaf's colour as well, and at 0.36 the whole balcony
+  // went one flat brown — a dry leaf, a wet leaf and the deck were the same
+  // tone on a phone. Thin film, hard crumbs: the crumbs do the hiding.
+  g.fillStyle = 'rgba(148,122,82,0.31)';
   g.beginPath(); g.ellipse(cx + ox, cy + oy, rx * 1.10, ry * 1.10, 0, 0, TAU); g.fill();
   for (let i = 0; i < 150; i++) {
     const a = rng.range(0, TAU), r = Math.sqrt(rng.next()) * 1.22;
     const x = cx + Math.cos(a) * rx * r, y = cy + Math.sin(a) * ry * r;
     const rr = rng.range(30, 84);
-    g.fillStyle = 'rgba(126,98,58,' + rng.range(0.10, 0.26).toFixed(3) + ')';
+    g.fillStyle = 'rgba(138,110,68,' + rng.range(0.09, 0.22).toFixed(3) + ')';
     g.beginPath(); g.ellipse(x + ox, y + oy, rr, rr * rng.range(0.55, 0.9), rng.range(0, TAU), 0, TAU); g.fill();
   }
   for (let i = 0; i < heavy.length; i++) {
     const h = heavy[i];
     for (let k = 0; k < 26; k++) {
       const a = rng.range(0, TAU), r = Math.sqrt(rng.next()) * h.r;
-      g.fillStyle = 'rgba(94,70,38,' + rng.range(0.10, 0.22).toFixed(3) + ')';
+      g.fillStyle = 'rgba(104,78,44,' + rng.range(0.08, 0.17).toFixed(3) + ')';
       g.beginPath();
       g.ellipse(h.x + Math.cos(a) * r + ox, h.y + Math.sin(a) * r * 0.8 + oy,
         rng.range(18, 40), rng.range(12, 26), rng.range(0, TAU), 0, TAU);
@@ -141,7 +145,7 @@ export function paintLitter(floor, cx, cy, rx, ry, rng, heavy = [], clip = null)
   for (let i = 0; i < 260; i++) {
     const a = rng.range(0, TAU), r = Math.sqrt(rng.next());
     const x = cx + Math.cos(a) * rx * r + ox, y = cy + Math.sin(a) * ry * r + oy;
-    g.fillStyle = 'rgba(74,52,24,' + rng.range(0.22, 0.5).toFixed(3) + ')';
+    g.fillStyle = 'rgba(70,48,20,' + rng.range(0.28, 0.58).toFixed(3) + ')';
     const w = rng.range(2, 5.5);
     g.fillRect(x, y, w, w * rng.range(0.4, 0.9));
   }
