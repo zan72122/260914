@@ -17,8 +17,14 @@ import { TAU, clamp } from '../core/math.js';
  *                           is the door handle: the room starts as it is
  *                           swallowed, so entering a room is one continuous
  *                           suction gesture and never a button
- *   a room done         ->  the door is shut, the frame glows warm, and the
- *                           floor in front of it has been polished
+ *   a room done         ->  the door is shut, the frame glows warm, a small
+ *                           shine hangs on it and breathes, and the floor in
+ *                           front of it has been polished
+ *
+ * An ajar door also shows a sliver of the ROOM behind it, in that room's own
+ * colour (see `ROOM_TINT`): white tile, sky, pink, or nearly black for under
+ * the sofa. Thirteen identical dark rectangles are thirteen holes; thirteen
+ * different colours are thirteen places.
  *
  * On the very first visit only the intro door is ajar. When the child comes
  * back out of it the other twelve creak open one after another, in front of
@@ -35,6 +41,34 @@ export const DOOR_IDS = [
   'intro', 'kitchen', 'paper', 'toy', 'thread', 'sand', 'sofa', 'carpet',
   'pantry', 'stairs', 'window', 'veranda', 'bedroom',
 ];
+
+/**
+ * One colour per room, for the glimpse through a door that is still ajar.
+ *
+ * A dark rectangle is a hole, and a hole is not somewhere a four-year-old wants
+ * to go. A sliver of the room's OWN colour deep in the opening turns each door
+ * into a different promise — the kitchen is white tile, the veranda is sky, the
+ * bedroom is pink, under the sofa is nearly black — long before there is
+ * anything to read. It is the same grammar as the dust bunny: the world tells
+ * you what is behind the door by showing you a piece of it.
+ *
+ * These are taken from each room's own floor and set, not invented.
+ */
+export const ROOM_TINT = {
+  intro:   '#e7b368',   // warm boards
+  kitchen: '#e6edf2',   // white tile
+  paper:   '#fdf6e0',   // paper white
+  toy:     '#ffd24a',   // the yellow block
+  thread:  '#a98cf0',   // the purple yarn
+  sand:    '#e9d8ad',   // the sand tray
+  sofa:    '#3a3140',   // it is dark under there
+  carpet:  '#ff7ec0',   // the big rug
+  pantry:  '#fff6e2',   // flour
+  stairs:  '#e0bb90',   // treads
+  window:  '#fff3cd',   // the light through the glass
+  veranda: '#bcdcf2',   // sky
+  bedroom: '#edc8da',   // pink
+};
 
 const AJAR = 0.34;
 const TMPF = { fx: 0, fy: 0, strength: 0, inCapture: false, dist: 0 };
@@ -493,9 +527,40 @@ export class HallScene extends Scene {
         gr.addColorStop(1, 'rgba(255,214,132,0)');
         this._glow = gr;
       }
-      ctx.translate(d.side ? d.x + d.side * 22 : d.x, d.side ? d.y : this.wallY - 44);
+      const gx = d.side ? d.x + d.side * 22 : d.x;
+      const gy = d.side ? d.y : this.wallY - 44;
+      ctx.translate(gx, gy);
       ctx.fillStyle = this._glow;
       ctx.fillRect(-120, -120, 240, 240);
+      ctx.restore();
+      /**
+       * ...and a small shine HANGING on the door itself, breathing slowly.
+       *
+       * The glow says "this room is warm now"; on its own it is a wash, and at
+       * the far end of a corridor of thirteen doors a wash is hard to tell from
+       * the light on the wall next to it. A four-point sparkle is a POINT: it
+       * catches the eye from any distance, it is obviously ON the door rather
+       * than around it, and because it breathes it reads as pleased with
+       * itself. No text, no tick, no counter — the reward for finishing a room
+       * is that its door now twinkles at you across the house.
+       */
+      const b = 0.62 + 0.38 * Math.sin((this.t || 0) * 1.7 + d.y * 0.013 + d.x * 0.011);
+      const sx = d.side ? gx - d.side * 16 : gx + 26;
+      const sy = d.side ? gy - 26 : gy - 8;
+      const L = (7 + 5 * b) * d.glow;
+      ctx.save();
+      ctx.globalAlpha = clamp(d.glow * b, 0, 1);
+      ctx.fillStyle = '#fff6d6';
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - L);
+      ctx.quadraticCurveTo(sx + L * 0.22, sy - L * 0.22, sx + L, sy);
+      ctx.quadraticCurveTo(sx + L * 0.22, sy + L * 0.22, sx, sy + L);
+      ctx.quadraticCurveTo(sx - L * 0.22, sy + L * 0.22, sx - L, sy);
+      ctx.quadraticCurveTo(sx - L * 0.22, sy - L * 0.22, sx, sy - L);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = clamp(d.glow * b, 0, 1) * 0.5;
+      ctx.beginPath(); ctx.arc(sx, sy, L * 0.3, 0, TAU); ctx.fill();
       ctx.restore();
     }
 
@@ -520,7 +585,24 @@ export class HallScene extends Scene {
         const ox = sgn < 0 ? -this.W - 83 : this.W + 7;
         ctx.fillStyle = '#31241a';
         ctx.fillRect(ox, d.y - 59, 76, 118);
-        // a room beyond, not a hole: warm light pooling at the threshold
+        // A ROOM beyond, not a hole. The far half of the opening carries that
+        // room's own colour, so every door promises something different; the
+        // near half keeps the warm light pooling at the threshold. Two flat
+        // fills — a gradient here would be a new raster every frame, thirteen
+        // times over (see the performance rules in docs/ARCHITECTURE.md).
+        const tint = ROOM_TINT[d.id];
+        if (tint) {
+          const a0 = clamp(open * 3, 0, 1);
+          ctx.fillStyle = tint;
+          // inset on every side, so the jamb keeps its shadow and the colour
+          // reads as something further back rather than as a picture hung in
+          // the doorway
+          ctx.globalAlpha = a0 * 0.20;
+          ctx.fillRect(sgn < 0 ? ox + 6 : ox + 14, d.y - 44, 56, 88);
+          ctx.globalAlpha = a0 * 0.52;
+          ctx.fillRect(sgn < 0 ? ox + 8 : ox + 24, d.y - 34, 44, 68);
+          ctx.globalAlpha = a0;
+        }
         ctx.fillStyle = 'rgba(255,208,128,0.30)';
         ctx.fillRect(sgn < 0 ? ox + 46 : ox, d.y - 59, 30, 118);
         ctx.restore();
@@ -533,6 +615,18 @@ export class HallScene extends Scene {
         ctx.globalAlpha = clamp(open * 3, 0, 1);
         ctx.fillStyle = '#31241a';
         ctx.fillRect(d.x - 53, this.wallY - 118, 106, 118);
+        // the same glimpse: the room's colour DEEP in (up the wall, away from
+        // the hallway), the warm threshold light at the bottom
+        const tintL = ROOM_TINT[d.id];
+        if (tintL) {
+          const a0 = clamp(open * 3, 0, 1);
+          ctx.fillStyle = tintL;
+          ctx.globalAlpha = a0 * 0.20;
+          ctx.fillRect(d.x - 40, this.wallY - 104, 80, 74);
+          ctx.globalAlpha = a0 * 0.52;
+          ctx.fillRect(d.x - 30, this.wallY - 96, 60, 52);
+          ctx.globalAlpha = a0;
+        }
         ctx.fillStyle = 'rgba(255,208,128,0.30)';
         ctx.fillRect(d.x - 53, this.wallY - 38, 106, 38);
         ctx.restore();
