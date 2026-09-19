@@ -536,19 +536,23 @@ export class WetLeaf extends Debris {
   draw(ctx, cam) {
     if (this.state === State.DONE) return;
     const peel = this.peel;
-    ctx.fillStyle = 'rgba(30,26,16,' + (0.30 + 0.12 * peel).toFixed(3) + ')';
+    // The shadow is what says UP. It stays on the tile and slides a long way
+    // out from under the blade as the near end comes off it, and it softens
+    // and spreads while it goes — an edge peeling up, not a leaf shrinking.
+    ctx.fillStyle = 'rgba(30,26,16,' + (0.32 - 0.13 * peel).toFixed(3) + ')';
     ctx.beginPath();
-    ctx.ellipse(this.x + 2 + peel * 6, this.y + 3 + peel * 8, this.L * 0.95, this.W * 0.85, this.rot, 0, TAU);
+    ctx.ellipse(this.x + 2 + peel * 19, this.y + 3 + peel * 25,
+      this.L * (0.95 + peel * 0.16), this.W * (0.85 + peel * 0.20), this.rot, 0, TAU);
     ctx.fill();
 
     ctx.save();
-    ctx.translate(this.x, this.y - peel * 16);
+    ctx.translate(this.x, this.y - peel * 36);
     // the whole blade hinges up around the edge AWAY from the mouth
     ctx.rotate(this.peelDir);
     const strainWob = this.strain * Math.sin(this.t * 13 + this.seed) * 0.035 * (1 - peel * 0.6);
     // foreshortening along the peel axis: that is what reads as "lifting"
-    ctx.scale(1 - peel * 0.52 + strainWob, 1);
-    ctx.translate(peel * this.L * 0.44, 0);
+    ctx.scale(1 - peel * 0.32 + strainWob, 1);
+    ctx.translate(peel * this.L * 0.30, 0);
     ctx.rotate(-this.peelDir + this.rot);
 
     // wet underside, revealed as the near end comes up
@@ -580,12 +584,16 @@ export class WetLeaf extends Debris {
     // the lifted end catches the light: that is what makes the peel readable
     if (peel > 0.05) {
       ctx.save();
-      ctx.globalAlpha = clamp(peel * 1.2, 0, 1);
-      ctx.strokeStyle = 'rgba(226,244,226,0.9)';
-      ctx.lineWidth = 2.4 + peel * 2.2;
+      ctx.globalAlpha = clamp(peel * 1.2, 0, 1) * 0.45;
+      ctx.strokeStyle = 'rgba(255,255,236,1)';
+      ctx.lineWidth = 7 + peel * 11;
       ctx.beginPath();
       ctx.moveTo(this.L * 0.1, -this.W * 0.86);
       ctx.quadraticCurveTo(this.L * 1.05, 0, this.L * 0.1, this.W * 0.86);
+      ctx.stroke();
+      ctx.globalAlpha = clamp(peel * 1.3, 0, 1);
+      ctx.strokeStyle = 'rgba(255,255,244,1)';
+      ctx.lineWidth = 3.0 + peel * 4.4;
       ctx.stroke();
       ctx.restore();
     }
