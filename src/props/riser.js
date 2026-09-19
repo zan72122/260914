@@ -2,9 +2,9 @@ import { Prop } from './prop.js';
 import { clamp, smoothstep, TAU } from '../core/math.js';
 
 const HEAD_IN = 9;        // how far the head's centre stays clear of the corner
-const HOP_DUR = 0.36;
+const HOP_DUR = 0.42;
 const CROUCH = 0.26;      // fraction of the hop spent gathering itself
-const HOP_ARC = 32;       // peak lift of the arc, design px
+const HOP_ARC = 52;       // peak lift of the arc, design px
 
 /**
  * One riser: the solid vertical face at the front of a step.
@@ -171,11 +171,11 @@ export class Climb {
       // gather: it dips into the tread before it goes, which is the whole
       // reason the hop reads as a hop and not a teleport
       const e = u / CROUCH;
-      y = h.y0 + 10 * Math.sin(e * Math.PI * 0.5);
+      y = h.y0 + 17 * Math.sin(e * Math.PI * 0.5);
     } else {
       const e = (u - CROUCH) / (1 - CROUCH);
       const s = e * e * (3 - 2 * e);
-      y = (h.y0 + 10) + (h.yT - h.y0 - 10) * s - HOP_ARC * Math.sin(Math.PI * e);
+      y = (h.y0 + 17) + (h.yT - h.y0 - 17) * s - HOP_ARC * Math.sin(Math.PI * e);
     }
     vac.nozzle.y = y;
     vac.nozzle.vy = 0;
@@ -190,7 +190,7 @@ export class Climb {
       this.hop = null;
       this.grace = 0.3;
       vac.gulp(0.85);
-      if (cam) cam.kick(4.4);
+      if (cam) cam.kick(6.2);
       if (this.onHop) this.onHop('land', vac.nozzle.x, h.yT);
     }
   }

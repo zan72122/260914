@@ -2,7 +2,7 @@ import { Debris, State } from './base.js';
 import { clamp, smoothstep, TAU, noise1 } from '../core/math.js';
 
 const TMPF = { fx: 0, fy: 0, strength: 0, inCapture: false, dist: 0 };
-const SQUASH = 0.50;   // a tuft is half as tall as it is wide: it hugs the crack
+const SQUASH = 0.56;   // a tuft is half as tall as it is wide: it hugs the crack
 
 /**
  * The fluff that lives in the corner where a tread meets the riser above it.
@@ -53,8 +53,8 @@ export class RiserFluff extends Debris {
     this.shedT = 0.4;
     this.stretch = 0;
     this.squash = 0;
-    this.color = '#cfc7ba';
-    this.dark = '#8c8375';
+    this.color = '#efe9dd';
+    this.dark = '#7b7264';
     this.wisps = [];
     for (let i = 0; i < 5; i++) this.wisps.push({ x: 0, y: 0, vx: 0, vy: 0, life: 0, a: 0, len: 6 });
   }
@@ -194,12 +194,12 @@ export class RiserFluff extends Debris {
     ctx.lineCap = 'round';
     // a soft halo, then the strands, then a few dark ones for grain
     this._path(ctx);
-    ctx.strokeStyle = 'rgba(206,199,188,0.40)';
-    ctx.lineWidth = 5.5; ctx.stroke();
+    ctx.strokeStyle = 'rgba(245,241,233,0.52)';
+    ctx.lineWidth = 7.5; ctx.stroke();
     ctx.strokeStyle = this.color;
-    ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.strokeStyle = 'rgba(131,122,108,0.38)';
-    ctx.lineWidth = 0.7; ctx.stroke();
+    ctx.lineWidth = 2.1; ctx.stroke();
+    ctx.strokeStyle = 'rgba(112,102,86,0.5)';
+    ctx.lineWidth = 1.0; ctx.stroke();
     // the body: a low lumpy mound, built from the fibres so its edge is soft
     ctx.beginPath();
     for (let i = 0, first = true; i <= this.n; i++) {
@@ -215,8 +215,8 @@ export class RiserFluff extends Debris {
     ctx.closePath();
     ctx.fillStyle = this.color;
     ctx.fill();
-    ctx.strokeStyle = '#9a9184';
-    ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.stroke();
+    ctx.strokeStyle = '#857b6c';
+    ctx.lineWidth = 2.8; ctx.lineJoin = 'round'; ctx.stroke();
     ctx.fillStyle = 'rgba(255,253,246,0.33)';
     ctx.beginPath();
     ctx.ellipse(-this.w * 0.12, -this.w * 0.09, this.w * 0.15, this.w * 0.07, -0.35, 0, TAU);

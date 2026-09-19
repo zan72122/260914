@@ -154,7 +154,7 @@ export class StairsScene extends Scene {
       const y = st.cornerY(j) + 3;
       for (let i = 0; i < 2; i++) {
         const x = (i ? 1 : -1) * rng.range(52, 110);
-        this._slot(new RiserFluff(x, y, rng, { stair: st, w: rng.range(46, 60) }), 'f' + j + '_' + i);
+        this._slot(new RiserFluff(x, y, rng, { stair: st, w: rng.range(64, 82) }), 'f' + j + '_' + i);
       }
     }
     // ---- the top landing -------------------------------------------------
@@ -163,8 +163,8 @@ export class StairsScene extends Scene {
     // than the flow reaches from the step below — so the only way to have it is
     // to be standing up there. That is what makes "finish the room" and "get to
     // the top" the same act, with nothing written down anywhere.
-    this._slot(new RiserFluff(-58, st.cornerY(7) + 74, this.rng, { stair: st, w: 58, thr: 0.80 }), 'ft0');
-    this._slot(new RiserFluff(62, st.cornerY(7) + 112, this.rng, { stair: st, w: 50, thr: 0.80 }), 'ft1');
+    this._slot(new RiserFluff(-58, st.cornerY(7) + 74, this.rng, { stair: st, w: 78, thr: 0.80 }), 'ft0');
+    this._slot(new RiserFluff(62, st.cornerY(7) + 112, this.rng, { stair: st, w: 68, thr: 0.80 }), 'ft1');
     this._slot(new StepBunny(-46, st.cornerY(7) + 178, 34, this.rng, st), 'b0');
     this._slot(new StepBunny(78, st.cornerY(7) + 216, 27, this.rng, st), 'b1');
   }
@@ -185,13 +185,13 @@ export class StairsScene extends Scene {
     }
     for (const j of [1, 3, 5]) {
       const y = st.cornerY(j) + 2;
-      this._slot(new RiserFluff(st.left(j) + st.wid * 0.42, y, rng, { stair: st, w: 50 }), 'f' + j + '_0');
-      this._slot(new RiserFluff(st.left(j) + st.wid * 0.74, y, rng, { stair: st, w: 42 }), 'f' + j + '_1');
+      this._slot(new RiserFluff(st.left(j) + st.wid * 0.42, y, rng, { stair: st, w: 68 }), 'f' + j + '_0');
+      this._slot(new RiserFluff(st.left(j) + st.wid * 0.74, y, rng, { stair: st, w: 58 }), 'f' + j + '_1');
     }
     // the rooted fluff out on the landing — see the portrait note: it is what
     // makes finishing the room and reaching the top the same act
-    this._slot(new RiserFluff(st.midX(7) - 52, st.cornerY(7) + 62, rng, { stair: st, w: 56, thr: 0.80 }), 'ft0');
-    this._slot(new RiserFluff(st.midX(7) + 66, st.cornerY(7) + 92, rng, { stair: st, w: 48, thr: 0.80 }), 'ft1');
+    this._slot(new RiserFluff(st.midX(7) - 52, st.cornerY(7) + 62, rng, { stair: st, w: 76, thr: 0.80 }), 'ft0');
+    this._slot(new RiserFluff(st.midX(7) + 66, st.cornerY(7) + 92, rng, { stair: st, w: 66, thr: 0.80 }), 'ft1');
     this._slot(new StepBunny(st.midX(7) - 14, st.cornerY(7) + 138, 32, rng, st), 'b0');
     this._slot(new StepBunny(st.midX(7) + 82, st.cornerY(7) + 166, 26, rng, st), 'b1');
 
@@ -328,7 +328,7 @@ export class StairsScene extends Scene {
       p.vx = Math.cos(a) * sp;
       p.vy = -Math.abs(Math.sin(a)) * sp * 0.55 - 18;
       p.life = 1;
-      p.r = this.rng.range(2.2, 5.4) * (K === 2 ? 1.35 : 1);
+      p.r = this.rng.range(3.6, 8.4) * (K === 2 ? 1.4 : 1);
       p.kind = K;
     }
   }
@@ -440,8 +440,8 @@ export class StairsScene extends Scene {
       const p = ps[i];
       if (p.life <= 0) continue;
       const a = clamp(p.life, 0, 1);
-      ctx.globalAlpha = a * (p.kind === 2 ? 0.52 : 0.40);
-      ctx.fillStyle = p.kind === 1 ? '#ded7cb' : '#cdbda4';
+      ctx.globalAlpha = a * (p.kind === 2 ? 0.66 : 0.52);
+      ctx.fillStyle = p.kind === 1 ? '#f0ece3' : '#e2d4bb';
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r * (1.9 - a), 0, TAU);
       ctx.fill();
